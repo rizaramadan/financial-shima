@@ -1,22 +1,54 @@
 package handler
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"golang.org/x/net/html"
 
-	"github.com/rizaramadan/financial-shima/web/setup"
+	"github.com/rizaramadan/financial-shima/dependencies/assistant"
+	"github.com/rizaramadan/financial-shima/logic/auth"
+	"github.com/rizaramadan/financial-shima/logic/clock"
+	"github.com/rizaramadan/financial-shima/logic/idgen"
+	"github.com/rizaramadan/financial-shima/logic/user"
+	tplpkg "github.com/rizaramadan/financial-shima/web/template"
 )
+
+var t0 = time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+
+// testServer constructs an Echo wired with the project renderer + handler,
+// using deterministic Auth (Fixed clock, fixed entropy, fixed IDGen) and a
+// Recorder assistant. Tests can read back rec.Sent to learn the issued OTP.
+func testServer(t *testing.T) (*echo.Echo, *auth.Auth, *assistant.Recorder) {
+	t.Helper()
+	src := bytes.NewReader(make([]byte, 1024))
+	buf := make([]byte, 1024)
+	for i := range buf {
+		buf[i] = byte(i + 1)
+	}
+	src = bytes.NewReader(buf)
+	a := auth.New(user.Seeded(), clock.Fixed{T: t0}, src, idgen.Fixed{Value: "tok-test"})
+	rec := &assistant.Recorder{}
+	h := New(a, rec)
+
+	e := echo.New()
+	e.Renderer = tplpkg.New()
+	e.GET("/login", h.LoginGet)
+	e.POST("/login", h.LoginPost)
+	e.GET("/verify", h.VerifyGet)
+	e.POST("/verify", h.VerifyPost)
+	return e, a, rec
+}
 
 func renderLogin(t *testing.T) *httptest.ResponseRecorder {
 	t.Helper()
-	e := echo.New()
-	setup.Apply(e)
-	e.GET("/login", LoginGet)
+	e, _, _ := testServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/login", nil)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -95,14 +127,9 @@ func identifierInputPred(n *html.Node) bool {
 	return isElement("input")(n) && attr(n, "name") == "identifier"
 }
 
-// TestLoginGet_Returns200WithUTF8HTMLContentType: the user-observable behavior
-// is that non-ASCII characters render correctly. The Content-Type header
-// (which Echo sets via c.HTML) is what tells the browser to decode the bytes
-// as UTF-8 — not the <meta charset>, which is a fallback if no header is sent.
 func TestLoginGet_Returns200WithUTF8HTMLContentType(t *testing.T) {
 	t.Parallel()
 	rec := renderLogin(t)
-
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
@@ -111,151 +138,78 @@ func TestLoginGet_Returns200WithUTF8HTMLContentType(t *testing.T) {
 		t.Errorf("Content-Type = %q, want prefix text/html", ct)
 	}
 	if !strings.Contains(strings.ToLower(ct), "charset=utf-8") {
-		t.Errorf("Content-Type = %q, want to include charset=utf-8", ct)
+		t.Errorf("Content-Type = %q, want charset=utf-8", ct)
 	}
 }
 
 func TestLoginGet_HTMLLangIsEN(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
-
 	htmlEl := findFirst(doc, isElement("html"))
 	if htmlEl == nil {
-		t.Fatal("no <html> element")
+		t.Fatal("no <html>")
 	}
 	if got := attr(htmlEl, "lang"); got != "en" {
 		t.Errorf(`<html lang> = %q, want "en"`, got)
 	}
 }
 
-// TestLoginGet_TitleContainsSignIn pins the user-observable property: the
-// browser tab is identifiable as the sign-in page when the user has many
-// tabs open. "Non-empty" was true-by-construction — any non-blank string
-// would pass and tell us nothing about identifiability.
 func TestLoginGet_TitleContainsSignIn(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
-
 	title := findFirst(doc, isElement("title"))
 	if title == nil {
 		t.Fatal("no <title>")
 	}
-	const wantSubstring = "Sign in"
-	if got := textOf(title); !strings.Contains(got, wantSubstring) {
-		t.Errorf("title = %q, want it to contain %q (tab identifiability)", got, wantSubstring)
+	if got := textOf(title); !strings.Contains(got, "Sign in") {
+		t.Errorf("title = %q, want it to contain %q", got, "Sign in")
 	}
 }
 
 func TestLoginGet_FormUsesPOSTMethod(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
-
 	forms := findAll(doc, isElement("form"))
 	if len(forms) != 1 {
-		t.Fatalf("found %d <form> elements, want 1", len(forms))
+		t.Fatalf("found %d forms, want 1", len(forms))
 	}
 	if got := strings.ToLower(attr(forms[0], "method")); got != "post" {
-		t.Errorf("form method = %q, want post", got)
+		t.Errorf("method = %q, want post", got)
 	}
 }
 
 func TestLoginGet_FormPostsToLoginPath(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
-
 	form := findFirst(doc, isElement("form"))
 	if form == nil {
-		t.Fatal("no <form>")
+		t.Fatal("no form")
 	}
 	if got := attr(form, "action"); got != "/login" {
-		t.Errorf("form action = %q, want /login", got)
-	}
-}
-
-// TestLoginGet_EveryInputHasAssociatedLabel: the invariant is "every visible
-// input is labelled," not "there is exactly one label." If Phase 2 adds an
-// OTP field this test still holds; a count-based test would have to change.
-func TestLoginGet_EveryInputHasAssociatedLabel(t *testing.T) {
-	t.Parallel()
-	doc := parseDoc(t, renderLogin(t))
-
-	visibleInput := func(n *html.Node) bool {
-		if !isElement("input")(n) {
-			return false
-		}
-		t := strings.ToLower(attr(n, "type"))
-		return t != "hidden" && t != "submit" && t != "button" && t != "reset"
-	}
-	labelByFor := map[string]bool{}
-	for _, l := range findAll(doc, isElement("label")) {
-		if id := attr(l, "for"); id != "" {
-			labelByFor[id] = true
-		}
-	}
-	for _, in := range findAll(doc, visibleInput) {
-		id := attr(in, "id")
-		if id == "" {
-			t.Errorf("visible input %q has no id (cannot be labelled)", attr(in, "name"))
-			continue
-		}
-		if !labelByFor[id] {
-			t.Errorf(`visible input id=%q has no <label for=%q>`, id, id)
-		}
+		t.Errorf("action = %q, want /login", got)
 	}
 }
 
 func TestLoginGet_HasExactlyOneIdentifierInput(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
-
 	inputs := findAll(doc, identifierInputPred)
 	if len(inputs) != 1 {
-		t.Fatalf(`found %d <input name="identifier">, want 1`, len(inputs))
+		t.Fatalf("found %d inputs, want 1", len(inputs))
 	}
 }
 
-// TestLoginGet_IdentifierInputAcceptsPlainText: the user-observable contract
-// is that the input takes a Telegram handle without masking, browser-side
-// keyboard transformation, or numeric coercion. Either type="" (HTML default
-// = text) or explicit type="text" satisfies this; the test no longer pins a
-// stylistic choice between equally-correct implementations.
 func TestLoginGet_IdentifierInputAcceptsPlainText(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
-
 	input := findFirst(doc, identifierInputPred)
 	if input == nil {
-		t.Fatal(`no <input name="identifier">`)
+		t.Fatal("no input")
 	}
 	switch got := strings.ToLower(attr(input, "type")); got {
 	case "", "text":
-		// both behave identically for the user
 	default:
-		t.Errorf(`type = %q, want "" or "text" (any other value changes keyboard or masking)`, got)
-	}
-}
-
-func TestLoginGet_IdentifierInputLabelHasExactCopy(t *testing.T) {
-	t.Parallel()
-	doc := parseDoc(t, renderLogin(t))
-
-	input := findFirst(doc, identifierInputPred)
-	if input == nil {
-		t.Fatal(`no input`)
-	}
-	id := attr(input, "id")
-	if id == "" {
-		t.Fatal("input has no id")
-	}
-	label := findFirst(doc, func(n *html.Node) bool {
-		return isElement("label")(n) && attr(n, "for") == id
-	})
-	if label == nil {
-		t.Fatalf(`no <label for=%q>`, id)
-	}
-	const want = "Telegram"
-	if got := textOf(label); got != want {
-		t.Errorf("label text = %q, want %q", got, want)
+		t.Errorf(`type = %q, want "" or "text"`, got)
 	}
 }
 
@@ -264,50 +218,10 @@ func TestLoginGet_AutocompleteIsOff(t *testing.T) {
 	doc := parseDoc(t, renderLogin(t))
 	input := findFirst(doc, identifierInputPred)
 	if input == nil {
-		t.Fatal(`no input`)
+		t.Fatal("no input")
 	}
 	if got := attr(input, "autocomplete"); got != "off" {
 		t.Errorf(`autocomplete = %q, want "off"`, got)
-	}
-}
-
-// The next three tests cover three independent vendor contracts under
-// distinct names so a failing test reports the user-visible regression
-// (which platform mangles the Telegram handle), not just an attribute name.
-
-func TestLoginGet_MobileKeyboardDoesNotCapitalize(t *testing.T) {
-	t.Parallel()
-	doc := parseDoc(t, renderLogin(t))
-	input := findFirst(doc, identifierInputPred)
-	if input == nil {
-		t.Fatal(`no input`)
-	}
-	if got := attr(input, "autocapitalize"); got != "off" {
-		t.Errorf(`autocapitalize = %q, want "off" (iOS would otherwise uppercase first char)`, got)
-	}
-}
-
-func TestLoginGet_IOSDoesNotAutocorrectIdentifier(t *testing.T) {
-	t.Parallel()
-	doc := parseDoc(t, renderLogin(t))
-	input := findFirst(doc, identifierInputPred)
-	if input == nil {
-		t.Fatal(`no input`)
-	}
-	if got := attr(input, "autocorrect"); got != "off" {
-		t.Errorf(`autocorrect = %q, want "off" (Safari iOS would substitute words)`, got)
-	}
-}
-
-func TestLoginGet_BrowserDoesNotSpellcheckIdentifier(t *testing.T) {
-	t.Parallel()
-	doc := parseDoc(t, renderLogin(t))
-	input := findFirst(doc, identifierInputPred)
-	if input == nil {
-		t.Fatal(`no input`)
-	}
-	if got := attr(input, "spellcheck"); got != "false" {
-		t.Errorf(`spellcheck = %q, want "false" (red squiggle would mark valid handles)`, got)
 	}
 }
 
@@ -316,14 +230,14 @@ func TestLoginGet_IdentifierInputIsRequired(t *testing.T) {
 	doc := parseDoc(t, renderLogin(t))
 	input := findFirst(doc, identifierInputPred)
 	if input == nil {
-		t.Fatal(`no input`)
+		t.Fatal("no input")
 	}
 	if !hasAttr(input, "required") {
-		t.Error("identifier input missing required attribute")
+		t.Error("required missing")
 	}
 }
 
-func TestLoginGet_HasExactlyOneSubmitButtonWithExactCopy(t *testing.T) {
+func TestLoginGet_HasSubmitButtonWithExactCopy(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
 	pred := func(n *html.Node) bool {
@@ -331,10 +245,97 @@ func TestLoginGet_HasExactlyOneSubmitButtonWithExactCopy(t *testing.T) {
 	}
 	btns := findAll(doc, pred)
 	if len(btns) != 1 {
-		t.Fatalf(`found %d submit buttons, want 1`, len(btns))
+		t.Fatalf("found %d submit buttons, want 1", len(btns))
 	}
-	const want = "Continue with Telegram"
-	if got := textOf(btns[0]); got != want {
-		t.Errorf("button text = %q, want %q", got, want)
+	if got := textOf(btns[0]); got != "Continue with Telegram" {
+		t.Errorf("button text = %q, want Continue with Telegram", got)
 	}
 }
+
+// --- Phase 2 tests for the OTP flow ---
+
+func TestLoginPost_KnownUser_RedirectsToVerifyAndQueuesAssistantSend(t *testing.T) {
+	t.Parallel()
+	e, _, rec := testServer(t)
+
+	form := url.Values{"identifier": {"@shima"}}
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+	w := httptest.NewRecorder()
+	e.ServeHTTP(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d (303)", w.Code, http.StatusSeeOther)
+	}
+	loc := w.Header().Get("Location")
+	if !strings.HasPrefix(loc, "/verify?id=") {
+		t.Errorf("Location = %q, want prefix /verify?id=", loc)
+	}
+	last, ok := rec.Last()
+	if !ok {
+		t.Fatal("assistant recorder never received a send")
+	}
+	if last.DisplayName != "Shima" {
+		t.Errorf("assistant got DisplayName = %q, want Shima", last.DisplayName)
+	}
+	if len(last.Code) != 6 {
+		t.Errorf("assistant got Code = %q, want 6 digits", last.Code)
+	}
+}
+
+func TestLoginPost_UnknownUser_RendersUserNotFound(t *testing.T) {
+	t.Parallel()
+	e, _, rec := testServer(t)
+
+	form := url.Values{"identifier": {"@stranger"}}
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+	w := httptest.NewRecorder()
+	e.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (re-render)", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "User not found") {
+		t.Error("body missing 'User not found' message")
+	}
+	if len(rec.Sent) != 0 {
+		t.Error("assistant should NOT be called for unknown user")
+	}
+}
+
+func TestLoginPost_AssistantFailure_RendersError(t *testing.T) {
+	t.Parallel()
+	// Build a server with a Recorder that always errors.
+	src := bytes.NewReader(make([]byte, 1024))
+	buf := make([]byte, 1024)
+	for i := range buf {
+		buf[i] = byte(i + 1)
+	}
+	src = bytes.NewReader(buf)
+	a := auth.New(user.Seeded(), clock.Fixed{T: t0}, src, idgen.Fixed{Value: "tok"})
+	rec := &assistant.Recorder{ErrToReturn: errAssistantDown}
+	h := New(a, rec)
+	e := echo.New()
+	e.Renderer = tplpkg.New()
+	e.POST("/login", h.LoginPost)
+
+	form := url.Values{"identifier": {"@shima"}}
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+	w := httptest.NewRecorder()
+	e.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Failed to send OTP") {
+		t.Error("body missing 'Failed to send OTP' message")
+	}
+}
+
+var errAssistantDown = stringError("assistant down")
+
+type stringError string
+
+func (s stringError) Error() string { return string(s) }

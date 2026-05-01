@@ -1,173 +1,79 @@
 package handler
 
 import (
+	"context"
+	"log"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v4"
+
+	"github.com/rizaramadan/financial-shima/dependencies/assistant"
+	"github.com/rizaramadan/financial-shima/logic/auth"
+	"github.com/rizaramadan/financial-shima/web/template"
 )
 
-// loginPageHTML is the rendered Phase-1 login page. Every attribute below is
-// asserted by a test in login_test.go. Do NOT fmt.Sprintf into this string;
-// when interpolation is needed, switch to html/template (not text/template).
-const loginPageHTML = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<title>Shima &mdash; Sign in</title>
-<style>
-:root {
-  --bg: #fafaf9;
-  --fg: #1c1917;
-  --muted: #57534e;
-  --border: #d6d3d1;
-  --accent: #0f172a;
-  --accent-fg: #f8fafc;
-  --focus: #2563eb;
-  --radius: 0.5rem;
-  accent-color: var(--focus);
-}
-::selection {
-  background: color-mix(in oklab, var(--focus) 25%, transparent);
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0c0a09;
-    --fg: #f5f5f4;
-    --muted: #a8a29e;
-    --border: #44403c;
-    --accent: #d6d3d1;
-    --accent-fg: #0c0a09;
-    --focus: #93c5fd;
-  }
-}
-* { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; }
-body {
-  background: var(--bg);
-  color: var(--fg);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-               "Helvetica Neue", Arial, sans-serif;
-  font-size: 16px;
-  line-height: 1.5;
-  min-height: 100vh;
-  display: grid;
-  align-items: start;
-  justify-items: center;
-  padding: max(1.5rem, 12vh) 1.5rem 1.5rem;
-}
-@media (max-width: 360px) {
-  body { padding: 1rem; }
-}
-main {
-  width: 100%;
-  max-width: 24rem;
-}
-h1 {
-  font-size: 1.875rem;
-  font-weight: 600;
-  margin: 0 0 1.5rem;
-  letter-spacing: -0.02em;
-}
-form { margin: 0; }
-.field { margin-bottom: 1.5rem; }
-label {
-  display: block;
-  font-size: 0.875rem;
-  font-weight: 500;
-  margin-bottom: 0.5rem;
-}
-.hint {
-  display: block;
-  font-size: 0.8125rem;
-  color: var(--muted);
-  margin: 0.5rem 0 0;
-}
-input {
-  width: 100%;
-  padding: 0.625rem 0.75rem;
-  font: inherit;
-  font-size: max(1rem, 16px);
-  color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-input:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
-button {
-  width: 100%;
-  padding: 0.875rem 1rem;
-  font: inherit;
-  font-size: max(1rem, 16px);
-  font-weight: 600;
-  color: var(--accent-fg);
-  background: var(--accent);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius);
-  cursor: pointer;
-}
-button:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--accent) 85%, var(--fg));
-  border-color: color-mix(in oklab, var(--accent) 85%, var(--fg));
-}
-button:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
-button:disabled {
-  background: var(--border);
-  color: color-mix(in oklab, var(--fg) 60%, transparent);
-  border-color: var(--border);
-  cursor: not-allowed;
-}
-</style>
-</head>
-<body>
-<main>
-<h1>Sign in</h1>
-<form method="post" action="/login">
-<div class="field">
-<label for="identifier">Telegram</label>
-<input
-  id="identifier"
-  name="identifier"
-  inputmode="text"
-  placeholder="@shima or 123456789"
-  autocomplete="off"
-  autocapitalize="off"
-  autocorrect="off"
-  spellcheck="false"
-  required
-  aria-describedby="identifier-hint"
->
-<p id="identifier-hint" class="hint">@username or numeric ID</p>
-</div>
-<button type="submit">Continue with Telegram</button>
-</form>
-</main>
-</body>
-</html>`
+const SessionCookieName = "shima_session"
 
-// LoginGet serves the login page.
-//
-// HTTP contract: 200 OK, Content-Type "text/html; charset=UTF-8", body is the
-// rendered login form per loginPageHTML. Returns a non-nil error only if the
-// underlying response writer fails (client disconnect mid-write); never errors
-// from request validation in Phase 1.
-func LoginGet(c echo.Context) error {
-	return c.HTML(http.StatusOK, loginPageHTML)
+// Handlers wires the Logic and Dependency layers into Echo handler functions.
+// Constructed once at boot and registered against the routes in cmd/server.
+type Handlers struct {
+	Auth      *auth.Auth
+	Assistant assistant.Client
 }
 
-// LoginPost is the Phase-1 placeholder for the form's POST target. Until
-// Phase 2 wires OTP issuing, the route exists so the form's `action="/login"`
-// contract isn't fictional, and answers 501 Not Implemented for any submission.
-//
-// Tests that exercise this stub assert the status (501) is returned, not 405.
-// When Phase 2 lands, this function becomes the real handler.
-func LoginPost(c echo.Context) error {
-	return c.String(http.StatusNotImplemented, "Phase 2: OTP login flow not yet implemented.\n")
+func New(a *auth.Auth, ac assistant.Client) *Handlers {
+	if a == nil {
+		panic("handler.New: nil Auth")
+	}
+	if ac == nil {
+		panic("handler.New: nil Assistant")
+	}
+	return &Handlers{Auth: a, Assistant: ac}
+}
+
+// LoginGet renders the sign-in form.
+func (h *Handlers) LoginGet(c echo.Context) error {
+	return c.Render(http.StatusOK, "login", template.LoginData{Title: "Sign in"})
+}
+
+// LoginPost runs spec §3.2 steps 2-4: lookup user, generate OTP, hand off to
+// the assistant, then redirect to /verify. Errors are surfaced inline on the
+// re-rendered login page.
+func (h *Handlers) LoginPost(c echo.Context) error {
+	identifier := c.FormValue("identifier")
+	out := h.Auth.Issue(identifier)
+
+	switch out.Result {
+	case auth.UserNotFound:
+		return c.Render(http.StatusOK, "login", template.LoginData{
+			Title: "Sign in",
+			Error: "User not found.",
+		})
+	case auth.CooldownActive:
+		return c.Render(http.StatusOK, "login", template.LoginData{
+			Title: "Sign in",
+			Error: "A code was just sent. Please wait a moment and try again.",
+		})
+	case auth.Issued:
+		ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
+		defer cancel()
+		if err := h.Assistant.SendOTP(ctx, out.Code.String(), out.User.DisplayName); err != nil {
+			log.Printf("assistant SendOTP: %v", err)
+			return c.Render(http.StatusOK, "login", template.LoginData{
+				Title: "Sign in",
+				Error: "Failed to send OTP. Try again.",
+			})
+		}
+		// Identifier in query string, NOT in a cookie — there's nothing
+		// sensitive here (the user just typed it) and a cookie would be
+		// visible to other tabs.
+		return c.Redirect(http.StatusSeeOther, "/verify?id="+identifier)
+	}
+
+	// auth.Issue covers all three cases; fall-through is a bug.
+	return c.Render(http.StatusInternalServerError, "login", template.LoginData{
+		Title: "Sign in",
+		Error: "Something went wrong. Please try again.",
+	})
 }

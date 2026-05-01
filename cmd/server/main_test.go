@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -28,16 +29,41 @@ func TestServer_GETLogin_Returns200(t *testing.T) {
 	}
 }
 
-// TestServer_POSTLogin_Returns501NotImplemented pins the Phase-1 contract:
-// the form's action="/login" target is registered, so the form-server
-// contract isn't fictional, but no real handler runs yet. When Phase 2
-// wires OTP issuing this test goes red and forces an intentional update.
-func TestServer_POSTLogin_Returns501NotImplemented(t *testing.T) {
+// TestServer_POSTLogin_UnknownUser_Returns200 confirms POST /login is now a
+// real handler (Phase 2 replaced the 501 stub). Unknown identifier re-renders
+// the form with an error rather than throwing.
+func TestServer_POSTLogin_UnknownUser_Returns200(t *testing.T) {
 	t.Parallel()
-	rec := dispatch(t, http.MethodPost, "/login")
-	if rec.Code != http.StatusNotImplemented {
-		t.Fatalf("status = %d, want %d (Phase 1 stub)",
-			rec.Code, http.StatusNotImplemented)
+	e := newServer()
+	form := url.Values{"identifier": {"@nobody"}}
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "User not found") {
+		t.Error("body missing 'User not found'")
+	}
+}
+
+func TestServer_GETVerify_NoID_Redirects(t *testing.T) {
+	t.Parallel()
+	rec := dispatch(t, http.MethodGet, "/verify")
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rec.Code)
+	}
+}
+
+func TestServer_GETHome_NoSession_RedirectsToLogin(t *testing.T) {
+	t.Parallel()
+	rec := dispatch(t, http.MethodGet, "/")
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rec.Code)
+	}
+	if rec.Header().Get("Location") != "/login" {
+		t.Errorf("Location = %q, want /login", rec.Header().Get("Location"))
 	}
 }
 
@@ -49,9 +75,6 @@ func TestServer_UnknownPath_Returns404(t *testing.T) {
 	}
 }
 
-// TestServer_AppliesSecurityHeaders verifies the middleware applies on every
-// response, not just /login. A 404 is a real response and a real surface for
-// header-stripping bugs.
 func TestServer_AppliesSecurityHeaders(t *testing.T) {
 	t.Parallel()
 	want := map[string]string{
@@ -70,26 +93,14 @@ func TestServer_AppliesSecurityHeaders(t *testing.T) {
 	}
 }
 
-// TestServer_HandlerOverRealTCP_ServesLoginForm exercises the assembled
-// handler tree over an actual TCP listener via httptest.NewServer. It does
-// NOT exercise main()'s e.Start(addr) bind path or signal-driven shutdown —
-// those are not reachable from a test without extracting main into a
-// run() helper. Body content asserted so a 200 with empty body fails.
-// Lifecycle test budgets. Both deadlines must accommodate Shutdown's grace
-// period plus run() return on a loaded CI runner under -race.
 const (
 	bindBudget     = 2 * time.Second
 	shutdownBudget = 2 * time.Second
 )
 
-// TestRun_StopsCleanlyOnContextCancel exercises run()'s lifecycle: bind on a
-// real OS-chosen port, cancel the context, expect a clean nil return. This
-// is the regression guard against future shutdown bugs in run() — drain
-// races, missed close, deadlocks — that no in-memory test can surface.
 func TestRun_StopsCleanlyOnContextCancel(t *testing.T) {
 	t.Parallel()
 
-	// :0 asks the OS for a free port; we don't care which.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("reserve port: %v", err)
@@ -98,7 +109,6 @@ func TestRun_StopsCleanlyOnContextCancel(t *testing.T) {
 	if err := ln.Close(); err != nil {
 		t.Fatalf("release reserved port: %v", err)
 	}
-	// Small race window between Close and run's rebind — acceptable in tests.
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -106,7 +116,6 @@ func TestRun_StopsCleanlyOnContextCancel(t *testing.T) {
 		done <- run(ctx, newServer(), addr)
 	}()
 
-	// Poll the port until it accepts, rather than sleep-and-hope.
 	deadline := time.Now().Add(bindBudget)
 	bound := false
 	for time.Now().Before(deadline) {
@@ -126,10 +135,10 @@ func TestRun_StopsCleanlyOnContextCancel(t *testing.T) {
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Errorf("run returned %v, want nil after context cancel", err)
+			t.Errorf("run returned %v, want nil", err)
 		}
 	case <-time.After(shutdownBudget):
-		t.Fatalf("run did not return within %v of context cancel", shutdownBudget)
+		t.Fatalf("run did not return within %v", shutdownBudget)
 	}
 }
 
@@ -141,7 +150,7 @@ func TestServer_HandlerOverRealTCP_ServesLoginForm(t *testing.T) {
 
 	resp, err := http.Get(ts.URL + "/login")
 	if err != nil {
-		t.Fatalf("GET /login via real listener: %v", err)
+		t.Fatalf("GET /login: %v", err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
@@ -149,13 +158,9 @@ func TestServer_HandlerOverRealTCP_ServesLoginForm(t *testing.T) {
 		t.Fatalf("read body: %v", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	// One structural check is enough: the wire path's job is to prove the
-	// real net/http stack serves the same page the in-memory tests verify.
-	// Substring duplication of <form / name=identifier / button copy would
-	// re-assert facts the DOM tests own.
 	if !strings.Contains(string(body), `action="/login"`) {
-		t.Error(`body missing action="/login"; wire path may have served the wrong page`)
+		t.Error(`body missing action="/login"`)
 	}
 }
