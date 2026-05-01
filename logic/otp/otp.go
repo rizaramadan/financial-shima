@@ -6,9 +6,26 @@ package otp
 
 import (
 	"crypto/subtle"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"time"
 )
+
+// Generate samples a uniformly random Code in [0, 999999] from r.
+// Production binds r to crypto/rand.Reader; tests bind to bytes.NewReader.
+// Panics on entropy failure (same rationale as idgen.Crypto).
+func Generate(r io.Reader) Code {
+	var buf [4]byte
+	if _, err := io.ReadFull(r, buf[:]); err != nil {
+		panic("otp.Generate: entropy source failed: " + err.Error())
+	}
+	// uint32 mod 1_000_000 introduces a tiny modulo bias (< 1 in 4e9 deviation
+	// across the 6-digit space) — negligible for 5-minute one-time codes
+	// against any adversary not running compute against ExpiryDuration.
+	n := int(binary.BigEndian.Uint32(buf[:]) % 1_000_000)
+	return NewCode(n)
+}
 
 // Code is a 6-digit decimal one-time passcode. Stored as fixed-width string
 // so leading zeros survive round-trips through HTTP forms / databases.

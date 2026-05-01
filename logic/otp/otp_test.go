@@ -1,10 +1,40 @@
 package otp
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestGenerate_DeterministicWithFixedReader(t *testing.T) {
+	t.Parallel()
+	src1 := bytes.NewReader([]byte{0x12, 0x34, 0x56, 0x78})
+	src2 := bytes.NewReader([]byte{0x12, 0x34, 0x56, 0x78})
+	if Generate(src1) != Generate(src2) {
+		t.Error("equal entropy yielded different codes")
+	}
+}
+
+func TestGenerate_AlwaysSixDigits(t *testing.T) {
+	t.Parallel()
+	// All-zero bytes should still yield a Code with 6 digits ("000000").
+	zero := bytes.NewReader(make([]byte, 4))
+	c := Generate(zero)
+	if got := c.String(); len(got) != 6 {
+		t.Errorf("got len(%q)=%d, want 6", got, len(got))
+	}
+}
+
+func TestGenerate_PanicsOnEntropyFailure(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic on short reader")
+		}
+	}()
+	_ = Generate(bytes.NewReader(nil))
+}
 
 // Reference time for deterministic tests.
 var t0 = time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
