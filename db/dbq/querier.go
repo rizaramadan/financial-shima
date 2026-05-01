@@ -57,6 +57,10 @@ type Querier interface {
 	MarkNotificationRead(ctx context.Context, arg MarkNotificationReadParams) error
 	PurgeExpiredSessions(ctx context.Context) (int64, error)
 	SearchCounterparties(ctx context.Context, lower string) ([]Counterparty, error)
+	// Spending heatmap (§6.4): one row per (pos, month) summing pos_amount
+	// for money_out transactions in the date range. Caller pivots to a
+	// months × top-N-pos table and computes the top-N ranking from totals.
+	SumMoneyOutByPosMonth(ctx context.Context, arg SumMoneyOutByPosMonthParams) ([]SumMoneyOutByPosMonthRow, error)
 	UnreadCount(ctx context.Context, userID pgtype.UUID) (int64, error)
 	UpsertUser(ctx context.Context, arg UpsertUserParams) (User, error)
 }

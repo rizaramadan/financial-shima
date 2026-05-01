@@ -43,6 +43,24 @@ WHERE t.pos_id = $1
 ORDER BY t.effective_date DESC, t.created_at DESC, t.id DESC
 LIMIT 200;
 
+-- name: SumMoneyOutByPosMonth :many
+-- Spending heatmap (§6.4): one row per (pos, month) summing pos_amount
+-- for money_out transactions in the date range. Caller pivots to a
+-- months × top-N-pos table and computes the top-N ranking from totals.
+SELECT
+    p.id        AS pos_id,
+    p.name      AS pos_name,
+    p.currency  AS pos_currency,
+    date_trunc('month', t.effective_date)::date AS month,
+    SUM(t.pos_amount)::bigint AS spent
+FROM transactions t
+JOIN pos p ON p.id = t.pos_id
+WHERE t.type = 'money_out'
+  AND t.effective_date >= $1
+  AND t.effective_date <= $2
+GROUP BY p.id, p.name, p.currency, month
+ORDER BY month DESC, spent DESC;
+
 -- name: ListObligationsForPos :many
 -- Open obligations where this pos is creditor (money it's owed) or
 -- debtor (money it owes). Counts toward Pos.receivables and

@@ -465,6 +465,64 @@ func (q *Queries) MarkNotificationRead(ctx context.Context, arg MarkNotification
 	return err
 }
 
+const sumMoneyOutByPosMonth = `-- name: SumMoneyOutByPosMonth :many
+SELECT
+    p.id        AS pos_id,
+    p.name      AS pos_name,
+    p.currency  AS pos_currency,
+    date_trunc('month', t.effective_date)::date AS month,
+    SUM(t.pos_amount)::bigint AS spent
+FROM transactions t
+JOIN pos p ON p.id = t.pos_id
+WHERE t.type = 'money_out'
+  AND t.effective_date >= $1
+  AND t.effective_date <= $2
+GROUP BY p.id, p.name, p.currency, month
+ORDER BY month DESC, spent DESC
+`
+
+type SumMoneyOutByPosMonthParams struct {
+	EffectiveDate   pgtype.Date
+	EffectiveDate_2 pgtype.Date
+}
+
+type SumMoneyOutByPosMonthRow struct {
+	PosID       pgtype.UUID
+	PosName     string
+	PosCurrency string
+	Month       pgtype.Date
+	Spent       int64
+}
+
+// Spending heatmap (§6.4): one row per (pos, month) summing pos_amount
+// for money_out transactions in the date range. Caller pivots to a
+// months × top-N-pos table and computes the top-N ranking from totals.
+func (q *Queries) SumMoneyOutByPosMonth(ctx context.Context, arg SumMoneyOutByPosMonthParams) ([]SumMoneyOutByPosMonthRow, error) {
+	rows, err := q.db.Query(ctx, sumMoneyOutByPosMonth, arg.EffectiveDate, arg.EffectiveDate_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SumMoneyOutByPosMonthRow
+	for rows.Next() {
+		var i SumMoneyOutByPosMonthRow
+		if err := rows.Scan(
+			&i.PosID,
+			&i.PosName,
+			&i.PosCurrency,
+			&i.Month,
+			&i.Spent,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const unreadCount = `-- name: UnreadCount :one
 SELECT count(*) FROM notifications
 WHERE user_id = $1 AND read_at IS NULL

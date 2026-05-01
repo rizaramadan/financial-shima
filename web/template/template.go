@@ -28,6 +28,7 @@ func New() *Renderer {
 	template.Must(t.New("notifications").Parse(layoutOpen + notificationsBody + layoutClose))
 	template.Must(t.New("transactions").Parse(layoutOpen + transactionsBody + layoutClose))
 	template.Must(t.New("pos").Parse(layoutOpen + posBody + layoutClose))
+	template.Must(t.New("spending").Parse(layoutOpen + spendingBody + layoutClose))
 	return &Renderer{t: t}
 }
 
@@ -141,6 +142,37 @@ func (d HomeData) SignedIn() bool { return d.DisplayName != "" }
 // LoginData and VerifyData are pre-auth; SignedIn always false.
 func (d LoginData) SignedIn() bool  { return false }
 func (d VerifyData) SignedIn() bool { return false }
+
+// SpendingData drives the §6.4 view: months × top-N Pos pivot.
+type SpendingData struct {
+	Title       string
+	DisplayName string
+	UnreadCount int
+	From        string
+	To          string
+	TopN        int
+	Columns     []SpendingColumn // top-N pos, in rank order
+	Rows        []SpendingRow    // one per month in range, newest first
+	LoadError   bool
+}
+
+// SignedIn — only authenticated users reach the spending view.
+func (d SpendingData) SignedIn() bool { return d.DisplayName != "" }
+
+// SpendingColumn is one of the top-N pos.
+type SpendingColumn struct {
+	PosID    string
+	Name     string
+	Currency string
+	Total    int64 // sum across the date range
+}
+
+// SpendingRow is one month, with a cell per top-N pos plus a row total.
+type SpendingRow struct {
+	Month string  // "Apr 2026"
+	Cells []int64 // amounts in column order; zero-filled for months with no data
+	Total int64
+}
 
 // PosDetailData drives the §6.3 single-Pos view. NotFound triggers a
 // distinct "no such Pos" render; LoadError is the transient-DB-failure
@@ -350,6 +382,10 @@ th { font-weight: 500; color: var(--muted); }
   background: color-mix(in oklab, var(--muted) 18%, var(--bg));
   color: var(--muted); font-size: 0.6875rem; font-weight: 600;
   text-decoration: none; margin-left: 0.5rem; }
+tr.totals { border-top: 2px solid var(--border); background: color-mix(in oklab, var(--muted) 8%, var(--bg)); }
+.nav { display: flex; gap: 1rem; margin: 0 0 1.5rem; font-size: 0.9375rem; }
+.nav a { color: var(--focus); text-decoration: none; }
+.nav a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -443,6 +479,44 @@ const notificationsBody = `<h1>Notifications</h1>
 </li>
 {{end}}
 </ul>
+{{end}}
+<p class="aside"><a class="linkbtn" href="/">&larr; Home</a></p>`
+
+const spendingBody = `<h1>Spending</h1>
+<form method="get" action="/spending" class="filter">
+<label>From <input type="date" name="from" value="{{.From}}"></label>
+<label>To <input type="date" name="to" value="{{.To}}"></label>
+<button type="submit">Filter</button>
+</form>
+{{if .LoadError}}
+<p class="alert" role="alert">Couldn&rsquo;t load spending. Refresh in a moment.</p>
+{{else if not .Columns}}
+<p class="subtitle">No money_out transactions in this range.</p>
+{{else}}
+<p class="subtitle">Top {{.TopN}} Pos by money_out volume in this range.</p>
+<table>
+<thead>
+<tr>
+<th>Month</th>
+{{range .Columns}}<th class="num"><a href="/pos/{{.PosID}}">{{.Name}}</a></th>{{end}}
+<th class="num">Row total</th>
+</tr>
+</thead>
+<tbody>
+{{range .Rows}}
+<tr>
+<td>{{.Month}}</td>
+{{range .Cells}}<td class="num">{{if .}}{{.}}{{else}}&mdash;{{end}}</td>{{end}}
+<td class="num"><strong>{{.Total}}</strong></td>
+</tr>
+{{end}}
+<tr class="totals">
+<td><strong>Pos total</strong></td>
+{{range .Columns}}<td class="num"><strong>{{.Total}}</strong></td>{{end}}
+<td class="num">&mdash;</td>
+</tr>
+</tbody>
+</table>
 {{end}}
 <p class="aside"><a class="linkbtn" href="/">&larr; Home</a></p>`
 
@@ -551,6 +625,11 @@ const transactionsBody = `<h1>Transactions</h1>
 <p class="aside"><a class="linkbtn" href="/">&larr; Home</a></p>`
 
 const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
+<nav class="nav">
+<a href="/transactions">Transactions</a>
+<a href="/spending">Spending</a>
+<a href="/notifications">Notifications</a>
+</nav>
 {{if .LoadError}}
 <p class="alert" role="alert">Couldn&rsquo;t load your accounts and pos right now. Refresh in a moment.</p>
 {{else if and (not .Accounts) (not .PosByCurrency)}}
