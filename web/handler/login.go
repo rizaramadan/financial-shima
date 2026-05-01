@@ -6,17 +6,16 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// loginPageHTML is the rendered Phase-1 login page. The contents of this string
-// are the contract — every attribute below is asserted by a test in
-// login_test.go. Do NOT fmt.Sprintf into this string; when interpolation is
-// needed, switch to html/template (not text/template) in a follow-up phase.
+// loginPageHTML is the rendered Phase-1 login page. Every attribute below is
+// asserted by a test in login_test.go. Do NOT fmt.Sprintf into this string;
+// when interpolation is needed, switch to html/template (not text/template).
 const loginPageHTML = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>Sign in — Shima</title>
+<title>Sign in to Shima</title>
 <style>
 :root {
   --bg: #fafaf9;
@@ -53,17 +52,12 @@ body {
   place-items: center;
   padding: 1.5rem;
 }
+@media (max-width: 360px) {
+  body { padding: 1rem; }
+}
 main {
   width: 100%;
   max-width: 22rem;
-}
-.wordmark {
-  font-size: 0.875rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin: 0 0 2rem;
 }
 h1 {
   font-size: 1.5rem;
@@ -82,13 +76,13 @@ label {
   display: block;
   font-size: 0.875rem;
   font-weight: 500;
-  margin-bottom: 0.375rem;
+  margin-bottom: 0.25rem;
 }
 .hint {
   display: block;
   font-size: 0.8125rem;
   color: var(--muted);
-  margin: 0.25rem 0 0;
+  margin: 0 0 0.5rem;
 }
 input[type="text"] {
   width: 100%;
@@ -117,19 +111,26 @@ button {
   border-radius: var(--radius);
   cursor: pointer;
 }
-button:hover:not(:disabled) { opacity: 0.92; }
+button:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--accent) 92%, var(--fg));
+  border-color: color-mix(in oklab, var(--accent) 92%, var(--fg));
+}
 button:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
-button:disabled { opacity: 0.6; cursor: not-allowed; }
+button:disabled {
+  background: var(--border);
+  color: var(--muted);
+  border-color: var(--border);
+  cursor: not-allowed;
+}
 </style>
 </head>
 <body>
 <main>
-<p class="wordmark">Shima</p>
-<h1>Sign in</h1>
-<p class="subhead">We&rsquo;ll send a 6-digit code to your Telegram.</p>
+<h1>Sign in to Shima</h1>
+<p class="subhead">A 6-digit code arrives in your Telegram.</p>
 <form method="post" action="/login">
 <div class="field">
 <label for="identifier">Telegram username or ID</label>
@@ -147,7 +148,7 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
   aria-describedby="identifier-hint"
 >
 </div>
-<button type="submit">Continue</button>
+<button type="submit">Send code via Telegram</button>
 </form>
 </main>
 </body>
