@@ -25,7 +25,9 @@ const defaultAddr = ":8080"
 // granted the full write budget can complete; the +1s slack covers the gap
 // between "write deadline expires" and "handler returns and Shutdown can
 // complete its accounting" — racy on slow machines without it.
-var shutdownGraceDuration = setup.WriteTimeout + 1*time.Second
+// shutdownGraceDuration: write budget + 1s slack so a request hitting
+// WriteTimeout can surface its error before forced close.
+const shutdownGraceDuration = setup.WriteTimeout + 1*time.Second
 
 func newServer() *echo.Echo {
 	e := echo.New()
@@ -47,6 +49,10 @@ func validateAddr(addr string) error {
 	if err != nil {
 		return fmt.Errorf("port %q is not numeric: %w", port, err)
 	}
+	// Reject :0. Port 0 is the standard "OS picks an ephemeral port" idiom,
+	// but production servers should bind a known port; tests that need
+	// ephemeral ports pre-bind a listener and pass the resolved address
+	// (see TestRun_StopsCleanlyOnContextCancel).
 	if p < 1 || p > 65535 {
 		return fmt.Errorf("port %d outside 1-65535", p)
 	}
@@ -98,10 +104,18 @@ func run(ctx context.Context, e *echo.Echo, addr string) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGraceDuration)
 	defer cancel()
 	if err := e.Shutdown(shutdownCtx); err != nil {
-		// Already shutting down — log and continue. Returning an error
-		// here would propagate to log.Fatal and trigger restart loops in
-		// supervisors that treat clean-but-slow shutdown as a crash.
-		log.Printf("graceful shutdown: %v", err)
+		// Stuck in-flight requests: surface as non-zero exit so
+		// supervisors don't think this was clean. Drain serverErr first
+		// so we don't lose a concurrent error from the goroutine.
+		if startErr := <-serverErr; startErr != nil {
+			return fmt.Errorf("graceful shutdown: %w (also: server: %v)", err, startErr)
+		}
+		return fmt.Errorf("graceful shutdown: %w", err)
+	}
+	// Drain in case Start returned a real error in the racy window between
+	// our select wakeup and Shutdown completion. Closed channel yields nil.
+	if err := <-serverErr; err != nil {
+		return fmt.Errorf("server after shutdown: %w", err)
 	}
 	return nil
 }

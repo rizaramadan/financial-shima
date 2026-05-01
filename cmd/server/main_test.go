@@ -96,8 +96,21 @@ func TestRun_StopsCleanlyOnContextCancel(t *testing.T) {
 		done <- run(ctx, newServer(), addr)
 	}()
 
-	// Give Start a beat to actually bind before we ask it to stop.
-	time.Sleep(50 * time.Millisecond)
+	// Poll the port until it accepts, rather than sleep-and-hope.
+	deadline := time.Now().Add(2 * time.Second)
+	bound := false
+	for time.Now().Before(deadline) {
+		c, err := net.DialTimeout("tcp", addr, 50*time.Millisecond)
+		if err == nil {
+			c.Close()
+			bound = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !bound {
+		t.Fatal("server never bound within 2s")
+	}
 	cancel()
 
 	select {
