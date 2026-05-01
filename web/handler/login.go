@@ -37,8 +37,8 @@ const loginPageHTML = `<!doctype html>
     --fg: #f5f5f4;
     --muted: #a8a29e;
     --border: #44403c;
-    --accent: #e7e5e4;
-    --accent-fg: #1c1917;
+    --accent: #d6d3d1;
+    --accent-fg: #0c0a09;
     --focus: #93c5fd;
   }
 }
@@ -97,7 +97,6 @@ input {
 input:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
-  border-color: var(--focus);
 }
 button {
   width: 100%;
@@ -129,14 +128,15 @@ button:disabled {
 </head>
 <body>
 <main>
-<h1>Sign in to Shima</h1>
+<h1>Sign in</h1>
 <form method="post" action="/login">
 <div class="field">
-<label for="identifier">Telegram username or numeric ID</label>
+<label for="identifier">Telegram</label>
 <input
   id="identifier"
   name="identifier"
   inputmode="text"
+  placeholder="@shima or 123456789"
   autocomplete="off"
   autocapitalize="off"
   autocorrect="off"
@@ -144,7 +144,7 @@ button:disabled {
   required
   aria-describedby="identifier-hint"
 >
-<small id="identifier-hint" class="hint">e.g. @shima</small>
+<p id="identifier-hint" class="hint">@username or numeric ID</p>
 </div>
 <button type="submit">Continue with Telegram</button>
 </form>
