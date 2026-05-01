@@ -116,3 +116,38 @@ Skeet (commit 3):
 - Defer-close in goroutine for invariant clarity.
 - Rename `BindsAndServesRealHTTP` → `HandlerOverRealTCP_ServesLoginForm` (honest about what it tests; the body-content assertion lands here too).
 
+#### Round 4 — 2026-05-01
+
+| Persona | Score | Headline |
+|---|---|---|
+| Skeet | 8.8/10 (↑ 0.3) | Shutdown `select` races between `ctx.Done` and `serverErr` — bind failure during signal arrival is swallowed; drain serverErr non-blockingly after `ctx.Done`. `SplitHostPort` accepts `:99999` / `:abc` / `:0`; add port-range check. Successful startup is silent (Echo's banner suppressed); add explicit `log.Printf("listening on %s", addr)`. CSP header value is unasserted by tests. `shutdownGraceDuration` = `WriteTimeout` coincidence is undocumented. |
+| Ive | 8.0/10 (↑ 0.5) | Hint between label and input cleaves the label-input atom — move hint *under* input as helper text. Button "Send code via Telegram" is procedural — `Send code`; let the destination live in surrounding copy. h1 1.75rem margin too tight — 2rem. No visual anchor — small `S` monogram. Hover too subtle. Outline-offset inconsistency input vs button. |
+| Beck | 9.0/10 (↑ 0.5) | `HasUTF8CharsetDeclaration` tests markup, not behavior — assert Content-Type charset instead. `HasViewportMetaForResponsiveLayout` is markup audit — delete (Ive's domain). `HasHTMLLangAndNonEmptyTitle` bundles two assertions — split. `IdentifierInputIsTextType` admits two answers (text or omitted) — pick one. `LabelHasVisibleText` accepts any non-empty — assert literal copy. Security headers only checked on `/login`, not 404. **`POST /login` never exercised** — Phase 1 should at least register a placeholder handler so the form's contract isn't fictional. `HasExactlyOneLabel` tests wrong invariant — every input has a label is the rule, not "exactly one label." |
+
+**Changes for Round 5:**
+
+Beck (commit 1):
+- Replace `_HasUTF8CharsetDeclaration` with assertion that `Content-Type` header contains `charset=utf-8`.
+- Delete `_HasViewportMetaForResponsiveLayout` (markup audit; not Go-testable behavior).
+- Split `_HasHTMLLangAndNonEmptyTitle` into `_HTMLLangIsEN` and `_HasNonEmptyTitle`.
+- `_IdentifierInputIsTextType` → assert `type` is omitted (rely on HTML default), test renamed.
+- `_IdentifierInputHasLabelWithVisibleText` → assert literal label copy `"Telegram username or ID"`.
+- Delete `_HasExactlyOneLabel` (wrong invariant); replace with `_EveryInputHasAssociatedLabel`.
+- Extend `_AppliesSecurityHeaders` to also assert headers on a 404 path.
+- Add `TestServer_POSTLogin_IsRouted` (assert 501 Not Implemented). Driven by registering a Phase-2-stub `POST /login` handler that returns 501.
+- Add `_AppliesContentSecurityPolicy` asserting the CSP value (per Skeet round 4).
+
+Ive (commit 2):
+- Move hint to AFTER input (label → input → hint), preserving `aria-describedby`.
+- Button text "Send code via Telegram" → "Send code".
+- h1 margin-bottom 1.75rem → 2rem.
+- Add small `S` monogram above h1 (semibold accent-color, `aria-hidden="true"`).
+- Hover: shift 92% → 85% so it's visibly tactile.
+- Input `outline-offset: 1px` → 2px to match button.
+
+Skeet (commit 3):
+- Drain `serverErr` after `ctx.Done` non-blockingly to close the shutdown race.
+- Validate ADDR port: parse and check 1 ≤ port ≤ 65535.
+- Add `log.Printf("listening on %s", addr)` before `e.Start` (one source of truth; no Echo banner to compete).
+- Already covered by Beck commit: `_AppliesContentSecurityPolicy` test; `shutdownGraceDuration` aliased to `setup.WriteTimeout`.
+

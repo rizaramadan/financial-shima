@@ -83,7 +83,7 @@ label {
   color: var(--muted);
   margin: 0 0 0.5rem;
 }
-input[type="text"] {
+input {
   width: 100%;
   padding: 0.625rem 0.75rem;
   font: inherit;
@@ -93,7 +93,7 @@ input[type="text"] {
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
-input[type="text"]:focus-visible {
+input:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 1px;
   border-color: var(--focus);
@@ -136,7 +136,6 @@ button:disabled {
 <input
   id="identifier"
   name="identifier"
-  type="text"
   inputmode="text"
   autocomplete="off"
   autocapitalize="off"
@@ -146,7 +145,7 @@ button:disabled {
   aria-describedby="identifier-hint"
 >
 </div>
-<button type="submit">Send code via Telegram</button>
+<button type="submit">Send code</button>
 </form>
 </main>
 </body>
@@ -160,4 +159,14 @@ button:disabled {
 // from request validation in Phase 1.
 func LoginGet(c echo.Context) error {
 	return c.HTML(http.StatusOK, loginPageHTML)
+}
+
+// LoginPost is the Phase-1 placeholder for the form's POST target. Until
+// Phase 2 wires OTP issuing, the route exists so the form's `action="/login"`
+// contract isn't fictional, and answers 501 Not Implemented for any submission.
+//
+// Tests that exercise this stub assert the status (501) is returned, not 405.
+// When Phase 2 lands, this function becomes the real handler.
+func LoginPost(c echo.Context) error {
+	return c.String(http.StatusNotImplemented, "Phase 2: OTP login flow not yet implemented.\n")
 }

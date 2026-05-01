@@ -29,6 +29,7 @@ func newServer() *echo.Echo {
 	e := echo.New()
 	setup.Apply(e)
 	e.GET("/login", handler.LoginGet)
+	e.POST("/login", handler.LoginPost) // Phase 1 stub: 501 until Phase 2 wires OTP.
 	return e
 }
 

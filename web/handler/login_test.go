@@ -12,9 +12,6 @@ import (
 	"github.com/rizaramadan/financial-shima/web/setup"
 )
 
-// renderLogin builds an Echo with the project's standard middleware via
-// setup.Apply, registers the /login route, and dispatches the request — so
-// these tests exercise the same chain production traffic sees.
 func renderLogin(t *testing.T) *httptest.ResponseRecorder {
 	t.Helper()
 	e := echo.New()
@@ -98,7 +95,11 @@ func identifierInputPred(n *html.Node) bool {
 	return isElement("input")(n) && attr(n, "name") == "identifier"
 }
 
-func TestLoginGet_Returns200WithTextHTMLContentType(t *testing.T) {
+// TestLoginGet_Returns200WithUTF8HTMLContentType: the user-observable behavior
+// is that non-ASCII characters render correctly. The Content-Type header
+// (which Echo sets via c.HTML) is what tells the browser to decode the bytes
+// as UTF-8 — not the <meta charset>, which is a fallback if no header is sent.
+func TestLoginGet_Returns200WithUTF8HTMLContentType(t *testing.T) {
 	t.Parallel()
 	rec := renderLogin(t)
 
@@ -109,31 +110,27 @@ func TestLoginGet_Returns200WithTextHTMLContentType(t *testing.T) {
 	if !strings.HasPrefix(ct, "text/html") {
 		t.Errorf("Content-Type = %q, want prefix text/html", ct)
 	}
-}
-
-func TestLoginGet_HasUTF8CharsetDeclaration(t *testing.T) {
-	t.Parallel()
-	doc := parseDoc(t, renderLogin(t))
-
-	meta := findFirst(doc, func(n *html.Node) bool {
-		return isElement("meta")(n) && strings.EqualFold(attr(n, "charset"), "utf-8")
-	})
-	if meta == nil {
-		t.Fatal(`no <meta charset="utf-8">`)
+	if !strings.Contains(strings.ToLower(ct), "charset=utf-8") {
+		t.Errorf("Content-Type = %q, want to include charset=utf-8", ct)
 	}
 }
 
-func TestLoginGet_HasHTMLLangAndNonEmptyTitle(t *testing.T) {
+func TestLoginGet_HTMLLangIsEN(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
 
 	htmlEl := findFirst(doc, isElement("html"))
 	if htmlEl == nil {
-		t.Fatal("no <html>")
+		t.Fatal("no <html> element")
 	}
-	if got := attr(htmlEl, "lang"); got == "" {
-		t.Error(`<html> missing lang attribute`)
+	if got := attr(htmlEl, "lang"); got != "en" {
+		t.Errorf(`<html lang> = %q, want "en"`, got)
 	}
+}
+
+func TestLoginGet_HasNonEmptyTitle(t *testing.T) {
+	t.Parallel()
+	doc := parseDoc(t, renderLogin(t))
 
 	title := findFirst(doc, isElement("title"))
 	if title == nil {
@@ -170,13 +167,35 @@ func TestLoginGet_FormPostsToLoginPath(t *testing.T) {
 	}
 }
 
-func TestLoginGet_HasExactlyOneLabel(t *testing.T) {
+// TestLoginGet_EveryInputHasAssociatedLabel: the invariant is "every visible
+// input is labelled," not "there is exactly one label." If Phase 2 adds an
+// OTP field this test still holds; a count-based test would have to change.
+func TestLoginGet_EveryInputHasAssociatedLabel(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
 
-	labels := findAll(doc, isElement("label"))
-	if len(labels) != 1 {
-		t.Fatalf("found %d <label> elements, want 1", len(labels))
+	visibleInput := func(n *html.Node) bool {
+		if !isElement("input")(n) {
+			return false
+		}
+		t := strings.ToLower(attr(n, "type"))
+		return t != "hidden" && t != "submit" && t != "button" && t != "reset"
+	}
+	labelByFor := map[string]bool{}
+	for _, l := range findAll(doc, isElement("label")) {
+		if id := attr(l, "for"); id != "" {
+			labelByFor[id] = true
+		}
+	}
+	for _, in := range findAll(doc, visibleInput) {
+		id := attr(in, "id")
+		if id == "" {
+			t.Errorf("visible input %q has no id (cannot be labelled)", attr(in, "name"))
+			continue
+		}
+		if !labelByFor[id] {
+			t.Errorf(`visible input id=%q has no <label for=%q>`, id, id)
+		}
 	}
 }
 
@@ -190,7 +209,10 @@ func TestLoginGet_HasExactlyOneIdentifierInput(t *testing.T) {
 	}
 }
 
-func TestLoginGet_IdentifierInputIsTextType(t *testing.T) {
+// TestLoginGet_IdentifierInputOmitsTypeAttribute: HTML defaults <input> to
+// type="text". Omitting the attribute is a deliberate choice that pins the
+// default; an explicit "text" or any other value would change the test.
+func TestLoginGet_IdentifierInputOmitsTypeAttribute(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
 
@@ -198,13 +220,12 @@ func TestLoginGet_IdentifierInputIsTextType(t *testing.T) {
 	if input == nil {
 		t.Fatal(`no <input name="identifier">`)
 	}
-	got := strings.ToLower(attr(input, "type"))
-	if got != "text" && got != "" {
-		t.Errorf(`identifier input type = %q, want "text" (or omitted)`, got)
+	if got := attr(input, "type"); got != "" {
+		t.Errorf(`type = %q, want omitted (rely on HTML default of text)`, got)
 	}
 }
 
-func TestLoginGet_IdentifierInputHasLabelWithVisibleText(t *testing.T) {
+func TestLoginGet_IdentifierInputLabelHasExactCopy(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
 
@@ -214,7 +235,7 @@ func TestLoginGet_IdentifierInputHasLabelWithVisibleText(t *testing.T) {
 	}
 	id := attr(input, "id")
 	if id == "" {
-		t.Fatal("identifier input has no id")
+		t.Fatal("input has no id")
 	}
 	label := findFirst(doc, func(n *html.Node) bool {
 		return isElement("label")(n) && attr(n, "for") == id
@@ -222,33 +243,27 @@ func TestLoginGet_IdentifierInputHasLabelWithVisibleText(t *testing.T) {
 	if label == nil {
 		t.Fatalf(`no <label for=%q>`, id)
 	}
-	if textOf(label) == "" {
-		t.Errorf(`<label for=%q> has no visible text`, id)
+	const want = "Telegram username or ID"
+	if got := textOf(label); got != want {
+		t.Errorf("label text = %q, want %q", got, want)
 	}
 }
 
-// TestLoginGet_AutocompleteIsOff: the identifier is a Telegram handle, not a
-// username/email, so password managers should not surface saved credentials
-// here. autocomplete="off" is the right hint.
 func TestLoginGet_AutocompleteIsOff(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
-
 	input := findFirst(doc, identifierInputPred)
 	if input == nil {
 		t.Fatal(`no input`)
 	}
 	if got := attr(input, "autocomplete"); got != "off" {
-		t.Errorf(`autocomplete = %q, want "off" (Telegram handle is not a saved username)`, got)
+		t.Errorf(`autocomplete = %q, want "off"`, got)
 	}
 }
 
-// TestLoginGet_DisablesKeyboardCorrections: iOS auto-capitalize, autocorrect,
-// and spellcheck would mangle a Telegram username on first keystroke.
 func TestLoginGet_DisablesKeyboardCorrections(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
-
 	input := findFirst(doc, identifierInputPred)
 	if input == nil {
 		t.Fatal(`no input`)
@@ -270,7 +285,6 @@ func TestLoginGet_DisablesKeyboardCorrections(t *testing.T) {
 func TestLoginGet_IdentifierInputIsRequired(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
-
 	input := findFirst(doc, identifierInputPred)
 	if input == nil {
 		t.Fatal(`no input`)
@@ -283,31 +297,15 @@ func TestLoginGet_IdentifierInputIsRequired(t *testing.T) {
 func TestLoginGet_HasExactlyOneSubmitButtonWithExactCopy(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
-
-	submitPred := func(n *html.Node) bool {
+	pred := func(n *html.Node) bool {
 		return isElement("button")(n) && strings.ToLower(attr(n, "type")) == "submit"
 	}
-	btns := findAll(doc, submitPred)
+	btns := findAll(doc, pred)
 	if len(btns) != 1 {
-		t.Fatalf(`found %d <button type="submit">, want 1`, len(btns))
+		t.Fatalf(`found %d submit buttons, want 1`, len(btns))
 	}
-	const want = "Send code via Telegram"
+	const want = "Send code"
 	if got := textOf(btns[0]); got != want {
-		t.Errorf("submit button text = %q, want %q", got, want)
-	}
-}
-
-func TestLoginGet_HasViewportMetaForResponsiveLayout(t *testing.T) {
-	t.Parallel()
-	doc := parseDoc(t, renderLogin(t))
-
-	meta := findFirst(doc, func(n *html.Node) bool {
-		return isElement("meta")(n) && strings.ToLower(attr(n, "name")) == "viewport"
-	})
-	if meta == nil {
-		t.Fatal(`no <meta name="viewport">`)
-	}
-	if !strings.Contains(attr(meta, "content"), "width=device-width") {
-		t.Errorf(`viewport content missing width=device-width`)
+		t.Errorf("button text = %q, want %q", got, want)
 	}
 }
