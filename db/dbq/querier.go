@@ -37,6 +37,10 @@ type Querier interface {
 	ListAccountsIncludingArchived(ctx context.Context) ([]Account, error)
 	ListCounterparties(ctx context.Context) ([]Counterparty, error)
 	ListNotificationsForUser(ctx context.Context, userID pgtype.UUID) ([]Notification, error)
+	// Open obligations where this pos is creditor (money it's owed) or
+	// debtor (money it owes). Counts toward Pos.receivables and
+	// Pos.payables on the detail view per spec §4.2.
+	ListObligationsForPos(ctx context.Context, creditorPosID pgtype.UUID) ([]PosObligation, error)
 	ListPos(ctx context.Context) ([]Po, error)
 	ListTransactionsByAccount(ctx context.Context, accountID pgtype.UUID) ([]Transaction, error)
 	// Joined view for the §6.1 list: account.name, pos.name + currency,
@@ -44,6 +48,10 @@ type Querier interface {
 	// NULL account_id / pos_id / counterparty_id (line items live in
 	// inter_pos_lines — to be rendered when that phase ships).
 	ListTransactionsByDateRange(ctx context.Context, arg ListTransactionsByDateRangeParams) ([]ListTransactionsByDateRangeRow, error)
+	// Chronological transactions touching this pos. Phase-7+ inter_pos lines
+	// live in inter_pos_lines and are not yet wired; this query covers the
+	// money_in / money_out path that Phase 6 ships.
+	ListTransactionsByPos(ctx context.Context, posID pgtype.UUID) ([]ListTransactionsByPosRow, error)
 	ListUsers(ctx context.Context) ([]User, error)
 	MarkAllNotificationsRead(ctx context.Context, userID pgtype.UUID) (int64, error)
 	MarkNotificationRead(ctx context.Context, arg MarkNotificationReadParams) error

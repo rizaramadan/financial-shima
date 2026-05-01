@@ -26,6 +26,37 @@ SELECT * FROM transactions
 WHERE account_id = $1
 ORDER BY effective_date DESC, created_at DESC;
 
+-- name: ListTransactionsByPos :many
+-- Chronological transactions touching this pos. Phase-7+ inter_pos lines
+-- live in inter_pos_lines and are not yet wired; this query covers the
+-- money_in / money_out path that Phase 6 ships.
+SELECT
+    t.id, t.type, t.effective_date,
+    t.account_amount, t.pos_amount, t.note,
+    t.created_at, t.reverses_id,
+    a.name  AS account_name,
+    cp.name AS counterparty_name
+FROM transactions t
+LEFT JOIN accounts       a  ON a.id  = t.account_id
+LEFT JOIN counterparties cp ON cp.id = t.counterparty_id
+WHERE t.pos_id = $1
+ORDER BY t.effective_date DESC, t.created_at DESC, t.id DESC
+LIMIT 200;
+
+-- name: ListObligationsForPos :many
+-- Open obligations where this pos is creditor (money it's owed) or
+-- debtor (money it owes). Counts toward Pos.receivables and
+-- Pos.payables on the detail view per spec §4.2.
+SELECT
+    id, transaction_id,
+    creditor_pos_id, debtor_pos_id,
+    currency, amount_owed, amount_repaid,
+    cleared_at, created_at
+FROM pos_obligation
+WHERE (creditor_pos_id = $1 OR debtor_pos_id = $1)
+  AND cleared_at IS NULL
+ORDER BY created_at DESC;
+
 -- name: ListTransactionsByDateRange :many
 -- Joined view for the §6.1 list: account.name, pos.name + currency,
 -- counterparty.name. LEFT JOINs because Phase 7+ inter_pos rows have

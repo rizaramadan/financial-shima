@@ -27,6 +27,7 @@ func New() *Renderer {
 	template.Must(t.New("home").Parse(layoutOpen + homeBody + layoutClose))
 	template.Must(t.New("notifications").Parse(layoutOpen + notificationsBody + layoutClose))
 	template.Must(t.New("transactions").Parse(layoutOpen + transactionsBody + layoutClose))
+	template.Must(t.New("pos").Parse(layoutOpen + posBody + layoutClose))
 	return &Renderer{t: t}
 }
 
@@ -140,6 +141,55 @@ func (d HomeData) SignedIn() bool { return d.DisplayName != "" }
 // LoginData and VerifyData are pre-auth; SignedIn always false.
 func (d LoginData) SignedIn() bool  { return false }
 func (d VerifyData) SignedIn() bool { return false }
+
+// PosDetailData drives the §6.3 single-Pos view. NotFound triggers a
+// distinct "no such Pos" render; LoadError is the transient-DB-failure
+// state. Empty Obligations + Transactions is the legitimate empty case.
+type PosDetailData struct {
+	Title        string
+	DisplayName  string
+	UnreadCount  int
+	ID           string
+	Name         string
+	Currency     string
+	Target       int64
+	HasTarget    bool
+	Archived     bool
+	Receivables  int64
+	Payables     int64
+	Obligations  []ObligationRow
+	Transactions []PosTransactionRow
+	NotFound     bool
+	LoadError    bool
+}
+
+// SignedIn — only authenticated users reach pos detail.
+func (d PosDetailData) SignedIn() bool { return d.DisplayName != "" }
+
+// ObligationRow is one open obligation involving this Pos. Direction is
+// "receivable" (this pos is creditor) or "payable" (this pos is debtor).
+type ObligationRow struct {
+	ID          string
+	Direction   string // "receivable" | "payable"
+	OtherPosID  string
+	Currency    string
+	Outstanding int64
+	CreatedAt   time.Time
+}
+
+// PosTransactionRow is one row of the scoped transaction list. Trimmer
+// than TransactionRow because pos identity is implicit on this page.
+type PosTransactionRow struct {
+	ID               string
+	Type             string
+	EffectiveDate    string
+	Amount           int64
+	AccountName      string
+	CounterpartyName string
+	Note             string
+	IsReversal       bool
+	ReversesID       string
+}
 
 // TransactionsData drives the §6.1 list. Items are pre-sorted newest-first
 // by the SQL query.
@@ -395,6 +445,77 @@ const notificationsBody = `<h1>Notifications</h1>
 </ul>
 {{end}}
 <p class="aside"><a class="linkbtn" href="/">&larr; Home</a></p>`
+
+const posBody = `{{if .NotFound}}
+<h1>Pos not found</h1>
+<p class="subtitle">No Pos with that id, or it has been removed.</p>
+<p class="aside"><a class="linkbtn" href="/">&larr; Home</a></p>
+{{else}}
+<h1>{{.Name}}{{if .Archived}} <span class="badge-rev">archived</span>{{end}}</h1>
+<p class="subtitle">{{.Currency}}{{if .HasTarget}} &middot; target {{.Target}}{{end}}</p>
+
+{{if .LoadError}}
+<p class="alert" role="alert">Some data could not be loaded. The view may be incomplete.</p>
+{{end}}
+
+<section class="card">
+<h2>Balance</h2>
+<table>
+<thead><tr><th>Cash</th><th class="num">Receivables</th><th class="num">Payables</th></tr></thead>
+<tbody>
+<tr>
+<td class="num">&mdash;</td>
+<td class="num">{{.Receivables}}</td>
+<td class="num">{{.Payables}}</td>
+</tr>
+</tbody>
+</table>
+</section>
+
+{{if .Obligations}}
+<section class="card">
+<h2>Open obligations</h2>
+<table>
+<thead><tr><th>Direction</th><th>Counterparty Pos</th><th class="num">Outstanding</th><th>Since</th></tr></thead>
+<tbody>
+{{range .Obligations}}
+<tr>
+<td>{{.Direction}}</td>
+<td><a href="/pos/{{.OtherPosID}}">{{.OtherPosID}}</a></td>
+<td class="num">{{.Outstanding}} {{.Currency}}</td>
+<td>{{relTime .CreatedAt}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</section>
+{{end}}
+
+{{if .Transactions}}
+<section class="card">
+<h2>Transactions</h2>
+<table>
+<thead><tr><th>Date</th><th>Type</th><th class="num">Amount</th><th>Account</th><th>Counterparty</th><th>Note</th></tr></thead>
+<tbody>
+{{range .Transactions}}
+<tr{{if .IsReversal}} class="reversal"{{end}}>
+<td>{{.EffectiveDate}}</td>
+<td>{{.Type}}{{if .IsReversal}} <a class="badge-rev" href="/transactions/{{.ReversesID}}">reverses</a>{{end}}</td>
+<td class="num">{{.Amount}}</td>
+<td>{{if .AccountName}}{{.AccountName}}{{else}}&mdash;{{end}}</td>
+<td>{{if .CounterpartyName}}{{.CounterpartyName}}{{else}}&mdash;{{end}}</td>
+<td>{{.Note}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</section>
+{{else}}
+<p class="subtitle">No transactions for this Pos yet.</p>
+{{end}}
+
+<p class="aside"><a class="linkbtn" href="/">&larr; Home</a></p>
+{{end}}`
 
 const transactionsBody = `<h1>Transactions</h1>
 <form method="get" action="/transactions" class="filter">

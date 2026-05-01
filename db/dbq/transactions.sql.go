@@ -199,6 +199,51 @@ func (q *Queries) ListNotificationsForUser(ctx context.Context, userID pgtype.UU
 	return items, nil
 }
 
+const listObligationsForPos = `-- name: ListObligationsForPos :many
+SELECT
+    id, transaction_id,
+    creditor_pos_id, debtor_pos_id,
+    currency, amount_owed, amount_repaid,
+    cleared_at, created_at
+FROM pos_obligation
+WHERE (creditor_pos_id = $1 OR debtor_pos_id = $1)
+  AND cleared_at IS NULL
+ORDER BY created_at DESC
+`
+
+// Open obligations where this pos is creditor (money it's owed) or
+// debtor (money it owes). Counts toward Pos.receivables and
+// Pos.payables on the detail view per spec §4.2.
+func (q *Queries) ListObligationsForPos(ctx context.Context, creditorPosID pgtype.UUID) ([]PosObligation, error) {
+	rows, err := q.db.Query(ctx, listObligationsForPos, creditorPosID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PosObligation
+	for rows.Next() {
+		var i PosObligation
+		if err := rows.Scan(
+			&i.ID,
+			&i.TransactionID,
+			&i.CreditorPosID,
+			&i.DebtorPosID,
+			&i.Currency,
+			&i.AmountOwed,
+			&i.AmountRepaid,
+			&i.ClearedAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTransactionsByAccount = `-- name: ListTransactionsByAccount :many
 SELECT id, type, effective_date, account_id, account_amount, pos_id, pos_amount, counterparty_id, note, source, created_by, idempotency_key, created_at, reverses_id FROM transactions
 WHERE account_id = $1
@@ -318,6 +363,68 @@ func (q *Queries) ListTransactionsByDateRange(ctx context.Context, arg ListTrans
 			&i.AccountName,
 			&i.PosName,
 			&i.PosCurrency,
+			&i.CounterpartyName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTransactionsByPos = `-- name: ListTransactionsByPos :many
+SELECT
+    t.id, t.type, t.effective_date,
+    t.account_amount, t.pos_amount, t.note,
+    t.created_at, t.reverses_id,
+    a.name  AS account_name,
+    cp.name AS counterparty_name
+FROM transactions t
+LEFT JOIN accounts       a  ON a.id  = t.account_id
+LEFT JOIN counterparties cp ON cp.id = t.counterparty_id
+WHERE t.pos_id = $1
+ORDER BY t.effective_date DESC, t.created_at DESC, t.id DESC
+LIMIT 200
+`
+
+type ListTransactionsByPosRow struct {
+	ID               pgtype.UUID
+	Type             TransactionType
+	EffectiveDate    pgtype.Date
+	AccountAmount    *int64
+	PosAmount        *int64
+	Note             *string
+	CreatedAt        pgtype.Timestamptz
+	ReversesID       pgtype.UUID
+	AccountName      *string
+	CounterpartyName *string
+}
+
+// Chronological transactions touching this pos. Phase-7+ inter_pos lines
+// live in inter_pos_lines and are not yet wired; this query covers the
+// money_in / money_out path that Phase 6 ships.
+func (q *Queries) ListTransactionsByPos(ctx context.Context, posID pgtype.UUID) ([]ListTransactionsByPosRow, error) {
+	rows, err := q.db.Query(ctx, listTransactionsByPos, posID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTransactionsByPosRow
+	for rows.Next() {
+		var i ListTransactionsByPosRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.EffectiveDate,
+			&i.AccountAmount,
+			&i.PosAmount,
+			&i.Note,
+			&i.CreatedAt,
+			&i.ReversesID,
+			&i.AccountName,
 			&i.CounterpartyName,
 		); err != nil {
 			return nil, err
