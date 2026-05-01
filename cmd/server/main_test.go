@@ -75,6 +75,13 @@ func TestServer_AppliesSecurityHeaders(t *testing.T) {
 // NOT exercise main()'s e.Start(addr) bind path or signal-driven shutdown —
 // those are not reachable from a test without extracting main into a
 // run() helper. Body content asserted so a 200 with empty body fails.
+// Lifecycle test budgets. Both deadlines must accommodate Shutdown's grace
+// period plus run() return on a loaded CI runner under -race.
+const (
+	bindBudget     = 2 * time.Second
+	shutdownBudget = 2 * time.Second
+)
+
 // TestRun_StopsCleanlyOnContextCancel exercises run()'s lifecycle: bind on a
 // real OS-chosen port, cancel the context, expect a clean nil return. This
 // is the regression guard against future shutdown bugs in run() — drain
@@ -88,7 +95,10 @@ func TestRun_StopsCleanlyOnContextCancel(t *testing.T) {
 		t.Fatalf("reserve port: %v", err)
 	}
 	addr := ln.Addr().String()
-	ln.Close() // run() will rebind below; small race window is acceptable in tests.
+	if err := ln.Close(); err != nil {
+		t.Fatalf("release reserved port: %v", err)
+	}
+	// Small race window between Close and run's rebind — acceptable in tests.
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -97,11 +107,11 @@ func TestRun_StopsCleanlyOnContextCancel(t *testing.T) {
 	}()
 
 	// Poll the port until it accepts, rather than sleep-and-hope.
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(bindBudget)
 	bound := false
 	for time.Now().Before(deadline) {
-		c, err := net.DialTimeout("tcp", addr, 50*time.Millisecond)
-		if err == nil {
+		c, dialErr := net.DialTimeout("tcp", addr, 50*time.Millisecond)
+		if dialErr == nil {
 			c.Close()
 			bound = true
 			break
@@ -109,7 +119,7 @@ func TestRun_StopsCleanlyOnContextCancel(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if !bound {
-		t.Fatal("server never bound within 2s")
+		t.Fatalf("server never bound within %v", bindBudget)
 	}
 	cancel()
 
@@ -118,8 +128,8 @@ func TestRun_StopsCleanlyOnContextCancel(t *testing.T) {
 		if err != nil {
 			t.Errorf("run returned %v, want nil after context cancel", err)
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("run did not return within 2s of context cancel")
+	case <-time.After(shutdownBudget):
+		t.Fatalf("run did not return within %v of context cancel", shutdownBudget)
 	}
 }
 
