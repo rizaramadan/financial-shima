@@ -1,49 +1,91 @@
 ---
 layout: default
-title: financial-shima — Phase 9 UI
+title: financial-shima — UI showcase
 ---
 
-# Screenshots — Phase 9 UI
+# financial-shima — UI showcase
 
-Rendered against the Ant Design v5 design tokens (Polar Green primary,
-green-8 `#237804` for AA contrast on white). Sir Jonathan Ive (persona
-review) scored these 9/10 — ship — after five rounds of critique.
+A two-user family financial manager. Telegram OTP login, multi-currency
+Pos envelope budgeting (IDR + USD), and an append-only ledger with
+inter-Pos transfers and obligations.
 
-All shots taken with no DB pool, so authenticated pages render their
-empty states.
+The visual layer is **Ant Design v5** with the Polar Green palette —
+primary shifted to **green-8 `#237804`** so primary text on white
+clears WCAG AA at ~6:1, while `--success` stays at green-6 to keep
+the two semantic tokens distinct.
 
-## Pre-auth (compact card, max-width 420px)
+Screenshots below were rendered with seeded sample data (not the
+empty-state placeholder) so the formatting, type chips, currency
+rendering, progress bars, and obligation flow are all visible.
+
+## Pre-auth — compact card (`max-width: 420px`)
 
 ### Sign in
 ![Sign in](./screenshots/login.png)
 
 ### Verify code
+6-digit code input with monospace + letter-spacing + text-indent.
+
 ![Verify code](./screenshots/verify.png)
 
-## Authenticated (max-width 720px, global nav)
+## Home — accounts + Pos by currency
 
-### Home
+Account balances in IDR, Pos grouped by currency with budget-progress
+rails on rows that have a target, unread-count pill in the nav.
+
 ![Home](./screenshots/home.png)
 
-### Notifications
-![Notifications](./screenshots/notifications.png)
+## Transactions — chips + colored amounts
 
-### Transactions
+Income / Expense / Transfer chips, color-coded amounts (green `+` for
+income, default for expense, neutral for transfers), reversed
+transactions render line-through with a `reverses →` link, USD
+formatting alongside IDR (`$500.00` vs `Rp 25.000.000`).
+
 ![Transactions](./screenshots/transactions.png)
 
-### Spending
+## Spending — months × top-N Pos pivot
+
+6 months × 5 Pos with row totals and a Pos-totals footer. Wide card
+modifier (`max-width: 920px`) for data-dense views.
+
 ![Spending](./screenshots/spending.png)
 
+## Pos detail — balance, obligations, transactions
+
+Single-Pos drill-in: balance row, open obligations with direction chip
+(`payable` / `receivable`), and the scoped transaction list.
+
+![Pos detail](./screenshots/pos.png)
+
+## Notifications — read/unread feed
+
+Unread items render at full text weight; read items fade to secondary.
+Each item shows a relative timestamp and a per-item Mark-read action,
+plus a Mark-all-read at the top.
+
+![Notifications](./screenshots/notifications.png)
+
 ## Reproducing
+
+Empty-state renders go through the actual handler chain (DB pool nil →
+empty data fallback):
 
 ```bash
 go run ./scripts/dump_login.go > .ive_dump/login.html
 go run ./scripts/dump_verify.go > .ive_dump/verify.html
-go run ./scripts/dump_authed.go home > .ive_dump/home.html
-go run ./scripts/dump_authed.go notifications > .ive_dump/notifications.html
-go run ./scripts/dump_authed.go transactions > .ive_dump/transactions.html
-go run ./scripts/dump_authed.go spending > .ive_dump/spending.html
+go run ./scripts/dump_authed.go {home|notifications|transactions|spending} > out.html
 ```
 
-Then headless-screenshot each `.ive_dump/*.html` (any modern Chromium
-will do — `msedge --headless=new --screenshot=... file:///...`).
+Loaded renders bypass the handler and call `template.Renderer` directly
+with seeded data:
+
+```bash
+go run ./scripts/dump_loaded.go {home|transactions|spending|notifications|pos|verify} > out.html
+```
+
+Headless-screenshot each `.html` with any Chromium:
+
+```bash
+msedge --headless=new --screenshot=out.png --window-size=900,1100 file:///path/to/out.html
+```
