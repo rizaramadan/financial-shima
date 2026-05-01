@@ -1,11 +1,14 @@
 // Package obligation models the spec §4.3 borrow-mode debt-tracking
 // machinery: when an inter_pos transaction has mode = "borrow", each
-// `out` line × `in` line pair produces a pos_obligation row. The
-// obligation is denominated in the debtor's currency.
+// `out` line × `in` line pair produces a pos_obligation row whose
+// amount is the debtor's in amount prorated by the creditor's share
+// of total out. Pairs whose prorated amount rounds to zero are dropped
+// from the output (they would violate the storage CHECK
+// `amount_owed > 0` and represent no actual debt).
 //
 // This package is pure — it computes the obligation rows and the
-// repayment match plan from inputs, then the caller commits the result
-// to the DB. No SQL, no time.Now, no rand.
+// repayment match plan from inputs; the caller persists the result.
+// No SQL, no time.Now, no rand.
 //
 // Spec references:
 //   - §4.3 borrow-mode debt tracking ("Pattern P from interview").
@@ -20,13 +23,12 @@ import (
 	"time"
 )
 
-// Line is one inter_pos line — same shape as logic/balance but kept
-// here-package-local to avoid coupling.
+// Line is one inter_pos line.
 type Line struct {
-	PosID    string
-	Currency string
+	PosID     string
+	Currency  string
 	Direction Direction
-	Amount    int64 // positive
+	Amount    int64 // strictly positive
 }
 
 type Direction string
@@ -36,28 +38,32 @@ const (
 	DirIn  Direction = "in"
 )
 
-// Obligation represents a single creditor-debtor debt row.
+// Obligation represents a single creditor-debtor debt row. CreatedAt is
+// the source of truth for FIFO ordering — Match sorts by it on entry,
+// so callers don't need to pre-sort the slice they hand in.
 type Obligation struct {
 	ID            string
 	TransactionID string
 	CreditorPosID string
 	DebtorPosID   string
 	Currency      string // always the debtor's
-	Owed          int64
-	Repaid        int64
-	ClearedAt     *time.Time // non-nil ⇔ Repaid >= Owed (spec §10.7)
+	Owed          int64  // > 0
+	Repaid        int64  // >= 0
+	CreatedAt     time.Time
+	ClearedAt     *time.Time // non-nil iff Repaid >= Owed (§10.7)
 }
 
-// IsCleared reports the §10.7 invariant: ClearedAt is set iff Repaid >= Owed.
+// IsCleared reports the §10.7 invariant.
 func (o Obligation) IsCleared() bool { return o.ClearedAt != nil }
 
-// Validate returns nil if the §10.7 invariant holds.
+// Validate returns nil iff the §10.7 invariant holds AND the storage
+// constraints from migration 0003 are satisfied (Owed > 0, Repaid >= 0).
 func (o Obligation) Validate() error {
-	if o.Repaid < 0 {
-		return fmt.Errorf("obligation %s: negative repaid %d", o.ID, o.Repaid)
+	if o.Owed <= 0 {
+		return fmt.Errorf("obligation %s: owed must be > 0, got %d", o.ID, o.Owed)
 	}
-	if o.Owed < 0 {
-		return fmt.Errorf("obligation %s: negative owed %d", o.ID, o.Owed)
+	if o.Repaid < 0 {
+		return fmt.Errorf("obligation %s: repaid must be >= 0, got %d", o.ID, o.Repaid)
 	}
 	clearedExpected := o.Repaid >= o.Owed
 	clearedActual := o.IsCleared()
@@ -68,41 +74,52 @@ func (o Obligation) Validate() error {
 	return nil
 }
 
-// ErrCrossCurrencyBorrow signals a borrow whose creditors and debtor don't
-// share a currency — out of scope for the Phase-8 single-currency cut.
-// Cross-currency borrow needs an exchange-rate input the spec doesn't yet
-// define and ships in a later phase.
-var ErrCrossCurrencyBorrow = errors.New("obligation: cross-currency borrow not yet supported")
+// Sentinel errors so callers can errors.Is. The package error grammar:
+// every error is wrapped via fmt.Errorf("%w: …") with a sentinel base.
+var (
+	ErrCrossCurrencyBorrow = errors.New("obligation: cross-currency borrow not yet supported")
+	ErrEmptyBorrow         = errors.New("obligation: borrow needs at least one out and one in line")
+	ErrNonPositiveAmount   = errors.New("obligation: amount must be > 0")
+	ErrUnknownDirection    = errors.New("obligation: unknown direction")
+	ErrUnbalancedLines     = errors.New("obligation: out total does not equal in total")
+	ErrInvalidCurrency     = errors.New("obligation: currency must match ^[a-z0-9-]+$")
+)
 
-// GenerateForBorrow takes the lines of an inter_pos transaction with
-// mode = "borrow" and returns one Obligation per (creditor, debtor) pair.
+// GenerateBorrowObligations takes the lines of an inter_pos borrow event
+// and returns one Obligation per (creditor, debtor) pair whose prorated
+// amount is > 0. Pairs whose share rounds to zero are dropped — they
+// represent no actual debt and would violate the storage CHECK.
 //
-// Phase-8 scope: every line shares one currency. The amount each creditor
-// owes the debtor is prorated by the creditor's share of total out
-// against the debtor's in amount.
+// The amount each creditor owes each debtor is:
 //
-// `now` is the issuance time, recorded in the transaction (passed by caller);
-// ClearedAt is left nil because no payment has applied yet.
+//	creditor_share = creditor_out / total_out
+//	owed           = floor(creditor_out * debtor_in / total_out)
 //
-// `idGen` produces unique IDs for the obligation rows. Pure — no I/O.
-func GenerateForBorrow(txnID string, lines []Line, idGen func() string) ([]Obligation, error) {
+// To preserve per-debtor sum invariance under integer arithmetic, the
+// last creditor in a debtor's bucket absorbs any rounding residual.
+// outs and ins are sorted by PosID before processing so the same input
+// set always produces the same output rows (caller may pass map-walk
+// order without leaking nondeterminism).
+func GenerateBorrowObligations(txnID string, lines []Line, createdAt time.Time, idGen func() string) ([]Obligation, error) {
 	if len(lines) == 0 {
-		return nil, nil
+		return nil, ErrEmptyBorrow
 	}
 	currency := lines[0].Currency
+	if !validCurrency(currency) {
+		return nil, fmt.Errorf("%w: %q", ErrInvalidCurrency, currency)
+	}
 	for _, l := range lines {
 		if l.Currency != currency {
-			return nil, ErrCrossCurrencyBorrow
+			return nil, fmt.Errorf("%w: %q vs %q", ErrCrossCurrencyBorrow, currency, l.Currency)
 		}
 		if l.Amount <= 0 {
-			return nil, fmt.Errorf("obligation: line for pos %s has non-positive amount %d",
-				l.PosID, l.Amount)
+			return nil, fmt.Errorf("%w: pos %s amount %d", ErrNonPositiveAmount, l.PosID, l.Amount)
 		}
 	}
 
 	var (
-		outs    []Line
-		ins     []Line
+		outs     []Line
+		ins      []Line
 		totalOut int64
 	)
 	for _, l := range lines {
@@ -113,11 +130,11 @@ func GenerateForBorrow(txnID string, lines []Line, idGen func() string) ([]Oblig
 		case DirIn:
 			ins = append(ins, l)
 		default:
-			return nil, fmt.Errorf("obligation: unknown direction %q", l.Direction)
+			return nil, fmt.Errorf("%w: %q", ErrUnknownDirection, l.Direction)
 		}
 	}
 	if len(outs) == 0 || len(ins) == 0 {
-		return nil, errors.New("obligation: borrow needs at least one out and one in line")
+		return nil, ErrEmptyBorrow
 	}
 
 	var totalIn int64
@@ -125,24 +142,16 @@ func GenerateForBorrow(txnID string, lines []Line, idGen func() string) ([]Oblig
 		totalIn += l.Amount
 	}
 	if totalIn != totalOut {
-		// Spec §10.6: per-currency line totals must reconcile.
-		return nil, fmt.Errorf("obligation: out total %d != in total %d", totalOut, totalIn)
+		return nil, fmt.Errorf("%w: out=%d in=%d", ErrUnbalancedLines, totalOut, totalIn)
 	}
 
-	// Generate one obligation per (out, in) pair. The amount owed by each
-	// creditor to each debtor is:
-	//
-	//   creditor_share = creditor_out / total_out
-	//   debtor_share   = debtor_in   / total_in   (== total_out)
-	//   owed           = creditor_share * debtor_in   == creditor_out * debtor_in / total_out
-	//
-	// Integer arithmetic with banker-style rounding to keep the row sums
-	// equal to the line totals exactly.
+	// Determinism: sort by PosID so the "last creditor absorbs rounding"
+	// rule is a function of the input set, not the input slice order.
+	sort.SliceStable(outs, func(i, j int) bool { return outs[i].PosID < outs[j].PosID })
+	sort.SliceStable(ins, func(i, j int) bool { return ins[i].PosID < ins[j].PosID })
+
 	out := make([]Obligation, 0, len(outs)*len(ins))
-	for di, in := range ins {
-		// Distribute `in.Amount` across creditors, last creditor gets the
-		// remainder so rows sum exactly to in.Amount (no fractional cents
-		// drift).
+	for _, in := range ins {
 		var allocated int64
 		for ci, cred := range outs {
 			var amount int64
@@ -152,6 +161,9 @@ func GenerateForBorrow(txnID string, lines []Line, idGen func() string) ([]Oblig
 				amount = (cred.Amount * in.Amount) / totalOut
 				allocated += amount
 			}
+			if amount <= 0 {
+				continue // drop zero-share rows; storage CHECK requires owed > 0
+			}
 			out = append(out, Obligation{
 				ID:            idGen(),
 				TransactionID: txnID,
@@ -160,70 +172,85 @@ func GenerateForBorrow(txnID string, lines []Line, idGen func() string) ([]Oblig
 				Currency:      currency,
 				Owed:          amount,
 				Repaid:        0,
+				CreatedAt:     createdAt,
 				ClearedAt:     nil,
 			})
-			_ = di
 		}
 	}
 	return out, nil
 }
 
-// RepaymentLine is a line from an inter_pos borrow transaction in the
-// REVERSE direction — the original debtor is now sending out, the original
-// creditor is now receiving in. The matcher pairs payments to open
-// obligations FIFO by (creditor, debtor) and produces the resulting
-// updates and any new obligations spawned by overpayment.
+// RepaymentLine is a payment from one Pos to another in the reverse
+// direction of an existing obligation: FromPos is the original debtor
+// paying down, ToPos is the original creditor receiving.
 type RepaymentLine struct {
-	FromPos  string // the pos paying down (was the debtor)
-	ToPos    string // the pos being repaid (was the creditor)
+	FromPos  string
+	ToPos    string
 	Currency string
-	Amount   int64 // positive
+	Amount   int64 // > 0
 }
 
-// MatchPlan is the calculated set of mutations to apply atomically.
+// MatchPlan is the calculated mutation set the caller persists atomically.
 type MatchPlan struct {
 	// Updates: existing obligations whose Repaid (and possibly ClearedAt)
 	// changed.
 	Updates []Obligation
-	// Newly created obligations in the REVERSE direction, when a payment
-	// exceeded the sum of open obligations from this debtor to this
-	// creditor (the "kid's school cash short after gold price drop"
-	// case from spec §4.3).
-	NewObligations []Obligation
+	// ReverseObligations: NEW rows in the OPPOSITE direction, spawned
+	// when a repayment exceeded the open balance for its (creditor,
+	// debtor) pair (the "kid's school cash short after gold drop" case
+	// from spec §4.3) or when no open obligation existed for the pair
+	// at all (one Pos starts owing another spontaneously).
+	ReverseObligations []Obligation
 }
 
-// Match applies repayments to open obligations using FIFO order
-// (ascending by an Order field exposed by callers — usually CreatedAt).
-// Open obligations are those with !IsCleared().
+// MatchRepayments applies repayments to open obligations using FIFO
+// ordering by CreatedAt (oldest first). Match itself does the sort —
+// callers may pass open obligations in any order.
 //
-// `now` is the time at which a freshly-cleared obligation's ClearedAt
-// gets stamped. `idGen` is used only for new reverse-direction
-// obligations spawned by overpayment.
-func Match(open []Obligation, payments []RepaymentLine, now time.Time, idGen func() string) (MatchPlan, error) {
+// repaymentTxnID is stamped onto every newly-spawned reverse obligation
+// so the caller never receives a row with empty TransactionID.
+//
+// `now` is the time stamped onto a freshly-cleared obligation's
+// ClearedAt and onto reverse obligations' CreatedAt.
+//
+// Returns ErrInvalidCurrency / ErrNonPositiveAmount on bad payment
+// shapes; otherwise the input is treated as authoritative.
+func MatchRepayments(open []Obligation, payments []RepaymentLine, repaymentTxnID string, now time.Time, idGen func() string) (MatchPlan, error) {
 	for _, o := range open {
 		if err := o.Validate(); err != nil {
 			return MatchPlan{}, err
 		}
 	}
+	for _, p := range payments {
+		if p.Amount <= 0 {
+			return MatchPlan{}, fmt.Errorf("%w: payment %s→%s amount %d",
+				ErrNonPositiveAmount, p.FromPos, p.ToPos, p.Amount)
+		}
+		if !validCurrency(p.Currency) {
+			return MatchPlan{}, fmt.Errorf("%w: payment %s→%s currency %q",
+				ErrInvalidCurrency, p.FromPos, p.ToPos, p.Currency)
+		}
+	}
 	plan := MatchPlan{}
 
-	// Obligations are matched by (CreditorPosID, DebtorPosID, Currency).
-	// In the repayment, FromPos = original debtor, ToPos = original creditor.
-	// So the lookup key for a RepaymentLine{FromPos: D, ToPos: C} is
-	// (Creditor=C, Debtor=D).
+	// Bucket open obligations by (creditor, debtor, currency) and sort
+	// each bucket FIFO by CreatedAt. The Match function owns the sort —
+	// see issue #3 in the Phase-8 review (caller couldn't honor a
+	// FIFO contract because the struct didn't expose CreatedAt).
 	type key struct{ Creditor, Debtor, Currency string }
-
-	// Bucket open obligations by (creditor, debtor, currency) and sort each
-	// bucket FIFO. We rely on the input order being FIFO already (caller
-	// must pass `open` in oldest-first order); we don't sort by ID alone
-	// because IDs may be uuids. Stable order preserves caller intent.
 	buckets := map[key][]int{}
 	for i, o := range open {
 		k := key{Creditor: o.CreditorPosID, Debtor: o.DebtorPosID, Currency: o.Currency}
 		buckets[k] = append(buckets[k], i)
 	}
-	// Track per-obligation pending update so a single repayment can clear
-	// across multiple obligations.
+	for k := range buckets {
+		idxs := buckets[k]
+		sort.SliceStable(idxs, func(a, b int) bool {
+			return open[idxs[a]].CreatedAt.Before(open[idxs[b]].CreatedAt)
+		})
+		buckets[k] = idxs
+	}
+
 	updated := map[int]Obligation{}
 	getCurrent := func(i int) Obligation {
 		if o, ok := updated[i]; ok {
@@ -233,9 +260,6 @@ func Match(open []Obligation, payments []RepaymentLine, now time.Time, idGen fun
 	}
 
 	for _, p := range payments {
-		if p.Amount <= 0 {
-			return MatchPlan{}, fmt.Errorf("repayment to %s: non-positive amount %d", p.ToPos, p.Amount)
-		}
 		k := key{Creditor: p.ToPos, Debtor: p.FromPos, Currency: p.Currency}
 		remaining := p.Amount
 		for _, idx := range buckets[k] {
@@ -260,22 +284,11 @@ func Match(open []Obligation, payments []RepaymentLine, now time.Time, idGen fun
 			updated[idx] = cur
 		}
 		if remaining > 0 {
-			// Overpayment: create a new obligation in the reverse direction
-			// (the original creditor now owes the original debtor).
-			plan.NewObligations = append(plan.NewObligations, Obligation{
-				ID:            idGen(),
-				TransactionID: "", // caller stamps this with the repayment txn id
-				CreditorPosID: p.FromPos, // formerly debtor
-				DebtorPosID:   p.ToPos,   // formerly creditor
-				Currency:      p.Currency,
-				Owed:          remaining,
-				Repaid:        0,
-				ClearedAt:     nil,
-			})
+			plan.ReverseObligations = append(plan.ReverseObligations, spawnReverse(p, remaining, repaymentTxnID, now, idGen))
 		}
 	}
 
-	// Stable update list ordered by original index so callers see deterministic output.
+	// Stable update list ordered by original index.
 	idxs := make([]int, 0, len(updated))
 	for i := range updated {
 		idxs = append(idxs, i)
@@ -285,4 +298,41 @@ func Match(open []Obligation, payments []RepaymentLine, now time.Time, idGen fun
 		plan.Updates = append(plan.Updates, updated[i])
 	}
 	return plan, nil
+}
+
+// spawnReverse names the package's most distinctive behavior: an
+// overpayment (or a payment with no matching open obligation) creates a
+// new debt in the OPPOSITE direction. Surfaced as a helper so the
+// behavior has a name in the call graph, not just in a comment.
+func spawnReverse(p RepaymentLine, amount int64, repaymentTxnID string, now time.Time, idGen func() string) Obligation {
+	return Obligation{
+		ID:            idGen(),
+		TransactionID: repaymentTxnID,
+		CreditorPosID: p.FromPos, // formerly debtor
+		DebtorPosID:   p.ToPos,   // formerly creditor
+		Currency:      p.Currency,
+		Owed:          amount,
+		Repaid:        0,
+		CreatedAt:     now,
+		ClearedAt:     nil,
+	}
+}
+
+// validCurrency mirrors the storage CHECK `^[a-z0-9-]+$`. We don't compile
+// a regexp here — the predicate is small and runs in the hot path of every
+// borrow / repayment.
+func validCurrency(c string) bool {
+	if c == "" {
+		return false
+	}
+	for _, r := range c {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= '0' && r <= '9':
+		case r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
