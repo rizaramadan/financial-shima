@@ -83,8 +83,8 @@ func TestPosGet_NilPool_RendersNotFound(t *testing.T) {
 	if !strings.Contains(body, "Pos not found") {
 		t.Error("body missing not-found header (nil pool fallback)")
 	}
-	// Bell still renders since user is authenticated.
-	if !strings.Contains(body, `class="bell"`) {
-		t.Error("bell missing on authenticated not-found page")
+	// Nav still renders since user is authenticated.
+	if !strings.Contains(body, `href="/notifications"`) {
+		t.Error("nav missing on authenticated not-found page")
 	}
 }

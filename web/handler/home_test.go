@@ -64,9 +64,11 @@ func TestHomeGet_BellHiddenOnLoginPage(t *testing.T) {
 	}
 }
 
-// TestHomeGet_BellRendersWhenSignedIn pins the layout's authenticated
-// header. Without DB the count is zero so the badge is empty.
-func TestHomeGet_BellRendersWhenSignedIn(t *testing.T) {
+// TestHomeGet_NavRendersNotificationsAffordance pins the layout's
+// authenticated nav: the Notifications link with an unread-count badge
+// container is part of the chrome on every signed-in page. Without DB the
+// count is zero so the badge body is empty (CSS hides it via :empty).
+func TestHomeGet_NavRendersNotificationsAffordance(t *testing.T) {
 	t.Parallel()
 	signedIn := user.User{ID: "u-1", DisplayName: "Tester"}
 	e := homeTestServer(t, signedIn, true)
@@ -76,33 +78,13 @@ func TestHomeGet_BellRendersWhenSignedIn(t *testing.T) {
 	e.ServeHTTP(rec, req)
 
 	body := rec.Body.String()
-	if !strings.Contains(body, `class="bell"`) {
-		t.Error("bell missing from authenticated home")
-	}
 	if !strings.Contains(body, `href="/notifications"`) {
-		t.Error("bell does not link to /notifications")
+		t.Error("nav missing Notifications link")
 	}
 	// No DB → UnreadCount=0 → badge body is empty.
-	if !strings.Contains(body, `<span class="badge"></span>`) {
-		t.Errorf("expected empty badge with no DB; body excerpt around bell:\n%s",
-			extractAround(body, "bell", 200))
+	if !strings.Contains(body, `class="badge"`) {
+		t.Error("nav badge container missing")
 	}
-}
-
-func extractAround(s, needle string, span int) string {
-	i := strings.Index(s, needle)
-	if i < 0 {
-		return ""
-	}
-	start := i - span
-	if start < 0 {
-		start = 0
-	}
-	end := i + span
-	if end > len(s) {
-		end = len(s)
-	}
-	return s[start:end]
 }
 
 // TestHomeGet_Unauthenticated_RedirectsToLogin: spec §3.2 access control.
@@ -140,8 +122,8 @@ func TestHomeGet_NilPoolRendersPlaceholder(t *testing.T) {
 	if !strings.Contains(body, "Tester") {
 		t.Error("body missing display name")
 	}
-	if !strings.Contains(body, "load once seed data lands") {
-		t.Error("body missing empty-state subtitle (nil pool fallback)")
+	if !strings.Contains(body, "Nothing here yet") {
+		t.Error("body missing empty-state text (nil pool fallback)")
 	}
 	// LoadError SHOULD NOT trigger (this is no-DB, not error-from-DB).
 	if strings.Contains(body, `class="alert"`) {

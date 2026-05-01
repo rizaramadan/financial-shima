@@ -66,11 +66,11 @@ func TestSpendingGet_NilPool_RendersFilterFormAndEmptyState(t *testing.T) {
 	if !strings.Contains(body, `name="from"`) || !strings.Contains(body, `name="to"`) {
 		t.Error("body missing filter inputs")
 	}
-	if !strings.Contains(body, "No money_out transactions in this range") {
-		t.Error("body missing empty-state subtitle (nil pool)")
+	if !strings.Contains(body, "No spending in this range") {
+		t.Error("body missing empty-state text (nil pool)")
 	}
-	if !strings.Contains(body, `class="bell"`) {
-		t.Error("bell missing on authenticated spending page")
+	if !strings.Contains(body, `href="/notifications"`) {
+		t.Error("nav missing Notifications link on spending page")
 	}
 }
 

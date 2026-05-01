@@ -80,9 +80,9 @@ func TestTransactionsGet_NilPool_RendersFilterFormWithDefaultRange(t *testing.T)
 	if !strings.Contains(body, `value="`+today+`"`) {
 		t.Errorf("body missing today's date in form: %q", today)
 	}
-	// Bell badge is empty since no DB.
-	if !strings.Contains(body, `class="bell"`) {
-		t.Error("bell missing on authenticated transactions page")
+	// Notifications affordance lives in the global nav.
+	if !strings.Contains(body, `href="/notifications"`) {
+		t.Error("nav missing Notifications link on transactions page")
 	}
 }
 
