@@ -8,15 +8,17 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"golang.org/x/net/html"
+
+	"github.com/rizaramadan/financial-shima/web/setup"
 )
 
-// renderLogin registers the route on a fresh Echo and dispatches via
-// e.ServeHTTP so the test exercises the framework's routing path, not just
-// LoginGet in isolation. Production middleware is intentionally not applied
-// here — that's what cmd/server tests cover.
+// renderLogin builds an Echo with the project's standard middleware via
+// setup.Apply, registers the /login route, and dispatches the request — so
+// these tests exercise the same chain production traffic sees.
 func renderLogin(t *testing.T) *httptest.ResponseRecorder {
 	t.Helper()
 	e := echo.New()
+	setup.Apply(e)
 	e.GET("/login", LoginGet)
 	req := httptest.NewRequest(http.MethodGet, "/login", nil)
 	rec := httptest.NewRecorder()
@@ -109,24 +111,36 @@ func TestLoginGet_Returns200WithTextHTMLContentType(t *testing.T) {
 	}
 }
 
+func TestLoginGet_HasUTF8CharsetDeclaration(t *testing.T) {
+	t.Parallel()
+	doc := parseDoc(t, renderLogin(t))
+
+	meta := findFirst(doc, func(n *html.Node) bool {
+		return isElement("meta")(n) && strings.EqualFold(attr(n, "charset"), "utf-8")
+	})
+	if meta == nil {
+		t.Fatal(`no <meta charset="utf-8">`)
+	}
+}
+
 func TestLoginGet_HasHTMLLangAndNonEmptyTitle(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
 
 	htmlEl := findFirst(doc, isElement("html"))
 	if htmlEl == nil {
-		t.Fatal("no <html> element")
+		t.Fatal("no <html>")
 	}
 	if got := attr(htmlEl, "lang"); got == "" {
-		t.Error(`<html> missing lang attribute (accessibility / SEO baseline)`)
+		t.Error(`<html> missing lang attribute`)
 	}
 
 	title := findFirst(doc, isElement("title"))
 	if title == nil {
-		t.Fatal("no <title> element")
+		t.Fatal("no <title>")
 	}
 	if textOf(title) == "" {
-		t.Error("<title> is empty")
+		t.Error("<title> empty")
 	}
 }
 
@@ -136,7 +150,7 @@ func TestLoginGet_FormUsesPOSTMethod(t *testing.T) {
 
 	forms := findAll(doc, isElement("form"))
 	if len(forms) != 1 {
-		t.Fatalf("found %d <form> elements, want exactly 1", len(forms))
+		t.Fatalf("found %d <form> elements, want 1", len(forms))
 	}
 	if got := strings.ToLower(attr(forms[0], "method")); got != "post" {
 		t.Errorf("form method = %q, want post", got)
@@ -156,13 +170,23 @@ func TestLoginGet_FormPostsToLoginPath(t *testing.T) {
 	}
 }
 
+func TestLoginGet_HasExactlyOneLabel(t *testing.T) {
+	t.Parallel()
+	doc := parseDoc(t, renderLogin(t))
+
+	labels := findAll(doc, isElement("label"))
+	if len(labels) != 1 {
+		t.Fatalf("found %d <label> elements, want 1", len(labels))
+	}
+}
+
 func TestLoginGet_HasExactlyOneIdentifierInput(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
 
 	inputs := findAll(doc, identifierInputPred)
 	if len(inputs) != 1 {
-		t.Fatalf(`found %d <input name="identifier">, want exactly 1`, len(inputs))
+		t.Fatalf(`found %d <input name="identifier">, want 1`, len(inputs))
 	}
 }
 
@@ -174,8 +198,6 @@ func TestLoginGet_IdentifierInputIsTextType(t *testing.T) {
 	if input == nil {
 		t.Fatal(`no <input name="identifier">`)
 	}
-	// type defaults to "text", but we assert it explicitly so a regression
-	// to type="password" or type="hidden" fails loudly.
 	got := strings.ToLower(attr(input, "type"))
 	if got != "text" && got != "" {
 		t.Errorf(`identifier input type = %q, want "text" (or omitted)`, got)
@@ -188,35 +210,50 @@ func TestLoginGet_IdentifierInputHasLabelWithVisibleText(t *testing.T) {
 
 	input := findFirst(doc, identifierInputPred)
 	if input == nil {
-		t.Fatal(`no <input name="identifier">`)
+		t.Fatal(`no input`)
 	}
 	id := attr(input, "id")
 	if id == "" {
 		t.Fatal("identifier input has no id")
 	}
-
 	label := findFirst(doc, func(n *html.Node) bool {
 		return isElement("label")(n) && attr(n, "for") == id
 	})
 	if label == nil {
 		t.Fatalf(`no <label for=%q>`, id)
 	}
-	if text := textOf(label); text == "" {
-		t.Errorf(`<label for=%q> has no visible text content`, id)
+	if textOf(label) == "" {
+		t.Errorf(`<label for=%q> has no visible text`, id)
 	}
 }
 
-func TestLoginGet_IdentifierInputUsesMobileFriendlyAttributes(t *testing.T) {
+// TestLoginGet_AutocompleteIsOff: the identifier is a Telegram handle, not a
+// username/email, so password managers should not surface saved credentials
+// here. autocomplete="off" is the right hint.
+func TestLoginGet_AutocompleteIsOff(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
 
 	input := findFirst(doc, identifierInputPred)
 	if input == nil {
-		t.Fatal(`no <input name="identifier">`)
+		t.Fatal(`no input`)
 	}
+	if got := attr(input, "autocomplete"); got != "off" {
+		t.Errorf(`autocomplete = %q, want "off" (Telegram handle is not a saved username)`, got)
+	}
+}
 
+// TestLoginGet_DisablesKeyboardCorrections: iOS auto-capitalize, autocorrect,
+// and spellcheck would mangle a Telegram username on first keystroke.
+func TestLoginGet_DisablesKeyboardCorrections(t *testing.T) {
+	t.Parallel()
+	doc := parseDoc(t, renderLogin(t))
+
+	input := findFirst(doc, identifierInputPred)
+	if input == nil {
+		t.Fatal(`no input`)
+	}
 	cases := []struct{ key, want string }{
-		{"autocomplete", "username"},
 		{"autocapitalize", "off"},
 		{"autocorrect", "off"},
 		{"spellcheck", "false"},
@@ -228,28 +265,22 @@ func TestLoginGet_IdentifierInputUsesMobileFriendlyAttributes(t *testing.T) {
 			}
 		})
 	}
-
-	t.Run("required", func(t *testing.T) {
-		if !hasAttr(input, "required") {
-			t.Error("missing required attribute on identifier input")
-		}
-	})
 }
 
-func TestLoginGet_HasNoAutofocus_PerMobileUXReview(t *testing.T) {
+func TestLoginGet_IdentifierInputIsRequired(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
 
 	input := findFirst(doc, identifierInputPred)
 	if input == nil {
-		t.Fatal(`no <input name="identifier">`)
+		t.Fatal(`no input`)
 	}
-	if hasAttr(input, "autofocus") {
-		t.Error(`identifier input has "autofocus"; removed by Round 2 mobile UX review`)
+	if !hasAttr(input, "required") {
+		t.Error("identifier input missing required attribute")
 	}
 }
 
-func TestLoginGet_HasExactlyOneSubmitButtonWithVisibleText(t *testing.T) {
+func TestLoginGet_HasExactlyOneSubmitButtonWithExactCopy(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
 
@@ -258,10 +289,11 @@ func TestLoginGet_HasExactlyOneSubmitButtonWithVisibleText(t *testing.T) {
 	}
 	btns := findAll(doc, submitPred)
 	if len(btns) != 1 {
-		t.Fatalf(`found %d <button type="submit">, want exactly 1`, len(btns))
+		t.Fatalf(`found %d <button type="submit">, want 1`, len(btns))
 	}
-	if textOf(btns[0]) == "" {
-		t.Error(`<button type="submit"> has no visible text content`)
+	const want = "Send code via Telegram"
+	if got := textOf(btns[0]); got != want {
+		t.Errorf("submit button text = %q, want %q", got, want)
 	}
 }
 
@@ -273,10 +305,9 @@ func TestLoginGet_HasViewportMetaForResponsiveLayout(t *testing.T) {
 		return isElement("meta")(n) && strings.ToLower(attr(n, "name")) == "viewport"
 	})
 	if meta == nil {
-		t.Fatal(`no <meta name="viewport"> in <head>`)
+		t.Fatal(`no <meta name="viewport">`)
 	}
-	content := attr(meta, "content")
-	if !strings.Contains(content, "width=device-width") {
-		t.Errorf(`viewport content = %q, want to include "width=device-width"`, content)
+	if !strings.Contains(attr(meta, "content"), "width=device-width") {
+		t.Errorf(`viewport content missing width=device-width`)
 	}
 }

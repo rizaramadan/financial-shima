@@ -140,7 +140,7 @@ button:disabled {
   name="identifier"
   type="text"
   inputmode="text"
-  autocomplete="username"
+  autocomplete="off"
   autocapitalize="off"
   autocorrect="off"
   spellcheck="false"

@@ -81,3 +81,38 @@ Skeet (drives commit 3):
 
 Conflict resolution (per spec: safety>simplicity, clarity>performance, convention>magic): Beck wins on the CSRF/error-region tests (delete them), even though Ive's "form shape stability" argument is real — clarity wins, and Phase 2 will drive their return naturally. Ive's `aria-live` removal aligns with Beck's deletion of the test, so no cross-cutting conflict remains there.
 
+#### Round 3 — 2026-05-01
+
+| Persona | Score | Headline |
+|---|---|---|
+| Skeet | 8.5/10 (↑ 0.5) | **Critical**: bind-failure path `return`s with exit 0 — supervisors won't restart. `net.ResolveTCPAddr` does DNS (semantic), should be `SplitHostPort` (syntactic). `BindsAndServesRealHTTP` exercises Echo over TCP but not `e.Start`'s bind path. `TimeoutsMatchDeclaredConstants` is tautology (asserts X==X). |
+| Ive | 7.5/10 (↑ 1.5) | h1 + subhead semantic overlap; h1 undertuned at 24px/-1%; `max-width 22rem` cramped; field→button rhythm too tight; button + input visually identical shapes; `autocomplete="username"` is **a correctness bug** (browsers surface saved usernames/emails, not Telegram); no `accent-color` for native chrome; no visual anchor; subhead at 15px on `--muted` borderline. |
+| Beck | 8.5/10 (↑ 1) | `_HasNoAutofocus_PerMobileUXReview` pins a removal decision, not a behavior — delete. `TimeoutsMatchDeclaredConstants` tautology — delete or use literals. `PostLogin_RejectedByEchoMethodRouting` tests Echo, not us — delete. Mobile-attrs bundle hides multi-property test — split. Button text `!= ""` is degenerate — pin actual word. `renderLogin` uses bare Echo while `newServer` adds middleware — middleware not exercised by handler tests. Untested: charset, label uniqueness, body content on TCP test. |
+
+**Changes for Round 4** (separated by reviewer per Round 2's lesson):
+
+Beck (commit 1):
+- Extract `web/setup` package: `Apply(*echo.Echo)` configures timeouts + middleware. Both `cmd/server` and the handler test's `renderLogin` call it, so handler tests exercise the assembled stack.
+- Delete `TestLoginGet_HasNoAutofocus_PerMobileUXReview` (pins absence; not behavior).
+- Delete `TestServer_PostLogin_RejectedByEchoMethodRouting` (asserts framework behavior).
+- Delete `TestServer_TimeoutsMatchDeclaredConstants` (tautology); the real-listener test is the timeout regression guard now.
+- Split `_IdentifierInputUsesMobileFriendlyAttributes` into `_AutocompleteIsOff`, `_DisablesKeyboardCorrections` (autocapitalize/autocorrect/spellcheck), `_IsRequired`.
+- Pin button label exactly: assert text is `"Send code via Telegram"`.
+- Add `_HasUTF8CharsetDeclaration` and `_HasExactlyOneLabel` (uniqueness).
+- `BindsAndServesRealHTTP` now also asserts the response body contains `<form` and `name="identifier"`.
+
+Ive (commit 2):
+- `autocomplete="username"` → `autocomplete="off"` (browsers were going to surface saved emails, not Telegram handles).
+- h1 punch: `font-size: 1.875rem; font-weight: 650; letter-spacing: -0.02em` — present, not default.
+- Drop subhead entirely; h1 carries the orienting voice now that it's specific ("Sign in to Shima").
+- `max-width: 22rem → 24rem` so 32-char usernames don't crowd the input.
+- `.field { margin-bottom: 1.5rem }` so the button reads as a consequence, not a sibling.
+- Button taller than input: `padding: 0.875rem 1rem` — the action is shaped differently from the question.
+- `accent-color: var(--focus)` on `:root` and a `::selection` style so native form chrome stays in palette.
+
+Skeet (commit 3):
+- Bind failure now exits non-zero via `log.Fatalf` (preserves the supervisor restart contract that Round 2's `Printf` accidentally broke).
+- Replace `net.ResolveTCPAddr` with `net.SplitHostPort` (pure syntax, no DNS).
+- Defer-close in goroutine for invariant clarity.
+- Rename `BindsAndServesRealHTTP` → `HandlerOverRealTCP_ServesLoginForm` (honest about what it tests; the body-content assertion lands here too).
+

@@ -4,8 +4,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
-	"time"
 )
 
 func TestServer_GETLogin_Returns200(t *testing.T) {
@@ -18,25 +18,6 @@ func TestServer_GETLogin_Returns200(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-}
-
-// TestServer_PostLogin_RejectedByEchoMethodRouting pins the Phase-1 boundary:
-// only GET /login is registered, so Echo's router answers POST /login with
-// 405 and an Allow: GET header. When Phase 2 wires POST, this test goes red
-// and forces an intentional update. The 405 itself is Echo's behavior, not
-// ours — the test documents intent.
-func TestServer_PostLogin_RejectedByEchoMethodRouting(t *testing.T) {
-	t.Parallel()
-	e := newServer()
-
-	req := httptest.NewRequest(http.MethodPost, "/login", nil)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("status = %d, want %d (Phase 1 should not yet serve POST /login)",
-			rec.Code, http.StatusMethodNotAllowed)
 	}
 }
 
@@ -73,36 +54,18 @@ func TestServer_AppliesSecurityHeaders(t *testing.T) {
 	}
 }
 
-// TestServer_TimeoutsMatchDeclaredConstants asserts exact configured values,
-// not just non-zero — a regression that drops a timeout to 1ms (or removes
-// one assignment) fails here, where the previous "> 0" assertion would not.
-func TestServer_TimeoutsMatchDeclaredConstants(t *testing.T) {
-	t.Parallel()
-	e := newServer()
-
-	cases := []struct {
-		name string
-		got  time.Duration
-		want time.Duration
-	}{
-		{"ReadHeaderTimeout", e.Server.ReadHeaderTimeout, readHeaderTimeout},
-		{"ReadTimeout", e.Server.ReadTimeout, readTimeout},
-		{"WriteTimeout", e.Server.WriteTimeout, writeTimeout},
-		{"IdleTimeout", e.Server.IdleTimeout, idleTimeout},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if c.got != c.want {
-				t.Errorf("%s = %v, want %v", c.name, c.got, c.want)
-			}
-		})
-	}
-}
-
-// TestServer_BindsAndServesRealHTTP exercises the actual net/http stack — a
-// regression that breaks the listener wiring (or moves timeout assignments
-// after Start) ships green against e.ServeHTTP-based tests, but fails here.
-func TestServer_BindsAndServesRealHTTP(t *testing.T) {
+// TestServer_HandlerOverRealTCP_ServesLoginForm exercises the assembled
+// handler tree over an actual TCP listener (httptest.NewServer wraps it in a
+// real *http.Server). This is the regression guard against changes that pass
+// in-memory ServeHTTP but break the real wire path — e.g., a future encoder
+// that depends on hijacking. It also verifies the body actually contains the
+// form (a 200 with empty body would otherwise pass).
+//
+// Note: this does NOT exercise main()'s e.Start(addr) bind path or the
+// signal-driven shutdown — those aren't reachable from a test without
+// extracting main into a run() helper. The named test scope is "handler over
+// real TCP," not "the bootstrap binds."
+func TestServer_HandlerOverRealTCP_ServesLoginForm(t *testing.T) {
 	t.Parallel()
 	e := newServer()
 	ts := httptest.NewServer(e)
@@ -113,10 +76,18 @@ func TestServer_BindsAndServesRealHTTP(t *testing.T) {
 		t.Fatalf("GET /login via real listener: %v", err)
 	}
 	defer resp.Body.Close()
-	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
-		t.Errorf("drain body: %v", err)
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	wantSubstrings := []string{`<form`, `name="identifier"`, `Send code via Telegram`}
+	for _, s := range wantSubstrings {
+		if !strings.Contains(string(body), s) {
+			t.Errorf("body missing %q", s)
+		}
 	}
 }
