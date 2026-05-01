@@ -1,9 +1,11 @@
 package main
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestServer_GETLogin_Returns200(t *testing.T) {
@@ -19,7 +21,12 @@ func TestServer_GETLogin_Returns200(t *testing.T) {
 	}
 }
 
-func TestServer_POSTLogin_NotYetWired_Returns405(t *testing.T) {
+// TestServer_PostLogin_RejectedByEchoMethodRouting pins the Phase-1 boundary:
+// only GET /login is registered, so Echo's router answers POST /login with
+// 405 and an Allow: GET header. When Phase 2 wires POST, this test goes red
+// and forces an intentional update. The 405 itself is Echo's behavior, not
+// ours — the test documents intent.
+func TestServer_PostLogin_RejectedByEchoMethodRouting(t *testing.T) {
 	t.Parallel()
 	e := newServer()
 
@@ -27,9 +34,6 @@ func TestServer_POSTLogin_NotYetWired_Returns405(t *testing.T) {
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
-	// Phase 1 boundary: POST /login is NOT served. When Phase 2 wires it,
-	// this test goes red and forces an intentional update. Echo's router
-	// returns 405 for a registered path with an unregistered method.
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want %d (Phase 1 should not yet serve POST /login)",
 			rec.Code, http.StatusMethodNotAllowed)
@@ -69,20 +73,50 @@ func TestServer_AppliesSecurityHeaders(t *testing.T) {
 	}
 }
 
-func TestServer_SetsConservativeTimeouts(t *testing.T) {
+// TestServer_TimeoutsMatchDeclaredConstants asserts exact configured values,
+// not just non-zero — a regression that drops a timeout to 1ms (or removes
+// one assignment) fails here, where the previous "> 0" assertion would not.
+func TestServer_TimeoutsMatchDeclaredConstants(t *testing.T) {
 	t.Parallel()
 	e := newServer()
 
-	if e.Server.ReadHeaderTimeout <= 0 {
-		t.Errorf("ReadHeaderTimeout = %v, want > 0 (Slowloris defense)", e.Server.ReadHeaderTimeout)
+	cases := []struct {
+		name string
+		got  time.Duration
+		want time.Duration
+	}{
+		{"ReadHeaderTimeout", e.Server.ReadHeaderTimeout, readHeaderTimeout},
+		{"ReadTimeout", e.Server.ReadTimeout, readTimeout},
+		{"WriteTimeout", e.Server.WriteTimeout, writeTimeout},
+		{"IdleTimeout", e.Server.IdleTimeout, idleTimeout},
 	}
-	if e.Server.ReadTimeout <= 0 {
-		t.Errorf("ReadTimeout = %v, want > 0", e.Server.ReadTimeout)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if c.got != c.want {
+				t.Errorf("%s = %v, want %v", c.name, c.got, c.want)
+			}
+		})
 	}
-	if e.Server.WriteTimeout <= 0 {
-		t.Errorf("WriteTimeout = %v, want > 0", e.Server.WriteTimeout)
+}
+
+// TestServer_BindsAndServesRealHTTP exercises the actual net/http stack — a
+// regression that breaks the listener wiring (or moves timeout assignments
+// after Start) ships green against e.ServeHTTP-based tests, but fails here.
+func TestServer_BindsAndServesRealHTTP(t *testing.T) {
+	t.Parallel()
+	e := newServer()
+	ts := httptest.NewServer(e)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/login")
+	if err != nil {
+		t.Fatalf("GET /login via real listener: %v", err)
 	}
-	if e.Server.IdleTimeout <= 0 {
-		t.Errorf("IdleTimeout = %v, want > 0", e.Server.IdleTimeout)
+	defer resp.Body.Close()
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		t.Errorf("drain body: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
 }
