@@ -158,12 +158,30 @@ func GenerateBorrowObligations(txnID string, lines []Line, createdAt time.Time, 
 
 	out := make([]Obligation, 0, len(outs)*len(ins))
 	for _, in := range ins {
-		// Hamilton's largest-remainder apportionment. Each creditor's
-		// floor share is `cred.Amount * in.Amount / totalOut`; the
-		// residual `in.Amount - Σ floors` is distributed +1 at a time
-		// to the creditors with the largest fractional remainders.
-		// Self-debt creditors are silently skipped — a Pos cannot owe
-		// itself (CHECK at the storage layer agrees).
+		// Hamilton's largest-remainder apportionment per debtor.
+		//
+		// Self-debt is silently skipped (a Pos cannot owe itself; the
+		// storage CHECK agrees). Critically, when the self-creditor is
+		// excluded we must also remove its share from the denominator —
+		// otherwise the per-debtor sum would short by the self-creditor's
+		// implied portion, and the residual loop would silently drop
+		// units rather than carry the full debtor amount across the
+		// remaining creditors.
+		// Sum ALL self-creditor amounts (a PosID can appear multiple
+		// times in outs); each contributes to the share that must be
+		// excluded from the residual denominator for this debtor.
+		var selfOut int64
+		for _, cred := range outs {
+			if cred.PosID == in.PosID {
+				selfOut += cred.Amount
+			}
+		}
+		effTotalOut := totalOut - selfOut
+		if effTotalOut == 0 {
+			// Only the debtor itself is on the out side; nothing is owed.
+			continue
+		}
+
 		shares := make([]int64, len(outs))
 		remainders := make([]int64, len(outs))
 		eligible := make([]int, 0, len(outs))
@@ -172,22 +190,20 @@ func GenerateBorrowObligations(txnID string, lines []Line, createdAt time.Time, 
 			if cred.PosID == in.PosID {
 				continue
 			}
-			shares[ci] = (cred.Amount * in.Amount) / totalOut
-			remainders[ci] = (cred.Amount * in.Amount) % totalOut
+			shares[ci] = (cred.Amount * in.Amount) / effTotalOut
+			remainders[ci] = (cred.Amount * in.Amount) % effTotalOut
 			allocated += shares[ci]
 			eligible = append(eligible, ci)
 		}
-		if len(eligible) == 0 {
-			continue
-		}
 		residual := in.Amount - allocated
-		// Sort eligible indices by remainder DESC, tie-break by PosID
-		// (which is the input sort order — eligible was built in order).
 		sort.SliceStable(eligible, func(a, b int) bool {
 			return remainders[eligible[a]] > remainders[eligible[b]]
 		})
-		for r := int64(0); r < residual && int(r) < len(eligible); r++ {
-			shares[eligible[r]]++
+		// residual is bounded by len(eligible) since each remainder is
+		// strictly less than effTotalOut and Σ remainders < len * eff;
+		// after eligible-many +1 bumps, residual is fully absorbed.
+		for r := int64(0); r < residual; r++ {
+			shares[eligible[int(r)%len(eligible)]]++
 		}
 
 		for ci, cred := range outs {
@@ -323,9 +339,16 @@ func MatchRepayments(open []Obligation, payments []RepaymentLine, repaymentTxnID
 		}
 		if remaining > 0 {
 			// Distinct CreatedAt per spawned reverse so FIFO across them
-			// is deterministic in subsequent calls.
+			// is deterministic within this call. (Across calls with the
+			// same `now`, FIFO ties break on ID — see the bucket sort
+			// above.)
 			ts := now.Add(time.Duration(pi) * time.Nanosecond)
-			plan.ReverseObligations = append(plan.ReverseObligations, spawnReverse(p, remaining, repaymentTxnID, ts, idGen))
+			rev := spawnReverse(p, remaining, repaymentTxnID, ts, idGen)
+			if _, dup := seenID[rev.ID]; dup {
+				return MatchPlan{}, fmt.Errorf("%w: spawned reverse collides with %s", ErrDuplicateID, rev.ID)
+			}
+			seenID[rev.ID] = struct{}{}
+			plan.ReverseObligations = append(plan.ReverseObligations, rev)
 		}
 	}
 

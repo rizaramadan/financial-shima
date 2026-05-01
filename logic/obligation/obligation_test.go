@@ -124,6 +124,131 @@ func TestGenerate_ZeroShareRowsAreDropped(t *testing.T) {
 	}
 }
 
+// TestGenerate_SelfCreditorIsSkipped_SumStillEqualsDebtor: a Pos that
+// appears in BOTH `outs` and `ins` is silently skipped on the self-debt
+// row (a pos cannot owe itself), and the remaining creditors must
+// absorb the FULL debtor amount — totalOut excludes the self-creditor's
+// Amount for that debtor's row. Skeet R3 caught a residual-drop bug
+// where without the effTotalOut adjustment, sum < debtor.Amount.
+func TestGenerate_SelfCreditorIsSkipped_SumStillEqualsDebtor(t *testing.T) {
+	t.Parallel()
+	gen, _ := counter()
+	// outs: Z=50, A=50 (totalOut=100). ins: Z=100. Z is self-debtor on
+	// the only debtor row. effTotalOut = 50; A's share = 50*100/50 = 100.
+	// The full 100 must land on A — not 50 with 50 silently dropped.
+	obs, err := GenerateBorrowObligations("tx", []Line{
+		{PosID: "Z", Currency: "idr", Direction: DirOut, Amount: 50},
+		{PosID: "A", Currency: "idr", Direction: DirOut, Amount: 50},
+		{PosID: "Z", Currency: "idr", Direction: DirIn, Amount: 100},
+	}, t0, gen)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(obs) != 1 {
+		t.Fatalf("got %d obligations, want 1 (Z→Z dropped, A→Z kept)", len(obs))
+	}
+	if obs[0].CreditorPosID != "A" || obs[0].DebtorPosID != "Z" || obs[0].Owed != 100 {
+		t.Errorf("got %+v, want A→Z=100", obs[0])
+	}
+}
+
+// TestProperty_GenerateBorrow_PerDebtorSumEqualsIn property-tests the
+// invariant Σ(shares for debtor d) == d.Amount across random inputs
+// including self-overlaps. Skeet R3 paired with the test that catches
+// the bug: without the effTotalOut adjustment, this fails.
+func TestProperty_GenerateBorrow_PerDebtorSumEqualsIn(t *testing.T) {
+	t.Parallel()
+	rng := rand.New(rand.NewSource(0xBEEF))
+	for i := 0; i < 1000; i++ {
+		// 2-4 creditors and 1-3 debtors with random amounts. Some inputs
+		// share PosIDs to exercise the self-debt path.
+		nOuts := rng.Intn(3) + 2
+		nIns := rng.Intn(3) + 1
+		idsPool := []string{"P0", "P1", "P2", "P3", "P4"}
+
+		outs := make([]Line, 0, nOuts)
+		ins := make([]Line, 0, nIns)
+		var totalOut int64
+		for j := 0; j < nOuts; j++ {
+			amt := int64(rng.Intn(100) + 1)
+			outs = append(outs, Line{
+				PosID: idsPool[rng.Intn(len(idsPool))],
+				Currency: "idr", Direction: DirOut, Amount: amt,
+			})
+			totalOut += amt
+		}
+		// distribute totalOut across nIns debtors with rounding to last
+		var allocated int64
+		for j := 0; j < nIns; j++ {
+			var amt int64
+			if j == nIns-1 {
+				amt = totalOut - allocated
+			} else {
+				amt = totalOut / int64(nIns)
+				allocated += amt
+			}
+			if amt <= 0 {
+				amt = 1
+				totalOut += 1 // tiny adjustment to keep balanced
+			}
+			ins = append(ins, Line{
+				PosID: idsPool[rng.Intn(len(idsPool))],
+				Currency: "idr", Direction: DirIn, Amount: amt,
+			})
+		}
+		// Re-balance totalOut against ins
+		var totalIn int64
+		for _, in := range ins {
+			totalIn += in.Amount
+		}
+		if totalIn != totalOut {
+			outs = append(outs, Line{
+				PosID: idsPool[rng.Intn(len(idsPool))],
+				Currency: "idr", Direction: DirOut, Amount: totalIn - totalOut,
+			})
+		}
+
+		gen, _ := counter()
+		obs, err := GenerateBorrowObligations("tx", append(outs, ins...), t0, gen)
+		if err != nil {
+			continue // skip degenerate cases; not the property under test
+		}
+
+		// Per-debtor-PosID: sum of obligations equals sum of in.Amount for
+		// that PosID, EXCEPT when only the self-creditor has out-amount
+		// for that debtor (then no obligations are emitted, by design).
+		debtorTotalIn := map[string]int64{}
+		for _, in := range ins {
+			debtorTotalIn[in.PosID] += in.Amount
+		}
+		obsByDebtor := map[string]int64{}
+		for _, o := range obs {
+			obsByDebtor[o.DebtorPosID] += o.Owed
+		}
+		// Build effTotalOut per debtor (sum of out.Amount where PosID != debtor).
+		for dp, want := range debtorTotalIn {
+			eff := int64(0)
+			for _, c := range outs {
+				if c.PosID != dp {
+					eff += c.Amount
+				}
+			}
+			if eff == 0 {
+				// Self-only out — no obligations expected for this debtor.
+				if obsByDebtor[dp] != 0 {
+					t.Fatalf("iter %d debtor %s: got %d obligation total, expected 0",
+						i, dp, obsByDebtor[dp])
+				}
+				continue
+			}
+			if obsByDebtor[dp] != want {
+				t.Fatalf("iter %d debtor %s: sum=%d, want %d",
+					i, dp, obsByDebtor[dp], want)
+			}
+		}
+	}
+}
+
 func TestGenerate_DeterministicAcrossInputOrder(t *testing.T) {
 	t.Parallel()
 	rotate := func(out, in []Line) ([]Line, []Line) {

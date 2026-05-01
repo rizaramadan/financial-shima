@@ -45,13 +45,15 @@ type VerifyData struct {
 }
 
 // HomeData drives the home view per spec §6.2 (current balances).
-// Empty Accounts / PosByCurrency renders the Phase-2 placeholder
-// fallback so the page works before the DB is wired.
+// Empty Accounts / PosByCurrency triggers either the placeholder fallback
+// (LoadError = false: DB is unwired or empty) or an error message
+// (LoadError = true: a real DB call failed).
 type HomeData struct {
 	Title         string
 	DisplayName   string
 	Accounts      []AccountRow
 	PosByCurrency []PosCurrencyGroup
+	LoadError     bool
 }
 
 // AccountRow is one row in the Accounts table on /. Balance is derived
@@ -195,7 +197,9 @@ const verifyBody = `<h1>Enter your code</h1>
 </p>`
 
 const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
-{{if and (not .Accounts) (not .PosByCurrency)}}
+{{if .LoadError}}
+<p class="alert" role="alert">Couldn&rsquo;t load your accounts and pos right now. Refresh in a moment.</p>
+{{else if and (not .Accounts) (not .PosByCurrency)}}
 <p class="subtitle">Accounts and Pos load once seed data lands. Balance computation wires up next.</p>
 {{end}}
 
@@ -206,7 +210,7 @@ const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
 <thead><tr><th>Name</th><th class="num">Balance</th></tr></thead>
 <tbody>
 {{range .Accounts}}
-<tr><td>{{.Name}}</td><td class="num">{{.BalanceIDR}}</td></tr>
+<tr><td>{{.Name}}</td><td class="num">&mdash;</td></tr>
 {{end}}
 </tbody>
 </table>
@@ -222,11 +226,12 @@ const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
 {{range .Items}}
 <tr>
   <td>{{.Name}}</td>
-  <td class="num">{{.Cash}}</td>
+  <td class="num">&mdash;</td>
   <td class="num">{{if .HasTarget}}{{.Target}}{{else}}&mdash;{{end}}</td>
 </tr>
 {{end}}
 </tbody>
+</table>
 </section>
 {{end}}
 

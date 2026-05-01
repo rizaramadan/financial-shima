@@ -17,8 +17,12 @@ import (
 //
 // When DB is wired, accounts and pos are listed from the live store. Balance
 // computation from the transaction stream lands once an insert path is wired
-// into the web/API surface (until then, balances render as zero alongside
-// targets so the structure is testable end-to-end).
+// into the web/API surface; until then, balance columns render as em-dashes
+// so users don't read a misleading "0".
+//
+// On a DB error, the page still renders 200 with HomeData.LoadError=true so
+// the user sees a transient-failure message rather than a "seed data missing"
+// placeholder. The underlying error is logged via c.Logger().
 func (h *Handlers) HomeGet(c echo.Context) error {
 	u, ok := mw.CurrentUser(c)
 	if !ok {
@@ -34,17 +38,19 @@ func (h *Handlers) HomeGet(c echo.Context) error {
 		ctx, cancel := context.WithTimeout(c.Request().Context(), 3*time.Second)
 		defer cancel()
 		if err := h.loadHomeData(ctx, &data); err != nil {
-			// DB error: log and render the placeholder rather than 500.
 			c.Logger().Errorf("home loadHomeData: %v", err)
+			data.LoadError = true
 		}
 	}
 
 	return c.Render(http.StatusOK, "home", data)
 }
 
-// loadHomeData fills HomeData.Accounts and HomeData.PosByCurrency from the
-// live store. Pos rows are grouped by currency and sorted alphabetically
-// per spec §6.2 ("Pos — table of non-archived Pos grouped by currency").
+// loadHomeData populates HomeData.Accounts and HomeData.PosByCurrency from
+// the live store. ListPos already orders rows by (currency, name), so a
+// single linear pass groups them — no in-memory sort needed. IDR is pinned
+// first because it's the operator's primary unit; remaining currencies sort
+// alphabetically.
 func (h *Handlers) loadHomeData(ctx context.Context, data *template.HomeData) error {
 	q := dbq.New(h.DB)
 
@@ -60,31 +66,37 @@ func (h *Handlers) loadHomeData(ctx context.Context, data *template.HomeData) er
 	if err != nil {
 		return err
 	}
-	groups := map[string][]template.PosRow{}
+	// SQL returns rows sorted by (currency, name); collect groups in
+	// encounter order, then move IDR to the front.
+	var groups []template.PosCurrencyGroup
+	curIdx := -1
 	for _, p := range pos {
+		if curIdx == -1 || groups[curIdx].Currency != p.Currency {
+			groups = append(groups, template.PosCurrencyGroup{Currency: p.Currency})
+			curIdx = len(groups) - 1
+		}
 		var target int64
-		var hasTarget bool
+		hasTarget := false
 		if p.Target != nil {
 			target = *p.Target
 			hasTarget = true
 		}
-		groups[p.Currency] = append(groups[p.Currency], template.PosRow{
-			Name:      p.Name,
-			Target:    target,
-			HasTarget: hasTarget,
+		groups[curIdx].Items = append(groups[curIdx].Items, template.PosRow{
+			Name: p.Name, Target: target, HasTarget: hasTarget,
 		})
 	}
-	currencies := make([]string, 0, len(groups))
-	for c := range groups {
-		currencies = append(currencies, c)
-	}
-	sort.Strings(currencies)
-	for _, ccy := range currencies {
-		data.PosByCurrency = append(data.PosByCurrency, template.PosCurrencyGroup{
-			Currency: ccy,
-			Items:    groups[ccy],
-		})
-	}
+	// Pin IDR first; alpha for the rest. (Stable so IDR's position is
+	// deterministic when present.)
+	sort.SliceStable(groups, func(i, j int) bool {
+		if groups[i].Currency == "idr" {
+			return true
+		}
+		if groups[j].Currency == "idr" {
+			return false
+		}
+		return groups[i].Currency < groups[j].Currency
+	})
+	data.PosByCurrency = groups
 	return nil
 }
 
