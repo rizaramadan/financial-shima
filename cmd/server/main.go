@@ -94,6 +94,7 @@ func newServerWithDeps(a *auth.Auth, ac assistant.Client, db *pgxpool.Pool) *ech
 	e.GET("/notifications", h.NotificationsGet)
 	e.POST("/notifications/:id/read", h.NotificationMarkRead)
 	e.POST("/notifications/mark-all-read", h.NotificationsMarkAllRead)
+	e.GET("/transactions", h.TransactionsGet)
 	return e
 }
 

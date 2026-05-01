@@ -240,6 +240,96 @@ func (q *Queries) ListTransactionsByAccount(ctx context.Context, accountID pgtyp
 	return items, nil
 }
 
+const listTransactionsByDateRange = `-- name: ListTransactionsByDateRange :many
+SELECT
+    t.id, t.type, t.effective_date,
+    t.account_id, t.account_amount,
+    t.pos_id, t.pos_amount,
+    t.counterparty_id, t.note,
+    t.source, t.created_by, t.idempotency_key,
+    t.created_at, t.reverses_id,
+    a.name  AS account_name,
+    p.name  AS pos_name,
+    p.currency AS pos_currency,
+    cp.name AS counterparty_name
+FROM transactions t
+LEFT JOIN accounts       a  ON a.id  = t.account_id
+LEFT JOIN pos            p  ON p.id  = t.pos_id
+LEFT JOIN counterparties cp ON cp.id = t.counterparty_id
+WHERE t.effective_date >= $1 AND t.effective_date <= $2
+ORDER BY t.effective_date DESC, t.created_at DESC, t.id DESC
+LIMIT 200
+`
+
+type ListTransactionsByDateRangeParams struct {
+	EffectiveDate   pgtype.Date
+	EffectiveDate_2 pgtype.Date
+}
+
+type ListTransactionsByDateRangeRow struct {
+	ID               pgtype.UUID
+	Type             TransactionType
+	EffectiveDate    pgtype.Date
+	AccountID        pgtype.UUID
+	AccountAmount    *int64
+	PosID            pgtype.UUID
+	PosAmount        *int64
+	CounterpartyID   pgtype.UUID
+	Note             *string
+	Source           TransactionSource
+	CreatedBy        pgtype.UUID
+	IdempotencyKey   string
+	CreatedAt        pgtype.Timestamptz
+	ReversesID       pgtype.UUID
+	AccountName      *string
+	PosName          *string
+	PosCurrency      *string
+	CounterpartyName *string
+}
+
+// Joined view for the §6.1 list: account.name, pos.name + currency,
+// counterparty.name. LEFT JOINs because Phase 7+ inter_pos rows have
+// NULL account_id / pos_id / counterparty_id (line items live in
+// inter_pos_lines — to be rendered when that phase ships).
+func (q *Queries) ListTransactionsByDateRange(ctx context.Context, arg ListTransactionsByDateRangeParams) ([]ListTransactionsByDateRangeRow, error) {
+	rows, err := q.db.Query(ctx, listTransactionsByDateRange, arg.EffectiveDate, arg.EffectiveDate_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTransactionsByDateRangeRow
+	for rows.Next() {
+		var i ListTransactionsByDateRangeRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.EffectiveDate,
+			&i.AccountID,
+			&i.AccountAmount,
+			&i.PosID,
+			&i.PosAmount,
+			&i.CounterpartyID,
+			&i.Note,
+			&i.Source,
+			&i.CreatedBy,
+			&i.IdempotencyKey,
+			&i.CreatedAt,
+			&i.ReversesID,
+			&i.AccountName,
+			&i.PosName,
+			&i.PosCurrency,
+			&i.CounterpartyName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markAllNotificationsRead = `-- name: MarkAllNotificationsRead :execrows
 UPDATE notifications SET read_at = now()
 WHERE user_id = $1 AND read_at IS NULL

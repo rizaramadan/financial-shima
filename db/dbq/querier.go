@@ -39,6 +39,11 @@ type Querier interface {
 	ListNotificationsForUser(ctx context.Context, userID pgtype.UUID) ([]Notification, error)
 	ListPos(ctx context.Context) ([]Po, error)
 	ListTransactionsByAccount(ctx context.Context, accountID pgtype.UUID) ([]Transaction, error)
+	// Joined view for the §6.1 list: account.name, pos.name + currency,
+	// counterparty.name. LEFT JOINs because Phase 7+ inter_pos rows have
+	// NULL account_id / pos_id / counterparty_id (line items live in
+	// inter_pos_lines — to be rendered when that phase ships).
+	ListTransactionsByDateRange(ctx context.Context, arg ListTransactionsByDateRangeParams) ([]ListTransactionsByDateRangeRow, error)
 	ListUsers(ctx context.Context) ([]User, error)
 	MarkAllNotificationsRead(ctx context.Context, userID pgtype.UUID) (int64, error)
 	MarkNotificationRead(ctx context.Context, arg MarkNotificationReadParams) error

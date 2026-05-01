@@ -26,6 +26,7 @@ func New() *Renderer {
 	template.Must(t.New("verify").Parse(layoutOpen + verifyBody + layoutClose))
 	template.Must(t.New("home").Parse(layoutOpen + homeBody + layoutClose))
 	template.Must(t.New("notifications").Parse(layoutOpen + notificationsBody + layoutClose))
+	template.Must(t.New("transactions").Parse(layoutOpen + transactionsBody + layoutClose))
 	return &Renderer{t: t}
 }
 
@@ -139,6 +140,36 @@ func (d HomeData) SignedIn() bool { return d.DisplayName != "" }
 // LoginData and VerifyData are pre-auth; SignedIn always false.
 func (d LoginData) SignedIn() bool  { return false }
 func (d VerifyData) SignedIn() bool { return false }
+
+// TransactionsData drives the §6.1 list. Items are pre-sorted newest-first
+// by the SQL query.
+type TransactionsData struct {
+	Title       string
+	DisplayName string
+	From        string // YYYY-MM-DD echoed back into the filter form
+	To          string
+	Items       []TransactionRow
+	LoadError   bool
+	UnreadCount int
+}
+
+// SignedIn for transactions list — only reachable post-auth.
+func (d TransactionsData) SignedIn() bool { return d.DisplayName != "" }
+
+// TransactionRow is one row in the list, pre-flattened from the SQL join.
+type TransactionRow struct {
+	ID               string
+	Type             string // money_in / money_out / inter_pos
+	EffectiveDate    string // YYYY-MM-DD
+	Amount           int64
+	Currency         string
+	AccountName      string
+	PosName          string
+	CounterpartyName string
+	Note             string
+	IsReversal       bool
+	ReversesID       string // populated when IsReversal
+}
 
 // AccountRow is one row in the Accounts table on /. Balance is derived
 // from transactions; until that path is wired, render zero.
@@ -260,6 +291,15 @@ th { font-weight: 500; color: var(--muted); }
 .notif-body { display: block; font-size: 0.875rem; color: var(--muted); margin-top: 0.25rem; }
 .notif-time { display: block; font-size: 0.8125rem; color: var(--muted); margin-top: 0.25rem; }
 .notif-actions { flex-shrink: 0; }
+.filter { display: flex; gap: 0.75rem; align-items: end; margin: 0 0 1.5rem; flex-wrap: wrap; }
+.filter label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.875rem; color: var(--muted); }
+.filter input { width: auto; min-width: 9rem; }
+.filter button { width: auto; padding: 0.5rem 1rem; }
+.reversal td { color: var(--muted); text-decoration: line-through; }
+.badge-rev { display: inline-block; padding: 0.0625rem 0.375rem; border-radius: 999px;
+  background: color-mix(in oklab, var(--muted) 18%, var(--bg));
+  color: var(--muted); font-size: 0.6875rem; font-weight: 600;
+  text-decoration: none; margin-left: 0.5rem; }
 </style>
 </head>
 <body>
@@ -353,6 +393,39 @@ const notificationsBody = `<h1>Notifications</h1>
 </li>
 {{end}}
 </ul>
+{{end}}
+<p class="aside"><a class="linkbtn" href="/">&larr; Home</a></p>`
+
+const transactionsBody = `<h1>Transactions</h1>
+<form method="get" action="/transactions" class="filter">
+<label>From <input type="date" name="from" value="{{.From}}"></label>
+<label>To <input type="date" name="to" value="{{.To}}"></label>
+<button type="submit">Filter</button>
+</form>
+{{if .LoadError}}
+<p class="alert" role="alert">Couldn&rsquo;t load transactions. Refresh in a moment.</p>
+{{else if not .Items}}
+<p class="subtitle">No transactions in this range.</p>
+{{else}}
+<table>
+<thead><tr>
+<th>Date</th><th>Type</th><th class="num">Amount</th>
+<th>Account</th><th>Pos</th><th>Counterparty</th><th>Note</th>
+</tr></thead>
+<tbody>
+{{range .Items}}
+<tr{{if .IsReversal}} class="reversal"{{end}}>
+<td>{{.EffectiveDate}}</td>
+<td>{{.Type}}{{if .IsReversal}} <a class="badge-rev" href="/transactions/{{.ReversesID}}">reverses</a>{{end}}</td>
+<td class="num">{{.Amount}}{{if .Currency}} {{.Currency}}{{end}}</td>
+<td>{{if .AccountName}}{{.AccountName}}{{else}}&mdash;{{end}}</td>
+<td>{{if .PosName}}{{.PosName}}{{else}}&mdash;{{end}}</td>
+<td>{{if .CounterpartyName}}{{.CounterpartyName}}{{else}}&mdash;{{end}}</td>
+<td>{{.Note}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
 {{end}}
 <p class="aside"><a class="linkbtn" href="/">&larr; Home</a></p>`
 
