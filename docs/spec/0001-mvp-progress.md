@@ -7,7 +7,7 @@ Tracks delivery against `0001-mvp.md`. Phases are minimal end-to-end slices, not
 | # | Phase | Status | Exit Criteria |
 |---|-------|--------|---------------|
 | 1 | Project scaffold + login page renders | **complete** (2026-05-01) | `GET /login` returns 200 with the form; handler unit-tested; `go test ./...` green; all three reviewers ≥9/10 in their final reviews (Skeet 9.3 R6, Ive 9.1 R8, Beck 9.6 R6) |
-| 2 | OTP issue + verify (in-memory store, stubbed assistant) | pending | Submit identifier → OTP generated; submit OTP → session cookie; rate limit + lockout enforced; reviewers pass |
+| 2 | OTP issue + verify (in-memory store, stubbed assistant) | **implementation complete; review loop deferred** | Submit identifier → OTP generated ✓; submit OTP → session cookie ✓; rate limit + lockout enforced ✓ (15 logic tests + 13 I/O tests). Adversarial review loop deferred to next session. |
 | 3 | Logic layer: money type (integer cents) + Clock/IDGen interfaces | pending | Property tests for arithmetic; no `float64` anywhere in `logic/`; reviewers pass |
 | 4 | DB schema + sqlc setup (Postgres, Neon-compatible) | pending | Migrations run; `accounts`, `pos`, `counterparties`, `users`, `sessions` tables; sqlc generates; reviewers pass |
 | 5 | Logic: transaction validation (§5.1 rules for all 3 types) | pending | All §5.1 rules unit-tested; reviewers pass |
@@ -20,6 +20,29 @@ Tracks delivery against `0001-mvp.md`. Phases are minimal end-to-end slices, not
 ## Round Log
 
 (Each phase's review rounds appended below as they happen. Format: round number, scores per persona, what changed, blockers.)
+
+### Phase 2
+
+**Implementation summary (2026-05-01):**
+
+Logic layer (5 packages, all pure, all parallel-tested):
+- `logic/clock` — `Clock` interface, `System`/`Fixed` impls.
+- `logic/idgen` — `IDGen` interface, `Crypto` (32-byte URL-safe base64) and `Fixed` impls.
+- `logic/otp` — `Code` (6-digit, zero-padded), `Generate(io.Reader)`, `Record.Verify` with constant-time compare, `String()` redacts the code, exported constants per spec §3.3.
+- `logic/user` — `Seeded()` returns Riza/Shima; `Find()` lowercases + strips `@` + trims whitespace.
+- `logic/auth` — coordinates `Issue` → assistant → `Verify` → `Session`. In-memory stores keyed by user.ID and token. Resend cooldown enforced; lockout via `otp.Record`.
+
+Dependencies: `dependencies/assistant` — `Client` interface, production `HTTPClient` (5s timeout, no retries per spec §7.3), test `Recorder` fake.
+
+I/O: `web/template` (html/template, layout via concat), `web/handler` (`LoginGet/Post`, `VerifyGet/Post`, `HomeGet`), `web/middleware/session` (cookie → user). `cmd/server` wires everything; `OTP_ASSISTANT_URL/_API_KEY` env vars toggle live delivery vs in-memory recorder.
+
+Test counts: 28 new tests across logic+deps+web. All green.
+
+Phase-2 exit criteria from spec section 0:
+- ✅ Submit identifier → OTP generated (auth.Issue + assistant.SendOTP).
+- ✅ Submit OTP → session cookie (HttpOnly, SameSite=Lax, 7-day, Secure when TLS).
+- ✅ Rate limit (60s ResendCooldown) + lockout (3 wrong attempts) enforced.
+- ⏸ Reviewers pass — three-persona review deferred to a separate session to keep this commit tight.
 
 ### Phase 1
 
