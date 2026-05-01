@@ -97,6 +97,24 @@ func TestRecord_Verify_RejectsWrongCode(t *testing.T) {
 	}
 }
 
+// TestRecord_Verify_AcceptedCodeReplayReturnsSpent: the spec §3.2 promise
+// is one-time. After Accepted, re-Verifying with the correct code must
+// return Spent (not Locked, which is a misleading message). This is the
+// behavior layer that pins replay protection — previously only the Cleared
+// flag was asserted as a struct field (Beck R6 review).
+func TestRecord_Verify_AcceptedCodeReplayReturnsSpent(t *testing.T) {
+	t.Parallel()
+	r := NewRecord(NewCode(123456), t0)
+	res, r2 := r.Verify(NewCode(123456), t0.Add(1*time.Minute))
+	if res != Accepted {
+		t.Fatalf("first verify = %v, want Accepted", res)
+	}
+	res2, _ := r2.Verify(NewCode(123456), t0.Add(2*time.Minute))
+	if res2 != Spent {
+		t.Errorf("replay verify = %v, want Spent", res2)
+	}
+}
+
 func TestRecord_Verify_LocksAfterMaxAttempts(t *testing.T) {
 	t.Parallel()
 	r := NewRecord(NewCode(123456), t0)

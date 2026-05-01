@@ -29,7 +29,7 @@ RETURNING id, name, currency, target, archived, created_at
 type CreatePosParams struct {
 	Name     string
 	Currency string
-	Target   pgtype.Numeric
+	Target   *int64
 }
 
 func (q *Queries) CreatePos(ctx context.Context, arg CreatePosParams) (Po, error) {

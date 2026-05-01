@@ -56,6 +56,7 @@ const (
 	Locked
 	Expired
 	Rejected
+	Spent // OTP was already accepted; this is a replay (spec §3.2 one-time-use)
 )
 
 func (r VerifyResult) String() string {
@@ -70,6 +71,8 @@ func (r VerifyResult) String() string {
 		return "Expired"
 	case Rejected:
 		return "Rejected"
+	case Spent:
+		return "Spent"
 	default:
 		return "Result(?)"
 	}
@@ -138,7 +141,11 @@ func (a *Auth) Issue(identifier string) IssueOutcome {
 
 	now := a.Clock.Now()
 	if prev, exists := a.otps[u.ID]; exists {
-		if !prev.Cleared && !prev.Locked && now.Sub(prev.IssuedAt) < otp.ResendCooldown {
+		// Cooldown applies even after a Locked record so a brute-forcer who
+		// burned attempts can't immediately request a fresh code (Skeet R6
+		// review). Successful (Cleared) records bypass — the user just
+		// signed in, follow-up flows shouldn't pay the wait.
+		if !prev.Cleared && now.Sub(prev.IssuedAt) < otp.ResendCooldown {
 			return IssueOutcome{Result: CooldownActive, User: u}
 		}
 	}
@@ -184,8 +191,10 @@ func (a *Auth) Verify(identifier string, submitted otp.Code) VerifyOutcome {
 		return VerifyOutcome{Result: Expired}
 	case otp.Rejected:
 		return VerifyOutcome{Result: Rejected}
+	case otp.Spent:
+		return VerifyOutcome{Result: Spent}
 	}
-	// otp.Verify returns one of the four cases above; fall-through is a bug.
+	// otp.Verify returns one of the five cases above; fall-through is a bug.
 	return VerifyOutcome{Result: Rejected}
 }
 

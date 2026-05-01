@@ -71,6 +71,11 @@ func (h *Handlers) VerifyPost(c echo.Context) error {
 		return render(http.StatusOK, "Code expired. Request a new one.")
 	case auth.Rejected:
 		return render(http.StatusOK, "That code did not match. Try again.")
+	case auth.Spent:
+		// Code was already used — the legitimate user has a session via
+		// their first verify. Send them back to /login so they can re-auth
+		// if they no longer hold the cookie.
+		return render(http.StatusOK, "That code was already used. Request a new one.")
 	case auth.NoOTP:
 		// No record on file — the previous Issue likely never landed, or
 		// the user is replaying an old form. Redirect to start.

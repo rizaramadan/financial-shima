@@ -206,6 +206,38 @@ func TestLogout_RevokesSession(t *testing.T) {
 	}
 }
 
+// TestAuth_ConcurrentIssueIsRaceSafe drives N goroutines issuing OTPs for
+// the same identifier. The mutex must serialize cleanly: exactly one
+// Issue returns Issued; the rest return CooldownActive. -race exercises
+// the read+write atomicity (Beck R6 review).
+func TestAuth_ConcurrentIssueIsRaceSafe(t *testing.T) {
+	t.Parallel()
+	a := freshAuth(t, t0)
+
+	const N = 16
+	results := make(chan IssueResult, N)
+	for i := 0; i < N; i++ {
+		go func() { results <- a.Issue("@shima").Result }()
+	}
+	issued, cooldowns := 0, 0
+	for i := 0; i < N; i++ {
+		switch r := <-results; r {
+		case Issued:
+			issued++
+		case CooldownActive:
+			cooldowns++
+		default:
+			t.Errorf("unexpected concurrent result: %v", r)
+		}
+	}
+	if issued != 1 {
+		t.Errorf("got %d Issued, want exactly 1", issued)
+	}
+	if issued+cooldowns != N {
+		t.Errorf("missing results: issued=%d cooldowns=%d N=%d", issued, cooldowns, N)
+	}
+}
+
 func TestNew_PanicsOnMissingDependencies(t *testing.T) {
 	t.Parallel()
 	users := user.Seeded()

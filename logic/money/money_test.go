@@ -136,16 +136,22 @@ func TestProperty_AddZeroIsIdentity(t *testing.T) {
 	}
 }
 
-// Commutativity: a + b = b + a (whenever neither overflows).
+// Commutativity: a + b = b + a. Asserted CONDITIONALLY across the full
+// int64 range — if one side overflows, the other must too. This exercises
+// the overflow branch (Beck R6 review) which int32 inputs could not reach.
 func TestProperty_AddIsCommutative(t *testing.T) {
 	t.Parallel()
-	f := func(x, y int32) bool { // int32 inputs avoid overflow at the int64 boundary
-		a := Money{Cents: int64(x), Currency: "idr"}
-		b := Money{Cents: int64(y), Currency: "idr"}
+	f := func(x, y int64) bool {
+		a := Money{Cents: x, Currency: "idr"}
+		b := Money{Cents: y, Currency: "idr"}
 		ab, err1 := a.Add(b)
 		ba, err2 := b.Add(a)
-		if err1 != nil || err2 != nil {
+		// Symmetry of overflow detection itself.
+		if (err1 == nil) != (err2 == nil) {
 			return false
+		}
+		if err1 != nil {
+			return true // both overflowed; commutativity vacuously holds
 		}
 		return ab == ba
 	}
@@ -154,19 +160,21 @@ func TestProperty_AddIsCommutative(t *testing.T) {
 	}
 }
 
-// Round-trip: (a + b) - b = a (modulo overflow).
+// Round-trip: (a + b) - b = a. Conditional on the addition NOT overflowing.
+// When it does, the property is vacuous; when it doesn't, the round-trip
+// must be exact.
 func TestProperty_AddSubRoundTrip(t *testing.T) {
 	t.Parallel()
-	f := func(x, y int32) bool {
-		a := Money{Cents: int64(x), Currency: "idr"}
-		b := Money{Cents: int64(y), Currency: "idr"}
+	f := func(x, y int64) bool {
+		a := Money{Cents: x, Currency: "idr"}
+		b := Money{Cents: y, Currency: "idr"}
 		sum, err1 := a.Add(b)
 		if err1 != nil {
-			return false
+			return true // overflow path — property doesn't apply
 		}
 		got, err2 := sum.Sub(b)
 		if err2 != nil {
-			return false
+			return false // (a+b) succeeded but (a+b)-b overflowed: bug
 		}
 		return got == a
 	}
@@ -175,15 +183,67 @@ func TestProperty_AddSubRoundTrip(t *testing.T) {
 	}
 }
 
-// Negation involution: -(-a) == a.
+// TestProperty_OverflowBoundary_Add probes the exact int64 boundaries the
+// generators are unlikely to hit by chance. Manual point cases compensate
+// for the random sampler's blind spot.
+func TestProperty_OverflowBoundary_Add(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		a, b      int64
+		wantError bool
+	}{
+		{math.MaxInt64, 0, false},
+		{math.MaxInt64, 1, true},
+		{math.MaxInt64 - 1, 1, false},
+		{math.MaxInt64, math.MaxInt64, true},
+		{math.MinInt64, 0, false},
+		{math.MinInt64, -1, true},
+		{math.MinInt64 + 1, -1, false},
+		{math.MinInt64, math.MinInt64, true},
+		{0, 0, false},
+		{1, -1, false},
+	}
+	for _, c := range cases {
+		_, err := Money{Cents: c.a, Currency: "x"}.Add(Money{Cents: c.b, Currency: "x"})
+		if (err != nil) != c.wantError {
+			t.Errorf("Add(%d,%d) err=%v wantErr=%v", c.a, c.b, err, c.wantError)
+		}
+	}
+}
+
+func TestProperty_OverflowBoundary_Sub(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		a, b      int64
+		wantError bool
+	}{
+		{math.MaxInt64, 0, false},
+		{math.MaxInt64, -1, true},
+		{math.MaxInt64, 1, false},
+		{math.MinInt64, 0, false},
+		{math.MinInt64, 1, true},
+		{math.MinInt64, -1, false},
+		{math.MinInt64 + 1, 1, false},
+	}
+	for _, c := range cases {
+		_, err := Money{Cents: c.a, Currency: "x"}.Sub(Money{Cents: c.b, Currency: "x"})
+		if (err != nil) != c.wantError {
+			t.Errorf("Sub(%d,%d) err=%v wantErr=%v", c.a, c.b, err, c.wantError)
+		}
+	}
+}
+
+// Negation involution: -(-a) == a, except at math.MinInt64 where the
+// documented quirk is Neg(MinInt64) == MinInt64 (no positive counterpart).
 func TestProperty_NegInvolution(t *testing.T) {
 	t.Parallel()
 	f := func(cents int64) bool {
-		// MinInt64 cannot be negated without overflow; skip that one input.
-		if cents == math.MinInt64 {
-			return true
-		}
 		a := Money{Cents: cents, Currency: "idr"}
+		if cents == math.MinInt64 {
+			// Documented quirk: Neg is a no-op at MinInt64. Assert it
+			// rather than skipping (Beck R6 review).
+			return a.Neg() == a
+		}
 		return a.Neg().Neg() == a
 	}
 	if err := quick.Check(f, &quick.Config{MaxCount: 500}); err != nil {
@@ -215,13 +275,6 @@ func TestIsNegative(t *testing.T) {
 
 // --- Float64 hygiene ---
 
-// TestNoFloat64InAPI: spec §10.1 says "Money is integer cents. Never
-// float64 in Go." The Money struct uses int64; this test pins that
-// surface so a future refactor to float64 fails the build.
-func TestNoFloat64InAPI(_ *testing.T) {
-	var m Money
-	// Compile-time assertion: assigning float64 to Cents must fail.
-	// (We simply use int64 ops here; the assertion is the type itself.)
-	m.Cents = int64(0)
-	_ = m
-}
+// (TestNoFloat64InAPI removed per Beck R6 review — it was a runtime no-op.
+// The build itself is the assertion: Money.Cents is int64; any int-incompatible
+// assignment elsewhere fails compilation, which the suite already runs.)

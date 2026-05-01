@@ -68,8 +68,9 @@ type Result int
 const (
 	Accepted Result = iota
 	Rejected
-	Locked
-	Expired
+	Locked  // too many wrong attempts
+	Expired // past ExpiryDuration since IssuedAt
+	Spent   // Verify already Accepted on this Record (replay)
 )
 
 func (r Result) String() string {
@@ -82,6 +83,8 @@ func (r Result) String() string {
 		return "Locked"
 	case Expired:
 		return "Expired"
+	case Spent:
+		return "Spent"
 	default:
 		return fmt.Sprintf("Result(%d)", int(r))
 	}
@@ -113,7 +116,10 @@ func NewRecord(c Code, issuedAt time.Time) Record {
 // The returned Record reflects the post-attempt state and supersedes the
 // receiver in storage. The receiver is not modified.
 func (r Record) Verify(submitted Code, now time.Time) (Result, Record) {
-	if r.Locked || r.Cleared {
+	if r.Cleared {
+		return Spent, r
+	}
+	if r.Locked {
 		return Locked, r
 	}
 	if now.Sub(r.IssuedAt) > ExpiryDuration {

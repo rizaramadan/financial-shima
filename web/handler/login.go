@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -67,8 +68,9 @@ func (h *Handlers) LoginPost(c echo.Context) error {
 		}
 		// Identifier in query string, NOT in a cookie — there's nothing
 		// sensitive here (the user just typed it) and a cookie would be
-		// visible to other tabs.
-		return c.Redirect(http.StatusSeeOther, "/verify?id="+identifier)
+		// visible to other tabs. URL-escape so '#' / '&' / '?' don't
+		// smuggle in extra query syntax (Skeet R6 review).
+		return c.Redirect(http.StatusSeeOther, "/verify?id="+url.QueryEscape(identifier))
 	}
 
 	// auth.Issue covers all three cases; fall-through is a bug.

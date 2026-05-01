@@ -26,7 +26,7 @@ type Po struct {
 	ID        pgtype.UUID
 	Name      string
 	Currency  string
-	Target    pgtype.Numeric
+	Target    *int64
 	Archived  bool
 	CreatedAt pgtype.Timestamptz
 }

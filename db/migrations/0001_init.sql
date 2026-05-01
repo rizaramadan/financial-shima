@@ -44,7 +44,10 @@ CREATE TABLE pos (
     name        text        NOT NULL CHECK (length(trim(name)) > 0),
     currency    text        NOT NULL DEFAULT 'idr'
                             CHECK (currency ~ '^[a-z0-9-]+$'),
-    target      numeric     CHECK (target IS NULL OR target >= 0),
+    -- target is integer cents, NOT numeric — spec §10.1 forbids float-style
+    -- decimals for money values; the smallest unit (rupiah for IDR, the
+    -- operator's chosen subdivision for non-IDR) is the only representation.
+    target      bigint      CHECK (target IS NULL OR target >= 0),
     archived    boolean     NOT NULL DEFAULT false,
     created_at  timestamptz NOT NULL DEFAULT now(),
     UNIQUE (name, currency)
@@ -55,7 +58,12 @@ CREATE TABLE pos (
 -- case-insensitive autocomplete and dedup.
 CREATE TABLE counterparties (
     id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
-    name        text        NOT NULL CHECK (name ~ '^[a-zA-Z0-9_\- ]+$'),
+    -- length(trim(name)) > 0 mirrors accounts/pos and prevents a whitespace-
+    -- only name from passing the regex CHECK (which permits space alone).
+    name        text        NOT NULL CHECK (
+                                length(trim(name)) > 0
+                                AND name ~ '^[a-zA-Z0-9_\- ]+$'
+                            ),
     name_lower  text        NOT NULL UNIQUE GENERATED ALWAYS AS (lower(name)) STORED,
     created_at  timestamptz NOT NULL DEFAULT now()
 );

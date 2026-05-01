@@ -137,9 +137,22 @@ func ValidateInterPos(in InterPosInput, today time.Time) []string {
 	}
 
 	var hasOut, hasIn bool
-	// per-currency totals
-	outByCcy := map[string]int64{}
-	inByCcy := map[string]int64{}
+	// per-currency totals — sum via money.Add so overflow surfaces as an
+	// explicit violation rather than silently wrapping past int64 (Skeet R1).
+	outByCcy := map[string]money.Money{}
+	inByCcy := map[string]money.Money{}
+	addInto := func(m map[string]money.Money, line money.Money, lineNo int) {
+		key := line.Currency
+		if _, ok := m[key]; !ok {
+			m[key] = money.New(0, key)
+		}
+		sum, err := m[key].Add(line)
+		if err != nil {
+			errs = append(errs, "line "+itoa(lineNo)+": amount sum overflow")
+			return
+		}
+		m[key] = sum
+	}
 	for i, l := range in.Lines {
 		if l.Pos.Archived {
 			errs = append(errs, "line "+itoa(i+1)+": pos is archived")
@@ -154,10 +167,10 @@ func ValidateInterPos(in InterPosInput, today time.Time) []string {
 		switch l.Direction {
 		case DirOut:
 			hasOut = true
-			outByCcy[l.Amount.Currency] += l.Amount.Cents
+			addInto(outByCcy, l.Amount, i+1)
 		case DirIn:
 			hasIn = true
-			inByCcy[l.Amount.Currency] += l.Amount.Cents
+			addInto(inByCcy, l.Amount, i+1)
 		default:
 			errs = append(errs, "line "+itoa(i+1)+": direction must be 'out' or 'in'")
 		}
@@ -180,10 +193,10 @@ func ValidateInterPos(in InterPosInput, today time.Time) []string {
 		allCcy[c] = struct{}{}
 	}
 	for c := range allCcy {
-		if outByCcy[c] != inByCcy[c] {
+		if outByCcy[c].Cents != inByCcy[c].Cents {
 			errs = append(errs, "currency "+c+
-				": Σ(out) "+itoa(int(outByCcy[c]))+
-				" != Σ(in) "+itoa(int(inByCcy[c])))
+				": Σ(out) "+itoa(int(outByCcy[c].Cents))+
+				" != Σ(in) "+itoa(int(inByCcy[c].Cents)))
 		}
 	}
 

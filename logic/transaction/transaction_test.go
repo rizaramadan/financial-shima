@@ -190,13 +190,39 @@ func TestValidateMoneyIn_CounterpartyValid(t *testing.T) {
 	}
 }
 
-func TestValidateMoneyOut_AppliesSameRules(t *testing.T) {
+// TestValidateMoneyOut_FieldValidationMatchesMoneyIn pins (deliberately) that
+// the two functions share an implementation today. If MoneyOut grows
+// distinct rules in a later phase, the symmetry intent of this test will
+// need to evolve into a divergence test (Beck R6 review).
+func TestValidateMoneyOut_FieldValidationMatchesMoneyIn(t *testing.T) {
 	t.Parallel()
 	in := validIDRMoneyIn()
-	in.AccountAmount = money.New(-1, "idr") // bad
+	in.AccountAmount = money.New(-1, "idr")
 	errs := ValidateMoneyOut(in, today)
 	if !containsContaining(errs, "positive") {
 		t.Errorf("ValidateMoneyOut should reject same as MoneyIn, got %v", errs)
+	}
+}
+
+// TestValidateInterPos_PerCurrencySumOverflow_Rejected probes the new
+// money.Add-backed overflow path (Skeet R6 review). Two huge IDR-out
+// lines would silently wrap a raw int64 sum but must surface as a
+// violation now.
+func TestValidateInterPos_PerCurrencySumOverflow_Rejected(t *testing.T) {
+	t.Parallel()
+	const half = int64(1<<62) + 1 // half of MaxInt64 + 1
+	in := InterPosInput{
+		EffectiveDate: today,
+		Mode:          ModeReallocation,
+		Lines: []InterPosLine{
+			{Pos: PosRef{ID: "a", Currency: "idr"}, Direction: DirOut, Amount: money.New(half, "idr")},
+			{Pos: PosRef{ID: "b", Currency: "idr"}, Direction: DirOut, Amount: money.New(half, "idr")},
+			{Pos: PosRef{ID: "c", Currency: "idr"}, Direction: DirIn, Amount: money.New(1, "idr")},
+		},
+	}
+	errs := ValidateInterPos(in, today)
+	if !containsContaining(errs, "overflow") {
+		t.Errorf("expected overflow error, got %v", errs)
 	}
 }
 

@@ -6,7 +6,16 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/labstack/echo/v4"
+
+	"github.com/rizaramadan/financial-shima/logic/clock"
+	"github.com/rizaramadan/financial-shima/logic/otp"
 )
+
+// otpExpiryPlusOne is a small helper so tests don't import otp inline.
+func otpExpiryPlusOne() time.Duration { return otp.ExpiryDuration + time.Second }
 
 func TestVerifyGet_RendersFormWithHiddenIdentifier(t *testing.T) {
 	t.Parallel()
@@ -156,6 +165,105 @@ func TestVerifyPost_MalformedCode_RendersValidationError(t *testing.T) {
 				t.Errorf("body missing '6 digits' message for input %q", bad)
 			}
 		})
+	}
+}
+
+// formPost issues a form-encoded POST and returns the recorder.
+func formPost(t *testing.T, e *echo.Echo, path string, vals url.Values) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(vals.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	e.ServeHTTP(w, req)
+	return w
+}
+
+// TestVerifyPost_LockedAfterMaxAttempts drives 3 wrong codes and confirms
+// the 4th surfaces the Locked render — exercising the terminal state that
+// the production code path produces but the prior suite never observed.
+func TestVerifyPost_LockedAfterMaxAttempts(t *testing.T) {
+	t.Parallel()
+	e, _, rec := testServer(t)
+
+	formPost(t, e, "/login", url.Values{"identifier": {"@shima"}})
+	last, _ := rec.Last()
+	wrong := "000000"
+	if last.Code == wrong {
+		wrong = "000001"
+	}
+
+	for i := 0; i < 2; i++ {
+		formPost(t, e, "/verify", url.Values{
+			"identifier": {"@shima"}, "code": {wrong},
+		})
+	}
+	w := formPost(t, e, "/verify", url.Values{
+		"identifier": {"@shima"}, "code": {wrong},
+	})
+	if !strings.Contains(w.Body.String(), "Too many attempts") {
+		t.Errorf("expected Locked render; body:\n%s", w.Body.String())
+	}
+	// Even the correct code now is rejected with Locked.
+	w = formPost(t, e, "/verify", url.Values{
+		"identifier": {"@shima"}, "code": {last.Code},
+	})
+	if !strings.Contains(w.Body.String(), "Too many attempts") {
+		t.Errorf("expected Locked render on correct code post-lock; body:\n%s", w.Body.String())
+	}
+}
+
+func TestVerifyPost_ExpiredCode(t *testing.T) {
+	t.Parallel()
+	e, a, rec := testServer(t)
+
+	formPost(t, e, "/login", url.Values{"identifier": {"@shima"}})
+	last, _ := rec.Last()
+
+	// Advance clock past expiry. testServer wires Auth with a Fixed clock
+	// we can rebind in the test (production uses System).
+	a.Clock = clock.Fixed{T: t0.Add(otpExpiryPlusOne())}
+
+	w := formPost(t, e, "/verify", url.Values{
+		"identifier": {"@shima"}, "code": {last.Code},
+	})
+	if !strings.Contains(w.Body.String(), "expired") {
+		t.Errorf("expected Expired render; body:\n%s", w.Body.String())
+	}
+}
+
+func TestVerifyPost_ReplayReturnsAlreadyUsed(t *testing.T) {
+	t.Parallel()
+	e, _, rec := testServer(t)
+
+	formPost(t, e, "/login", url.Values{"identifier": {"@shima"}})
+	last, _ := rec.Last()
+	// First Verify accepts.
+	formPost(t, e, "/verify", url.Values{
+		"identifier": {"@shima"}, "code": {last.Code},
+	})
+	// Replay.
+	w := formPost(t, e, "/verify", url.Values{
+		"identifier": {"@shima"}, "code": {last.Code},
+	})
+	if !strings.Contains(w.Body.String(), "already used") {
+		t.Errorf("expected Spent render; body:\n%s", w.Body.String())
+	}
+	// No new session cookie on replay.
+	for _, c := range w.Result().Cookies() {
+		if c.Name == SessionCookieName {
+			t.Error("session cookie set on replay")
+		}
+	}
+}
+
+func TestLoginPost_CooldownActive(t *testing.T) {
+	t.Parallel()
+	e, _, _ := testServer(t)
+
+	formPost(t, e, "/login", url.Values{"identifier": {"@shima"}})
+	w := formPost(t, e, "/login", url.Values{"identifier": {"@shima"}})
+	if !strings.Contains(w.Body.String(), "wait a moment") {
+		t.Errorf("expected CooldownActive render; body:\n%s", w.Body.String())
 	}
 }
 
