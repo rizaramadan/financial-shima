@@ -15,7 +15,7 @@ const loginPageHTML = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>Sign in to Shima</title>
+<title>Shima &mdash; Sign in</title>
 <style>
 :root {
   --bg: #fafaf9;
@@ -53,8 +53,9 @@ body {
   line-height: 1.5;
   min-height: 100vh;
   display: grid;
-  place-items: center;
-  padding: 1.5rem;
+  align-items: start;
+  justify-items: center;
+  padding: max(1.5rem, 12vh) 1.5rem 1.5rem;
 }
 @media (max-width: 360px) {
   body { padding: 1rem; }
@@ -66,7 +67,7 @@ main {
 h1 {
   font-size: 1.875rem;
   font-weight: 600;
-  margin: 0 0 2rem;
+  margin: 0 0 1.5rem;
   letter-spacing: -0.02em;
 }
 form { margin: 0; }
@@ -87,7 +88,7 @@ input {
   width: 100%;
   padding: 0.625rem 0.75rem;
   font: inherit;
-  font-size: 1rem;
+  font-size: max(1rem, 16px);
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--border);
@@ -102,7 +103,7 @@ button {
   width: 100%;
   padding: 0.875rem 1rem;
   font: inherit;
-  font-size: 1rem;
+  font-size: max(1rem, 16px);
   font-weight: 600;
   color: var(--accent-fg);
   background: var(--accent);
@@ -120,7 +121,7 @@ button:focus-visible {
 }
 button:disabled {
   background: var(--border);
-  color: var(--muted);
+  color: color-mix(in oklab, var(--fg) 60%, transparent);
   border-color: var(--border);
   cursor: not-allowed;
 }
@@ -145,7 +146,7 @@ button:disabled {
 >
 <small id="identifier-hint" class="hint">e.g. @shima</small>
 </div>
-<button type="submit">Send code</button>
+<button type="submit">Continue with Telegram</button>
 </form>
 </main>
 </body>

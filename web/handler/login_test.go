@@ -333,7 +333,7 @@ func TestLoginGet_HasExactlyOneSubmitButtonWithExactCopy(t *testing.T) {
 	if len(btns) != 1 {
 		t.Fatalf(`found %d submit buttons, want 1`, len(btns))
 	}
-	const want = "Send code"
+	const want = "Continue with Telegram"
 	if got := textOf(btns[0]); got != want {
 		t.Errorf("button text = %q, want %q", got, want)
 	}

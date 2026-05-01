@@ -181,3 +181,28 @@ Beck (commit 3):
 - Split `_DisablesKeyboardCorrections` into platform-named tests.
 - `_HasNonEmptyTitle` → `_TitleContainsSignIn` asserting `"Sign in"` substring.
 
+#### Round 6 — 2026-05-01
+
+| Persona | Score | Headline |
+|---|---|---|
+| Skeet | 9.3/10 ✅ (↑ 0.4) | drain after Shutdown (drop) — fixed in follow-up. Propagate Shutdown error — fixed. Replace 50ms sleep w/ poll — fixed. Document `:0` rejection — done. Otherwise solid. |
+| Ive | 8.7/10 (↑ 0.2) | h1 margin 2rem breaks the 0.5rem ladder (1.5rem matches `.field`). Disabled button contrast ~3.1:1 in light. `place-items: center` looks awkward on tall viewports. Title duplicates h1 — "Shima — Sign in" wins tab strip. Button "Send code" hides mechanism — "Continue with Telegram" or "Send login code to Telegram". `font-size: 1rem` should be `max(1rem, 16px)` against future `:root` font-size shifts. (Skipping: `@`-affix input — too disruptive late phase. autocomplete flip — keep `off`.) |
+| Beck | 9.6/10 ✅ (↑ 0.2) | Wall-clock `2*time.Second` magic; named constants. Listen/relisten race; pass listener in. Discarded `_` from `net.Listen`. Submit-button assert bundles cardinality + copy. (Most are 9.6→10 polish.) |
+
+**Changes for Round 7:** focus on Ive (only sub-9 reviewer). Minimal Skeet/Beck hygiene to avoid regression.
+
+Ive (commit 1):
+- h1 margin-bottom 2rem → 1.5rem (matches `.field` and 0.5rem ladder).
+- Title `"Sign in to Shima"` → `"Shima — Sign in"` (brand-first in tab strip).
+- Button copy `"Send code"` → `"Continue with Telegram"`.
+- Body layout: `place-items: center` → `align-items: start; justify-items: center; padding-top: max(1.5rem, 12vh)` so card sits in optical upper-third.
+- Disabled button: `color` shifts to `color-mix(in oklab, var(--fg) 60%, transparent)` for AA contrast.
+- Input + button `font-size: max(1rem, 16px)` to pin against `:root` font-size drift.
+
+Beck (minimal, commit 2):
+- Replace `2*time.Second` magic with named constants.
+- Capture `net.Listen` error.
+- Split `_HasExactlyOneSubmitButtonWithExactCopy` into `_HasExactlyOneSubmitButton` and `_SubmitButtonCopyIs` (where copy literal updated to new "Continue with Telegram").
+
+Skeet: no changes; 9.3 is good and listener-injection refactor would interleave with Beck's request and risk regression.
+
