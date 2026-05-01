@@ -8,6 +8,7 @@ package template
 import (
 	"html/template"
 	"io"
+	"time"
 
 	"github.com/labstack/echo/v4"
 )
@@ -18,11 +19,57 @@ type Renderer struct {
 }
 
 func New() *Renderer {
-	t := template.New("")
+	t := template.New("").Funcs(template.FuncMap{
+		"relTime": relativeTime,
+	})
 	template.Must(t.New("login").Parse(layoutOpen + loginBody + layoutClose))
 	template.Must(t.New("verify").Parse(layoutOpen + verifyBody + layoutClose))
 	template.Must(t.New("home").Parse(layoutOpen + homeBody + layoutClose))
+	template.Must(t.New("notifications").Parse(layoutOpen + notificationsBody + layoutClose))
 	return &Renderer{t: t}
+}
+
+// relativeTime renders a human-friendly relative timestamp ("2 minutes ago"),
+// per spec §6.5 ("relative timestamp"). Stable for tests via the same
+// time.Time reference points handlers pass in.
+func relativeTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return formatN(int(d/time.Minute), "minute") + " ago"
+	case d < 24*time.Hour:
+		return formatN(int(d/time.Hour), "hour") + " ago"
+	case d < 7*24*time.Hour:
+		return formatN(int(d/(24*time.Hour)), "day") + " ago"
+	default:
+		return t.Format("Jan 2")
+	}
+}
+
+func formatN(n int, unit string) string {
+	if n == 1 {
+		return "1 " + unit
+	}
+	return decimalString(int64(n)) + " " + unit + "s"
+}
+
+func decimalString(n int64) string {
+	if n == 0 {
+		return "0"
+	}
+	var buf [20]byte
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(buf[i:])
 }
 
 func (r *Renderer) Render(w io.Writer, name string, data interface{}, _ echo.Context) error {
@@ -42,6 +89,27 @@ type VerifyData struct {
 	Title      string
 	Identifier string
 	Error      string
+}
+
+// NotificationsData drives the per-user feed (spec §6.5). Items are
+// pre-sorted newest-first by the SQL query.
+type NotificationsData struct {
+	Title       string
+	DisplayName string
+	Items       []NotificationRow
+	UnreadCount int
+	LoadError   bool
+}
+
+// NotificationRow is one row in the feed.
+type NotificationRow struct {
+	ID           string
+	Title        string
+	Body         string
+	HasRelated   bool
+	RelatedTxnID string
+	IsRead       bool
+	CreatedAt    time.Time
 }
 
 // HomeData drives the home view per spec §6.2 (current balances).
@@ -148,6 +216,15 @@ table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; }
 th, td { padding: 0.5rem 0.5rem; border-bottom: 1px solid var(--border); text-align: left; }
 th { font-weight: 500; color: var(--muted); }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
+.notifs { list-style: none; margin: 0; padding: 0; }
+.notif { display: flex; gap: 0.75rem; padding: 0.75rem 0; border-bottom: 1px solid var(--border); }
+.notif:last-child { border-bottom: 0; }
+.notif.unread .notif-link strong { color: var(--fg); }
+.notif:not(.unread) .notif-link strong { color: var(--muted); font-weight: 500; }
+.notif-link { flex: 1; display: block; text-decoration: none; color: inherit; }
+.notif-body { display: block; font-size: 0.875rem; color: var(--muted); margin-top: 0.25rem; }
+.notif-time { display: block; font-size: 0.8125rem; color: var(--muted); margin-top: 0.25rem; }
+.notif-actions { flex-shrink: 0; }
 </style>
 </head>
 <body>
@@ -195,6 +272,44 @@ const verifyBody = `<h1>Enter your code</h1>
 &nbsp;·&nbsp;
 <a class="linkbtn" href="/login">Use a different identifier</a>
 </p>`
+
+const notificationsBody = `<h1>Notifications</h1>
+{{if .LoadError}}
+<p class="alert" role="alert">Couldn&rsquo;t load notifications. Refresh in a moment.</p>
+{{else if not .Items}}
+<p class="subtitle">Nothing to read.</p>
+{{else}}
+{{if .UnreadCount}}
+<form method="post" action="/notifications/mark-all-read" class="aside">
+<button type="submit" class="linkbtn">Mark all read ({{.UnreadCount}})</button>
+</form>
+{{end}}
+<ul class="notifs">
+{{range .Items}}
+<li class="notif{{if not .IsRead}} unread{{end}}">
+{{if .HasRelated}}
+<a class="notif-link" href="/transactions/{{.RelatedTxnID}}">
+  <strong>{{.Title}}</strong>
+  {{if .Body}}<span class="notif-body">{{.Body}}</span>{{end}}
+  <span class="notif-time">{{relTime .CreatedAt}}</span>
+</a>
+{{else}}
+<div class="notif-link">
+  <strong>{{.Title}}</strong>
+  {{if .Body}}<span class="notif-body">{{.Body}}</span>{{end}}
+  <span class="notif-time">{{relTime .CreatedAt}}</span>
+</div>
+{{end}}
+{{if not .IsRead}}
+<form method="post" action="/notifications/{{.ID}}/read" class="notif-actions">
+<button type="submit" class="linkbtn">Mark read</button>
+</form>
+{{end}}
+</li>
+{{end}}
+</ul>
+{{end}}
+<p class="aside"><a class="linkbtn" href="/">&larr; Home</a></p>`
 
 const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
 {{if .LoadError}}

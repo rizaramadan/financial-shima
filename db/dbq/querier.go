@@ -40,6 +40,7 @@ type Querier interface {
 	ListPos(ctx context.Context) ([]Po, error)
 	ListTransactionsByAccount(ctx context.Context, accountID pgtype.UUID) ([]Transaction, error)
 	ListUsers(ctx context.Context) ([]User, error)
+	MarkAllNotificationsRead(ctx context.Context, userID pgtype.UUID) (int64, error)
 	MarkNotificationRead(ctx context.Context, arg MarkNotificationReadParams) error
 	PurgeExpiredSessions(ctx context.Context) (int64, error)
 	SearchCounterparties(ctx context.Context, lower string) ([]Counterparty, error)

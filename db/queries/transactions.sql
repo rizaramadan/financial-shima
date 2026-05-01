@@ -41,6 +41,10 @@ LIMIT 100;
 UPDATE notifications SET read_at = now()
 WHERE id = $1 AND user_id = $2 AND read_at IS NULL;
 
+-- name: MarkAllNotificationsRead :execrows
+UPDATE notifications SET read_at = now()
+WHERE user_id = $1 AND read_at IS NULL;
+
 -- name: UnreadCount :one
 SELECT count(*) FROM notifications
 WHERE user_id = $1 AND read_at IS NULL;

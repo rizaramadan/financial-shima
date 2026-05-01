@@ -240,6 +240,19 @@ func (q *Queries) ListTransactionsByAccount(ctx context.Context, accountID pgtyp
 	return items, nil
 }
 
+const markAllNotificationsRead = `-- name: MarkAllNotificationsRead :execrows
+UPDATE notifications SET read_at = now()
+WHERE user_id = $1 AND read_at IS NULL
+`
+
+func (q *Queries) MarkAllNotificationsRead(ctx context.Context, userID pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, markAllNotificationsRead, userID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const markNotificationRead = `-- name: MarkNotificationRead :exec
 UPDATE notifications SET read_at = now()
 WHERE id = $1 AND user_id = $2 AND read_at IS NULL
