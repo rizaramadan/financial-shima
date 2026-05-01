@@ -13,23 +13,21 @@ CREATE TABLE pos_obligation (
     amount_owed     bigint      NOT NULL CHECK (amount_owed > 0),
     -- amount_repaid <= amount_owed: overpayment must spawn a reverse
     -- obligation (logic/obligation.MatchRepayments), never overshoot
-    -- the original. Skeet R5 — without this, a buggy update path could
-    -- set repaid past owed and still pass the iff below.
+    -- the original. Without this, a buggy update path could set repaid
+    -- past owed and still pass the iff below.
     amount_repaid   bigint      NOT NULL DEFAULT 0
                                 CHECK (amount_repaid >= 0 AND amount_repaid <= amount_owed),
     cleared_at      timestamptz,
     created_at      timestamptz NOT NULL DEFAULT now(),
-    -- Spec §10.7 in the equality-of-iff form (Ive R8):
-    -- "cleared_at is set" iff "repaid >= owed". The boolean equality is
-    -- well-defined here because the right side is non-null and the
-    -- amount_repaid <= amount_owed CHECK above means repaid >= owed
-    -- collapses to repaid = owed in this row's lifetime.
+    -- Spec §10.7: cleared_at IS NOT NULL iff amount_repaid >= amount_owed.
+    -- Combined with amount_repaid <= amount_owed above, this collapses to
+    -- "cleared iff repaid = owed" for the row's lifetime.
     CONSTRAINT pos_obligation_cleared_iff_repaid_meets_owed CHECK (
         (cleared_at IS NOT NULL) = (amount_repaid >= amount_owed)
     ),
     CHECK (creditor_pos_id <> debtor_pos_id)
 );
 CREATE INDEX pos_obligation_creditor_debtor_idx
-    ON pos_obligation (creditor_pos_id, debtor_pos_id, created_at)
+    ON pos_obligation (creditor_pos_id, debtor_pos_id, currency, created_at)
     WHERE cleared_at IS NULL;
 CREATE INDEX pos_obligation_transaction_id_idx ON pos_obligation (transaction_id);
