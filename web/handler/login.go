@@ -63,18 +63,9 @@ main {
   width: 100%;
   max-width: 24rem;
 }
-.mark {
-  display: block;
-  font-size: 1.25rem;
-  font-weight: 700;
-  letter-spacing: -0.04em;
-  color: var(--accent);
-  margin: 0 0 1.25rem;
-  user-select: none;
-}
 h1 {
   font-size: 1.875rem;
-  font-weight: 650;
+  font-weight: 600;
   margin: 0 0 2rem;
   letter-spacing: -0.02em;
 }
@@ -84,13 +75,13 @@ label {
   display: block;
   font-size: 0.875rem;
   font-weight: 500;
-  margin-bottom: 0.375rem;
+  margin-bottom: 0.5rem;
 }
 .hint {
   display: block;
   font-size: 0.8125rem;
   color: var(--muted);
-  margin: 0.375rem 0 0;
+  margin: 0.5rem 0 0;
 }
 input {
   width: 100%;
@@ -137,11 +128,10 @@ button:disabled {
 </head>
 <body>
 <main>
-<div class="mark" aria-hidden="true">S</div>
 <h1>Sign in to Shima</h1>
 <form method="post" action="/login">
 <div class="field">
-<label for="identifier">Telegram username or ID</label>
+<label for="identifier">Telegram username or numeric ID</label>
 <input
   id="identifier"
   name="identifier"
@@ -153,7 +143,7 @@ button:disabled {
   required
   aria-describedby="identifier-hint"
 >
-<small id="identifier-hint" class="hint">e.g. @shima or 123456789</small>
+<small id="identifier-hint" class="hint">e.g. @shima</small>
 </div>
 <button type="submit">Send code</button>
 </form>

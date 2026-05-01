@@ -243,7 +243,7 @@ func TestLoginGet_IdentifierInputLabelHasExactCopy(t *testing.T) {
 	if label == nil {
 		t.Fatalf(`no <label for=%q>`, id)
 	}
-	const want = "Telegram username or ID"
+	const want = "Telegram username or numeric ID"
 	if got := textOf(label); got != want {
 		t.Errorf("label text = %q, want %q", got, want)
 	}
