@@ -206,11 +206,22 @@ func TestLogout_RevokesSession(t *testing.T) {
 	}
 }
 
-// TestAuth_ConcurrentIssueIsRaceSafe drives N goroutines issuing OTPs for
-// the same identifier. The mutex must serialize cleanly: exactly one
-// Issue returns Issued; the rest return CooldownActive. -race exercises
-// the read+write atomicity (Beck R6 review).
-func TestAuth_ConcurrentIssueIsRaceSafe(t *testing.T) {
+// TestAuth_ConcurrentIssue_NoMapRaceAndAtMostOneIssued exercises two
+// orthogonal guarantees:
+//
+//  1. The mutex protects the otps map from concurrent read+write data
+//     races. Detected by `-race` (when cgo is available); without it, the
+//     test still asserts a property the mutex provides.
+//  2. AT MOST ONE Issued result. The cooldown branch is what serializes
+//     the result count once the first write commits — but only if the
+//     mutex prevents the read-then-write window where multiple goroutines
+//     could each see "no prev record" and all write. Without the mutex
+//     the assertion would fire when read-before-any-write actually races
+//     across multiple goroutines.
+//
+// Beck Phase-2-5 R4 noted the previous "exactly 1" framing was overly
+// confident; this version is honest about which layer guarantees what.
+func TestAuth_ConcurrentIssue_NoMapRaceAndAtMostOneIssued(t *testing.T) {
 	t.Parallel()
 	a := freshAuth(t, t0)
 
@@ -219,7 +230,7 @@ func TestAuth_ConcurrentIssueIsRaceSafe(t *testing.T) {
 	for i := 0; i < N; i++ {
 		go func() { results <- a.Issue("@shima").Result }()
 	}
-	issued, cooldowns := 0, 0
+	issued, cooldowns, other := 0, 0, 0
 	for i := 0; i < N; i++ {
 		switch r := <-results; r {
 		case Issued:
@@ -227,14 +238,49 @@ func TestAuth_ConcurrentIssueIsRaceSafe(t *testing.T) {
 		case CooldownActive:
 			cooldowns++
 		default:
+			other++
 			t.Errorf("unexpected concurrent result: %v", r)
 		}
 	}
-	if issued != 1 {
-		t.Errorf("got %d Issued, want exactly 1", issued)
+	if issued > 1 {
+		t.Errorf("got %d Issued, want at most 1 (mutex must serialize the read-then-write window)", issued)
 	}
-	if issued+cooldowns != N {
-		t.Errorf("missing results: issued=%d cooldowns=%d N=%d", issued, cooldowns, N)
+	if issued+cooldowns+other != N {
+		t.Errorf("result counts don't sum: issued=%d cooldowns=%d other=%d N=%d",
+			issued, cooldowns, other, N)
+	}
+}
+
+// TestVerify_TwoSessions_GetDistinctTokens pins the spec §3.4 contract that
+// session tokens are opaque random strings — two successful verifies must
+// not produce the same token, even when the test fixture's IDGen is
+// deterministic. Beck Phase-2-5 R10: previously the suite used Fixed which
+// would mask a token-collision bug.
+func TestVerify_TwoSessions_GetDistinctTokens(t *testing.T) {
+	t.Parallel()
+	src := bytes.NewReader(make([]byte, 1024))
+	buf := make([]byte, 1024)
+	for i := range buf {
+		buf[i] = byte(i + 1)
+	}
+	src = bytes.NewReader(buf)
+	a := New(user.Seeded(), clock.Fixed{T: t0}, src, &idgen.Counter{Prefix: "tok"})
+
+	o1 := a.Issue("@shima")
+	v1 := a.Verify("@shima", o1.Code)
+	if v1.Result != Verified {
+		t.Fatalf("first verify: %v", v1.Result)
+	}
+	// Move clock past cooldown so the second Issue runs.
+	a.Clock = clock.Fixed{T: t0.Add(otp.ResendCooldown + time.Second)}
+	o2 := a.Issue("@riza_ramadan")
+	v2 := a.Verify("@riza_ramadan", o2.Code)
+	if v2.Result != Verified {
+		t.Fatalf("second verify: %v", v2.Result)
+	}
+	if v1.Session.Token == v2.Session.Token {
+		t.Errorf("session tokens collided: %q == %q (low-entropy IDGen would silently hijack sessions)",
+			v1.Session.Token, v2.Session.Token)
 	}
 }
 

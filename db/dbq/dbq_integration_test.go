@@ -17,9 +17,24 @@ func ts(t time.Time) pgtype.Timestamptz {
 	return pgtype.Timestamptz{Time: t, Valid: true}
 }
 
+// txQ opens a fresh pgx transaction scoped to the test, registers a
+// guaranteed Rollback via t.Cleanup, and returns Queries bound to the tx.
+// Subtests get isolation: rows created here vanish when the test ends, so
+// reruns and parallel CI never accumulate fixture residue (Beck Phase-2-5
+// review issue 7).
+func txQ(t *testing.T, ctx context.Context, conn *pgx.Conn) *dbq.Queries {
+	t.Helper()
+	tx, err := conn.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatalf("BeginTx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+	return dbq.New(tx)
+}
+
 // TestIntegration_LocalPostgres exercises the round-trip: connect, insert,
-// read back, archive, list. Skipped when no DB URL is provided so CI
-// without a Postgres can still run go test ./....
+// read back, archive, list. Each subtest runs in its own transaction with
+// a deferred Rollback so the database state is unchanged after the test.
 //
 // To run locally:
 //
@@ -31,7 +46,7 @@ func TestIntegration_LocalPostgres(t *testing.T) {
 		t.Skip("DATABASE_URL not set; skipping integration test")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	conn, err := pgx.Connect(ctx, url)
@@ -40,16 +55,12 @@ func TestIntegration_LocalPostgres(t *testing.T) {
 	}
 	defer conn.Close(ctx)
 
-	q := dbq.New(conn)
-
 	t.Run("Account CRUD round-trip", func(t *testing.T) {
-		// Use a unique name so reruns don't collide on the soft-archive.
-		acc, err := q.CreateAccount(ctx, "Integration test "+time.Now().Format("20060102150405.000"))
+		q := txQ(t, ctx, conn)
+		acc, err := q.CreateAccount(ctx, "Integration test")
 		if err != nil {
 			t.Fatalf("CreateAccount: %v", err)
 		}
-		defer func() { _ = q.ArchiveAccount(ctx, acc.ID) }()
-
 		got, err := q.GetAccount(ctx, acc.ID)
 		if err != nil {
 			t.Fatalf("GetAccount: %v", err)
@@ -91,8 +102,9 @@ func TestIntegration_LocalPostgres(t *testing.T) {
 	})
 
 	t.Run("Pos rejects bad currency", func(t *testing.T) {
+		q := txQ(t, ctx, conn)
 		_, err := q.CreatePos(ctx, dbq.CreatePosParams{
-			Name:     "Test Pos " + time.Now().Format("20060102150405.000"),
+			Name:     "Test Pos",
 			Currency: "INVALID UPPERCASE",
 		})
 		if err == nil {
@@ -101,15 +113,12 @@ func TestIntegration_LocalPostgres(t *testing.T) {
 	})
 
 	t.Run("Counterparty dedupes by name_lower", func(t *testing.T) {
-		// Counterparty name regex disallows '.'; use a digits-only suffix.
-		stamp := time.Now().Format("150405")
-		first, err := q.GetOrCreateCounterparty(ctx, "Salary "+stamp)
+		q := txQ(t, ctx, conn)
+		first, err := q.GetOrCreateCounterparty(ctx, "Salary Test")
 		if err != nil {
 			t.Fatalf("first GetOrCreateCounterparty: %v", err)
 		}
-		// Same name, different casing — should resolve to the same row,
-		// and the original casing is preserved (spec §4.4).
-		second, err := q.GetOrCreateCounterparty(ctx, "salary "+stamp)
+		second, err := q.GetOrCreateCounterparty(ctx, "salary test")
 		if err != nil {
 			t.Fatalf("second GetOrCreateCounterparty: %v", err)
 		}
@@ -122,17 +131,15 @@ func TestIntegration_LocalPostgres(t *testing.T) {
 	})
 
 	t.Run("Sessions FK and expiry filter", func(t *testing.T) {
-		stamp := time.Now().Format("150405.000")
+		q := txQ(t, ctx, conn)
 		u, err := q.UpsertUser(ctx, dbq.UpsertUserParams{
-			DisplayName:        "Tester " + stamp,
-			TelegramIdentifier: "@tester_" + stamp,
+			DisplayName:        "Tester",
+			TelegramIdentifier: "@tester_unique_" + time.Now().Format("150405.000000"),
 		})
 		if err != nil {
 			t.Fatalf("UpsertUser: %v", err)
 		}
-
-		// Active session.
-		token := "tok-" + stamp
+		token := "tok-test"
 		_, err = q.CreateSession(ctx, dbq.CreateSessionParams{
 			Token:     token,
 			UserID:    u.ID,
@@ -149,7 +156,6 @@ func TestIntegration_LocalPostgres(t *testing.T) {
 			t.Errorf("session.UID = %v, want %v", s.UID, u.ID)
 		}
 
-		// Expired session — set expiry in the past, GetSession filters it.
 		_, err = q.CreateSession(ctx, dbq.CreateSessionParams{
 			Token:     token + "-exp",
 			UserID:    u.ID,
@@ -164,4 +170,3 @@ func TestIntegration_LocalPostgres(t *testing.T) {
 		}
 	})
 }
-

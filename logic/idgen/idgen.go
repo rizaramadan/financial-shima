@@ -44,3 +44,30 @@ type Fixed struct {
 }
 
 func (f Fixed) NewID() string { return f.Value }
+
+// Counter returns deterministic but distinct strings ("prefix-1", "prefix-2",
+// …). Tests use it when a Fixed value would mask a token-collision bug —
+// e.g. two verify flows whose session tokens must NOT be identical.
+type Counter struct {
+	Prefix string
+	n      int64
+}
+
+func (c *Counter) NewID() string {
+	c.n++
+	return c.Prefix + "-" + decimalString(c.n)
+}
+
+func decimalString(n int64) string {
+	if n == 0 {
+		return "0"
+	}
+	var buf [20]byte
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(buf[i:])
+}

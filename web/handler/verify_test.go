@@ -146,6 +146,11 @@ func TestVerifyPost_WrongCode_RendersRejection(t *testing.T) {
 	}
 }
 
+// TestVerifyPost_MalformedCode_RendersValidationError pins the structural
+// signal a malformed-code submission produces — re-renders the verify form
+// (200 + form action="/verify"), preserves the identifier in the hidden
+// field, and does NOT set the session cookie. Avoids overfitting to copy
+// like "6 digits" which a future rewording would silently break (Beck R8).
 func TestVerifyPost_MalformedCode_RendersValidationError(t *testing.T) {
 	t.Parallel()
 	e, _, _ := testServer(t)
@@ -161,8 +166,17 @@ func TestVerifyPost_MalformedCode_RendersValidationError(t *testing.T) {
 			if w.Code != http.StatusOK {
 				t.Errorf("status = %d, want 200", w.Code)
 			}
-			if !strings.Contains(w.Body.String(), "6 digits") {
-				t.Errorf("body missing '6 digits' message for input %q", bad)
+			body := w.Body.String()
+			if !strings.Contains(body, `action="/verify"`) {
+				t.Errorf("body missing verify form re-render for input %q", bad)
+			}
+			if !strings.Contains(body, `value="@shima"`) {
+				t.Errorf("body did not preserve identifier for input %q", bad)
+			}
+			for _, c := range w.Result().Cookies() {
+				if c.Name == SessionCookieName {
+					t.Errorf("session cookie set on malformed input %q", bad)
+				}
 			}
 		})
 	}

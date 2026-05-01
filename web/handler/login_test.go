@@ -326,11 +326,22 @@ func TestLoginPost_AssistantFailure_RendersError(t *testing.T) {
 	w := httptest.NewRecorder()
 	e.ServeHTTP(w, req)
 
+	// Structural assertion (no copy overfitting): re-rendered login form,
+	// no redirect, no Location header, no session cookie.
 	if w.Code != http.StatusOK {
-		t.Errorf("status = %d, want 200", w.Code)
+		t.Errorf("status = %d, want 200 (re-render)", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "Failed to send OTP") {
-		t.Error("body missing 'Failed to send OTP' message")
+	if loc := w.Header().Get("Location"); loc != "" {
+		t.Errorf("Location = %q, want empty (no redirect on assistant failure)", loc)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `action="/login"`) {
+		t.Error("body missing login form re-render")
+	}
+	for _, c := range w.Result().Cookies() {
+		if c.Name == SessionCookieName {
+			t.Error("session cookie set on assistant failure")
+		}
 	}
 }
 

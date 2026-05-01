@@ -22,3 +22,20 @@ type Fixed struct {
 }
 
 func (f Fixed) Now() time.Time { return f.T }
+
+// Stepping returns Start, then Start+Step, then Start+2*Step, … on each
+// successive call. Useful in concurrent tests that need each goroutine
+// to see a slightly different "now" so cooldown-style logic doesn't mask
+// a missing mutex. Not goroutine-safe by itself; pair with the mutex
+// being tested when the test goroutines drive Now() directly.
+type Stepping struct {
+	Start time.Time
+	Step  time.Duration
+	calls int64
+}
+
+func (s *Stepping) Now() time.Time {
+	t := s.Start.Add(time.Duration(s.calls) * s.Step)
+	s.calls++
+	return t
+}

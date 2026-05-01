@@ -162,33 +162,12 @@ func TestRecord_Verify_AtExactExpirySecond(t *testing.T) {
 	}
 }
 
-// TestRecord_Verify_FixedTimeComparison: code comparison must be constant-time
-// to prevent timing-based brute force against valid prefix matches.
-func TestRecord_Verify_ConstantTimeCompareIsUsed(t *testing.T) {
-	t.Parallel()
-	r := NewRecord(NewCode(123456), t0)
-	// Same length, different code — confirms the comparator runs to completion
-	// regardless of mismatch position.
-	res, _ := r.Verify(NewCode(654321), t0.Add(1*time.Minute))
-	if res != Rejected {
-		t.Errorf("result = %v, want Rejected", res)
-	}
-	// Note: actual timing is hard to test deterministically; this test pins
-	// behavior. The implementation must use crypto/subtle.ConstantTimeCompare.
-	// A reviewer can grep for it.
-}
-
-func TestExpiryDurationIs5Minutes(t *testing.T) {
-	if ExpiryDuration != 5*time.Minute {
-		t.Errorf("ExpiryDuration = %v, want 5m (per spec §3.3)", ExpiryDuration)
-	}
-}
-
-func TestMaxAttemptsIs3(t *testing.T) {
-	if MaxAttempts != 3 {
-		t.Errorf("MaxAttempts = %d, want 3 (per spec §3.3)", MaxAttempts)
-	}
-}
+// (Removed Beck-flagged retrofit tests:
+//   - TestRecord_Verify_ConstantTimeCompareIsUsed: behavior covered by
+//     TestRecord_Verify_RejectsWrongCode; constant-time discipline is a
+//     code review concern, not a Go-testable behavior.
+//   - TestExpiryDurationIs5Minutes / TestMaxAttemptsIs3: restated
+//     constants; behavior covered by Verify state-machine tests.)
 
 // String helpers shouldn't leak the code into logs. Stringer should redact.
 func TestRecord_String_RedactsCode(t *testing.T) {
