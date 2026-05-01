@@ -26,6 +26,10 @@ const loginPageHTML = `<!doctype html>
   --accent-fg: #f8fafc;
   --focus: #2563eb;
   --radius: 0.5rem;
+  accent-color: var(--focus);
+}
+::selection {
+  background: color-mix(in oklab, var(--focus) 25%, transparent);
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -57,21 +61,16 @@ body {
 }
 main {
   width: 100%;
-  max-width: 22rem;
+  max-width: 24rem;
 }
 h1 {
-  font-size: 1.5rem;
-  font-weight: 600;
-  margin: 0 0 0.375rem;
-  letter-spacing: -0.01em;
-}
-.subhead {
+  font-size: 1.875rem;
+  font-weight: 650;
   margin: 0 0 1.75rem;
-  color: var(--muted);
-  font-size: 0.9375rem;
+  letter-spacing: -0.02em;
 }
 form { margin: 0; }
-.field { margin-bottom: 1rem; }
+.field { margin-bottom: 1.5rem; }
 label {
   display: block;
   font-size: 0.875rem;
@@ -101,7 +100,7 @@ input[type="text"]:focus-visible {
 }
 button {
   width: 100%;
-  padding: 0.75rem 1rem;
+  padding: 0.875rem 1rem;
   font: inherit;
   font-size: 1rem;
   font-weight: 600;
@@ -130,7 +129,6 @@ button:disabled {
 <body>
 <main>
 <h1>Sign in to Shima</h1>
-<p class="subhead">A 6-digit code arrives in your Telegram.</p>
 <form method="post" action="/login">
 <div class="field">
 <label for="identifier">Telegram username or ID</label>
