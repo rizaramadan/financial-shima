@@ -371,12 +371,13 @@ func (d PosDetailData) Route() string  { return "pos" }
 // ObligationRow is one open obligation involving this Pos. Direction is
 // "receivable" (this pos is creditor) or "payable" (this pos is debtor).
 type ObligationRow struct {
-	ID          string
-	Direction   string // "receivable" | "payable"
-	OtherPosID  string
-	Currency    string
-	Outstanding int64
-	CreatedAt   time.Time
+	ID           string
+	Direction    string // "receivable" | "payable"
+	OtherPosID   string
+	OtherPosName string
+	Currency     string
+	Outstanding  int64
+	CreatedAt    time.Time
 }
 
 // PosTransactionRow is one row of the scoped transaction list. Trimmer
@@ -958,7 +959,7 @@ const posBody = `{{if .NotFound}}
 {{range .Obligations}}
 <tr>
 <td><span class="chip {{if eq .Direction "receivable"}}chip-in{{else}}chip-out{{end}}">{{.Direction}}</span></td>
-<td><a href="/pos/{{.OtherPosID}}">{{.OtherPosID}}</a></td>
+<td><a href="/pos/{{.OtherPosID}}">{{if .OtherPosName}}{{.OtherPosName}}{{else}}{{.OtherPosID}}{{end}}</a></td>
 <td class="num">{{money .Outstanding .Currency}}</td>
 <td>{{relTime .CreatedAt}}</td>
 </tr>
