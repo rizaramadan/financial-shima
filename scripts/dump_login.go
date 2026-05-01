@@ -28,6 +28,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "handler error: %v\n", err)
 		os.Exit(1)
 	}
+	if rec.Code != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "unexpected status: %d\n", rec.Code)
+		os.Exit(1)
+	}
 	if _, err := os.Stdout.Write(rec.Body.Bytes()); err != nil {
 		fmt.Fprintf(os.Stderr, "write error: %v\n", err)
 		os.Exit(1)

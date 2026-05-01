@@ -6,25 +6,170 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-const loginFormHTML = `<!doctype html>
+// loginPageHTML is the rendered Phase-1 login page. The contents of this string
+// are the contract — every attribute below is asserted by a test in
+// login_test.go. Do NOT fmt.Sprintf into this string; when interpolation is
+// needed, switch to html/template (not text/template) in a follow-up phase.
+const loginPageHTML = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>Sign in — Shima</title>
+<style>
+:root {
+  --bg: #fafaf9;
+  --fg: #1c1917;
+  --muted: #57534e;
+  --border: #d6d3d1;
+  --accent: #0f172a;
+  --accent-fg: #f8fafc;
+  --error: #b91c1c;
+  --focus: #2563eb;
+  --radius: 0.5rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c0a09;
+    --fg: #f5f5f4;
+    --muted: #a8a29e;
+    --border: #44403c;
+    --accent: #e7e5e4;
+    --accent-fg: #1c1917;
+    --error: #fca5a5;
+    --focus: #93c5fd;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+               "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+main {
+  width: 100%;
+  max-width: 22rem;
+}
+.wordmark {
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 2rem;
+}
+h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 0 0 0.375rem;
+  letter-spacing: -0.01em;
+}
+.subhead {
+  margin: 0 0 1.75rem;
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+form { margin: 0; }
+.field { margin-bottom: 1rem; }
+label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  margin-bottom: 0.375rem;
+}
+.hint {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--muted);
+  margin: 0.25rem 0 0;
+}
+input[type="text"] {
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  font: inherit;
+  font-size: 1rem;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+input[type="text"]:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+  border-color: var(--focus);
+}
+.error-region {
+  min-height: 1.25rem;
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  color: var(--error);
+}
+.error-region:empty { margin: 0; min-height: 0; }
+button {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--accent-fg);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+button:hover:not(:disabled) { opacity: 0.92; }
+button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+button:disabled { opacity: 0.6; cursor: not-allowed; }
+</style>
 </head>
 <body>
 <main>
+<p class="wordmark">Shima</p>
 <h1>Sign in</h1>
-<form method="post" action="/login">
-<label for="identifier">Telegram ID or @username</label>
-<input id="identifier" name="identifier" type="text" autocomplete="username" autofocus required>
-<button type="submit">Send code</button>
+<p class="subhead">We&rsquo;ll send a 6-digit code to your Telegram.</p>
+<form method="post" action="/login" novalidate>
+<input type="hidden" name="csrf" value="">
+<div class="field">
+<label for="identifier">Telegram username or ID</label>
+<input
+  id="identifier"
+  name="identifier"
+  type="text"
+  inputmode="text"
+  autocomplete="username"
+  autocapitalize="off"
+  autocorrect="off"
+  spellcheck="false"
+  required
+  aria-describedby="identifier-hint form-error"
+>
+<small id="identifier-hint" class="hint">e.g. @shima or 123456789</small>
+</div>
+<p id="form-error" class="error-region" role="alert" aria-live="polite"></p>
+<button type="submit">Continue</button>
 </form>
 </main>
 </body>
 </html>`
 
-// LoginGet renders the login form. Phase 1: static HTML; templating arrives later.
+// LoginGet serves the login page.
+//
+// HTTP contract: 200 OK, Content-Type "text/html; charset=UTF-8", body is the
+// rendered login form per loginPageHTML. Returns a non-nil error only if the
+// underlying response writer fails (client disconnect mid-write); never errors
+// from request validation in Phase 1.
 func LoginGet(c echo.Context) error {
-	return c.HTML(http.StatusOK, loginFormHTML)
+	return c.HTML(http.StatusOK, loginPageHTML)
 }
