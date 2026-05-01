@@ -8,7 +8,7 @@ Tracks delivery against `0001-mvp.md`. Phases are minimal end-to-end slices, not
 |---|-------|--------|---------------|
 | 1 | Project scaffold + login page renders | **complete** (2026-05-01) | `GET /login` returns 200 with the form; handler unit-tested; `go test ./...` green; all three reviewers ≥9/10 in their final reviews (Skeet 9.3 R6, Ive 9.1 R8, Beck 9.6 R6) |
 | 2 | OTP issue + verify (in-memory store, stubbed assistant) | **implementation complete; review loop deferred** | Submit identifier → OTP generated ✓; submit OTP → session cookie ✓; rate limit + lockout enforced ✓ (15 logic tests + 13 I/O tests). Adversarial review loop deferred to next session. |
-| 3 | Logic layer: money type (integer cents) + Clock/IDGen interfaces | pending | Property tests for arithmetic; no `float64` anywhere in `logic/`; reviewers pass |
+| 3 | Logic layer: money type (integer cents) + Clock/IDGen interfaces | **implementation complete** | Property tests for arithmetic ✓ (commutativity, identity, round-trip, neg-involution); no `float64` anywhere in `logic/` ✓; Clock/IDGen already shipped in Phase 2. Review loop deferred. |
 | 4 | DB schema + sqlc setup (Postgres, Neon-compatible) | pending | Migrations run; `accounts`, `pos`, `counterparties`, `users`, `sessions` tables; sqlc generates; reviewers pass |
 | 5 | Logic: transaction validation (§5.1 rules for all 3 types) | pending | All §5.1 rules unit-tested; reviewers pass |
 | 6 | Append-only insert path + idempotency + notification atomicity (§10.3, §10.4, §10.8) | pending | Property tests assert invariants; fault-injection on notification write; reviewers pass |
