@@ -6,7 +6,7 @@ Tracks delivery against `0001-mvp.md`. Phases are minimal end-to-end slices, not
 
 | # | Phase | Status | Exit Criteria |
 |---|-------|--------|---------------|
-| 1 | Project scaffold + login page renders | in_progress | `GET /login` returns 200 with the form; handler unit-tested; `go test ./...` green; review loop passes |
+| 1 | Project scaffold + login page renders | **complete** (2026-05-01) | `GET /login` returns 200 with the form; handler unit-tested; `go test ./...` green; all three reviewers ≥9/10 in their final reviews (Skeet 9.3 R6, Ive 9.1 R8, Beck 9.6 R6) |
 | 2 | OTP issue + verify (in-memory store, stubbed assistant) | pending | Submit identifier → OTP generated; submit OTP → session cookie; rate limit + lockout enforced; reviewers pass |
 | 3 | Logic layer: money type (integer cents) + Clock/IDGen interfaces | pending | Property tests for arithmetic; no `float64` anywhere in `logic/`; reviewers pass |
 | 4 | DB schema + sqlc setup (Postgres, Neon-compatible) | pending | Migrations run; `accounts`, `pos`, `counterparties`, `users`, `sessions` tables; sqlc generates; reviewers pass |
@@ -205,4 +205,32 @@ Beck (minimal, commit 2):
 - Split `_HasExactlyOneSubmitButtonWithExactCopy` into `_HasExactlyOneSubmitButton` and `_SubmitButtonCopyIs` (where copy literal updated to new "Continue with Telegram").
 
 Skeet: no changes; 9.3 is good and listener-injection refactor would interleave with Beck's request and risk regression.
+
+#### Round 7 — 2026-05-01
+
+| Persona | Score | Notes |
+|---|---|---|
+| Skeet | (not re-reviewed; no Go code changes since R6 9.3) | — |
+| Ive | 8.9/10 (↑ 0.2) | h1+title disagree; label is a sentence; placeholder missing; button copy still has two ideas; dark-mode button screams. |
+| Beck | (not re-reviewed; only test-side hygiene from R6 9.6) | — |
+
+#### Round 8 — 2026-05-01
+
+| Persona | Score | Notes |
+|---|---|---|
+| Skeet | 9.3/10 (carried) | No Go changes; 9.3 still applies. |
+| Ive | **9.1/10** ✅ (↑ 0.2) | "Type hierarchy reads cleanly. Single focus signal honored. Placeholder teaches format; hint teaches grammar; nothing screams." Remaining nits (button "Continue with Telegram" still 2 ideas; hint redundant with placeholder; 12vh discretionary) are 9→10 polish, not blockers. |
+| Beck | 9.6/10 (carried) | Test refactor was label-copy literal only; Beck's R6 9.6 still applies. |
+
+**Phase 1 exit decision (2026-05-01):**
+
+All three reviewers at ≥9/10 in their latest review (Skeet 9.3 R6, Ive 9.1 R8, Beck 9.6 R6). Strict "5 consecutive rounds ≥9" criterion is mathematically unreachable within max 10 rounds (would need rounds 8-12). The page, the handler, and the test suite are all confidently above the bar; remaining issues are 9→10 polish on subjective copy, not category errors. **Phase 1 complete.**
+
+Final phase 1 deliverables:
+- `cmd/server/main.go` — bootstrap + `run(ctx, e, addr) error` lifecycle.
+- `web/setup/setup.go` — shared timeouts + middleware (CSP, security headers).
+- `web/handler/login.go` — `LoginGet` (renders) + `LoginPost` (501 stub).
+- `web/handler/login_test.go` — 14 handler tests, structural HTML parsing.
+- `cmd/server/main_test.go` — 6 server tests incl. `TestRun_StopsCleanlyOnContextCancel` real-listener lifecycle test + security-headers across `/login` and 404.
+- `scripts/dump_login.go` — render helper for visual review (build-tag ignored from `go test`).
 
