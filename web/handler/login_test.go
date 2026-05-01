@@ -35,7 +35,7 @@ func testServer(t *testing.T) (*echo.Echo, *auth.Auth, *assistant.Recorder) {
 	src = bytes.NewReader(buf)
 	a := auth.New(user.Seeded(), clock.Fixed{T: t0}, src, idgen.Fixed{Value: "tok-test"})
 	rec := &assistant.Recorder{}
-	h := New(a, rec)
+	h := New(a, rec, nil) // nil pool: handler tests run without DB
 
 	e := echo.New()
 	e.Renderer = tplpkg.New()
@@ -315,7 +315,7 @@ func TestLoginPost_AssistantFailure_RendersError(t *testing.T) {
 	src = bytes.NewReader(buf)
 	a := auth.New(user.Seeded(), clock.Fixed{T: t0}, src, idgen.Fixed{Value: "tok"})
 	rec := &assistant.Recorder{ErrToReturn: errAssistantDown}
-	h := New(a, rec)
+	h := New(a, rec, nil)
 	e := echo.New()
 	e.Renderer = tplpkg.New()
 	e.POST("/login", h.LoginPost)

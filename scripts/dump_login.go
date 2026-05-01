@@ -27,7 +27,7 @@ import (
 
 func main() {
 	a := auth.New(user.Seeded(), clock.System{}, bytes.NewReader(make([]byte, 4)), idgen.Fixed{Value: "x"})
-	h := handler.New(a, &assistant.Recorder{})
+	h := handler.New(a, &assistant.Recorder{}, nil)
 	e := echo.New()
 	e.Renderer = template.New()
 	e.GET("/login", h.LoginGet)

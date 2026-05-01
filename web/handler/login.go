@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 
 	"github.com/rizaramadan/financial-shima/dependencies/assistant"
@@ -18,19 +19,24 @@ const SessionCookieName = "shima_session"
 
 // Handlers wires the Logic and Dependency layers into Echo handler functions.
 // Constructed once at boot and registered against the routes in cmd/server.
+//
+// DB is optional: nil means "no DB wired" — handlers that need data fall
+// back to a placeholder render, which keeps cmd/server tests runnable
+// without a Postgres.
 type Handlers struct {
 	Auth      *auth.Auth
 	Assistant assistant.Client
+	DB        *pgxpool.Pool
 }
 
-func New(a *auth.Auth, ac assistant.Client) *Handlers {
+func New(a *auth.Auth, ac assistant.Client, db *pgxpool.Pool) *Handlers {
 	if a == nil {
 		panic("handler.New: nil Auth")
 	}
 	if ac == nil {
 		panic("handler.New: nil Assistant")
 	}
-	return &Handlers{Auth: a, Assistant: ac}
+	return &Handlers{Auth: a, Assistant: ac, DB: db}
 }
 
 // LoginGet renders the sign-in form.

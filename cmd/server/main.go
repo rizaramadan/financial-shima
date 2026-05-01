@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 
 	"github.com/rizaramadan/financial-shima/dependencies/assistant"
@@ -53,18 +54,37 @@ func newAssistant() assistant.Client {
 func newServer() *echo.Echo {
 	a := newAuth()
 	ac := newAssistant()
-	return newServerWithDeps(a, ac)
+	db := newDBPool() // may be nil when DATABASE_URL unset
+	return newServerWithDeps(a, ac, db)
 }
 
-// newServerWithDeps is the variant tests use to inject a Recorder so they
-// can read back the OTP that would have been sent.
-func newServerWithDeps(a *auth.Auth, ac assistant.Client) *echo.Echo {
+// newDBPool returns a pgxpool.Pool when DATABASE_URL is set; otherwise nil.
+// Handlers tolerate a nil pool by falling back to placeholder renders, so
+// the binary still boots in dev without a Postgres on disk.
+func newDBPool() *pgxpool.Pool {
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		log.Print("DATABASE_URL not set; running without DB (home view shows placeholder)")
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		log.Fatalf("connect DATABASE_URL: %v", err)
+	}
+	return pool
+}
+
+// newServerWithDeps is the variant tests use to inject deterministic
+// dependencies. Pass db=nil to test without Postgres.
+func newServerWithDeps(a *auth.Auth, ac assistant.Client, db *pgxpool.Pool) *echo.Echo {
 	e := echo.New()
 	setup.Apply(e)
 	e.Renderer = template.New()
 	e.Use(mw.Session(a))
 
-	h := handler.New(a, ac)
+	h := handler.New(a, ac, db)
 	e.GET("/", h.HomeGet)
 	e.GET("/login", h.LoginGet)
 	e.POST("/login", h.LoginPost)

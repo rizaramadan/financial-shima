@@ -44,11 +44,35 @@ type VerifyData struct {
 	Error      string
 }
 
-// HomeData drives the (Phase-2 placeholder) home view. Phase 9 replaces
-// the placeholder body with the real balances/transactions UI.
+// HomeData drives the home view per spec §6.2 (current balances).
+// Empty Accounts / PosByCurrency renders the Phase-2 placeholder
+// fallback so the page works before the DB is wired.
 type HomeData struct {
-	Title       string
-	DisplayName string
+	Title         string
+	DisplayName   string
+	Accounts      []AccountRow
+	PosByCurrency []PosCurrencyGroup
+}
+
+// AccountRow is one row in the Accounts table on /. Balance is derived
+// from transactions; until that path is wired, render zero.
+type AccountRow struct {
+	Name        string
+	BalanceIDR  int64 // smallest unit (rupiah cents); 0 when balance computation isn't wired
+}
+
+// PosCurrencyGroup groups Pos rows by their currency for §6.2 rendering.
+type PosCurrencyGroup struct {
+	Currency string
+	Items    []PosRow
+}
+
+// PosRow is one row in a per-currency Pos table.
+type PosRow struct {
+	Name      string
+	Cash      int64 // unit = the group's currency's smallest unit; zero until wired
+	Target    int64
+	HasTarget bool
 }
 
 const layoutOpen = `<!doctype html>
@@ -115,6 +139,13 @@ button:disabled { background: var(--border); color: color-mix(in oklab, var(--fg
 .linkbtn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 2px; }
 .aside { margin: 1rem 0 0; text-align: center; font-size: 0.875rem; color: var(--muted); }
 .aside form { display: inline; }
+.card { margin: 0 0 1.5rem; }
+.card h2 { font-size: 1rem; font-weight: 600; margin: 0 0 0.5rem; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.04em; }
+table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; }
+th, td { padding: 0.5rem 0.5rem; border-bottom: 1px solid var(--border); text-align: left; }
+th { font-weight: 500; color: var(--muted); }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
@@ -163,8 +194,42 @@ const verifyBody = `<h1>Enter your code</h1>
 <a class="linkbtn" href="/login">Use a different identifier</a>
 </p>`
 
-const homeBody = `<h1>Signed in</h1>
-<p class="subtitle">As <strong>{{.DisplayName}}</strong>. Balances, transactions, and Pos views ship in Phase 9.</p>
-<form method="post" action="/logout">
-<button type="submit">Sign out</button>
+const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
+{{if and (not .Accounts) (not .PosByCurrency)}}
+<p class="subtitle">Accounts and Pos load once seed data lands. Balance computation wires up next.</p>
+{{end}}
+
+{{if .Accounts}}
+<section class="card">
+<h2>Accounts</h2>
+<table>
+<thead><tr><th>Name</th><th class="num">Balance</th></tr></thead>
+<tbody>
+{{range .Accounts}}
+<tr><td>{{.Name}}</td><td class="num">{{.BalanceIDR}}</td></tr>
+{{end}}
+</tbody>
+</table>
+</section>
+{{end}}
+
+{{range .PosByCurrency}}
+<section class="card">
+<h2>Pos &mdash; {{.Currency}}</h2>
+<table>
+<thead><tr><th>Name</th><th class="num">Cash</th><th class="num">Target</th></tr></thead>
+<tbody>
+{{range .Items}}
+<tr>
+  <td>{{.Name}}</td>
+  <td class="num">{{.Cash}}</td>
+  <td class="num">{{if .HasTarget}}{{.Target}}{{else}}&mdash;{{end}}</td>
+</tr>
+{{end}}
+</tbody>
+</section>
+{{end}}
+
+<form method="post" action="/logout" class="aside">
+<button type="submit" class="linkbtn">Sign out</button>
 </form>`
