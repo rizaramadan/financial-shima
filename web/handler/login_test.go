@@ -128,7 +128,11 @@ func TestLoginGet_HTMLLangIsEN(t *testing.T) {
 	}
 }
 
-func TestLoginGet_HasNonEmptyTitle(t *testing.T) {
+// TestLoginGet_TitleContainsSignIn pins the user-observable property: the
+// browser tab is identifiable as the sign-in page when the user has many
+// tabs open. "Non-empty" was true-by-construction — any non-blank string
+// would pass and tell us nothing about identifiability.
+func TestLoginGet_TitleContainsSignIn(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
 
@@ -136,8 +140,9 @@ func TestLoginGet_HasNonEmptyTitle(t *testing.T) {
 	if title == nil {
 		t.Fatal("no <title>")
 	}
-	if textOf(title) == "" {
-		t.Error("<title> empty")
+	const wantSubstring = "Sign in"
+	if got := textOf(title); !strings.Contains(got, wantSubstring) {
+		t.Errorf("title = %q, want it to contain %q (tab identifiability)", got, wantSubstring)
 	}
 }
 
@@ -209,10 +214,12 @@ func TestLoginGet_HasExactlyOneIdentifierInput(t *testing.T) {
 	}
 }
 
-// TestLoginGet_IdentifierInputOmitsTypeAttribute: HTML defaults <input> to
-// type="text". Omitting the attribute is a deliberate choice that pins the
-// default; an explicit "text" or any other value would change the test.
-func TestLoginGet_IdentifierInputOmitsTypeAttribute(t *testing.T) {
+// TestLoginGet_IdentifierInputAcceptsPlainText: the user-observable contract
+// is that the input takes a Telegram handle without masking, browser-side
+// keyboard transformation, or numeric coercion. Either type="" (HTML default
+// = text) or explicit type="text" satisfies this; the test no longer pins a
+// stylistic choice between equally-correct implementations.
+func TestLoginGet_IdentifierInputAcceptsPlainText(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
 
@@ -220,8 +227,11 @@ func TestLoginGet_IdentifierInputOmitsTypeAttribute(t *testing.T) {
 	if input == nil {
 		t.Fatal(`no <input name="identifier">`)
 	}
-	if got := attr(input, "type"); got != "" {
-		t.Errorf(`type = %q, want omitted (rely on HTML default of text)`, got)
+	switch got := strings.ToLower(attr(input, "type")); got {
+	case "", "text":
+		// both behave identically for the user
+	default:
+		t.Errorf(`type = %q, want "" or "text" (any other value changes keyboard or masking)`, got)
 	}
 }
 
@@ -261,24 +271,43 @@ func TestLoginGet_AutocompleteIsOff(t *testing.T) {
 	}
 }
 
-func TestLoginGet_DisablesKeyboardCorrections(t *testing.T) {
+// The next three tests cover three independent vendor contracts under
+// distinct names so a failing test reports the user-visible regression
+// (which platform mangles the Telegram handle), not just an attribute name.
+
+func TestLoginGet_MobileKeyboardDoesNotCapitalize(t *testing.T) {
 	t.Parallel()
 	doc := parseDoc(t, renderLogin(t))
 	input := findFirst(doc, identifierInputPred)
 	if input == nil {
 		t.Fatal(`no input`)
 	}
-	cases := []struct{ key, want string }{
-		{"autocapitalize", "off"},
-		{"autocorrect", "off"},
-		{"spellcheck", "false"},
+	if got := attr(input, "autocapitalize"); got != "off" {
+		t.Errorf(`autocapitalize = %q, want "off" (iOS would otherwise uppercase first char)`, got)
 	}
-	for _, c := range cases {
-		t.Run(c.key, func(t *testing.T) {
-			if got := attr(input, c.key); got != c.want {
-				t.Errorf("input %s = %q, want %q", c.key, got, c.want)
-			}
-		})
+}
+
+func TestLoginGet_IOSDoesNotAutocorrectIdentifier(t *testing.T) {
+	t.Parallel()
+	doc := parseDoc(t, renderLogin(t))
+	input := findFirst(doc, identifierInputPred)
+	if input == nil {
+		t.Fatal(`no input`)
+	}
+	if got := attr(input, "autocorrect"); got != "off" {
+		t.Errorf(`autocorrect = %q, want "off" (Safari iOS would substitute words)`, got)
+	}
+}
+
+func TestLoginGet_BrowserDoesNotSpellcheckIdentifier(t *testing.T) {
+	t.Parallel()
+	doc := parseDoc(t, renderLogin(t))
+	input := findFirst(doc, identifierInputPred)
+	if input == nil {
+		t.Fatal(`no input`)
+	}
+	if got := attr(input, "spellcheck"); got != "false" {
+		t.Errorf(`spellcheck = %q, want "false" (red squiggle would mark valid handles)`, got)
 	}
 }
 

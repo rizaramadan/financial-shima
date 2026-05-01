@@ -128,10 +128,11 @@ func TestServer_HandlerOverRealTCP_ServesLoginForm(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
-	wantSubstrings := []string{`<form`, `name="identifier"`, `Send code`}
-	for _, s := range wantSubstrings {
-		if !strings.Contains(string(body), s) {
-			t.Errorf("body missing %q", s)
-		}
+	// One structural check is enough: the wire path's job is to prove the
+	// real net/http stack serves the same page the in-memory tests verify.
+	// Substring duplication of <form / name=identifier / button copy would
+	// re-assert facts the DOM tests own.
+	if !strings.Contains(string(body), `action="/login"`) {
+		t.Error(`body missing action="/login"; wire path may have served the wrong page`)
 	}
 }
