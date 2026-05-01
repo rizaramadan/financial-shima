@@ -48,8 +48,8 @@ INSERT INTO transactions (
 )
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 ON CONFLICT (idempotency_key)
-DO UPDATE SET idempotency_key = transactions.idempotency_key  -- no-op write to make RETURNING fire
-RETURNING id, type, effective_date, account_id, account_amount, pos_id, pos_amount, counterparty_id, note, source, created_by, idempotency_key, created_at, reverses_id
+DO UPDATE SET idempotency_key = transactions.idempotency_key  -- no-op so RETURNING fires
+RETURNING transactions.id, transactions.type, transactions.effective_date, transactions.account_id, transactions.account_amount, transactions.pos_id, transactions.pos_amount, transactions.counterparty_id, transactions.note, transactions.source, transactions.created_by, transactions.idempotency_key, transactions.created_at, transactions.reverses_id, (xmax = 0) AS was_inserted
 `
 
 type InsertMoneyTransactionParams struct {
@@ -67,11 +67,31 @@ type InsertMoneyTransactionParams struct {
 	ReversesID     pgtype.UUID
 }
 
+type InsertMoneyTransactionRow struct {
+	ID             pgtype.UUID
+	Type           TransactionType
+	EffectiveDate  pgtype.Date
+	AccountID      pgtype.UUID
+	AccountAmount  *int64
+	PosID          pgtype.UUID
+	PosAmount      *int64
+	CounterpartyID pgtype.UUID
+	Note           *string
+	Source         TransactionSource
+	CreatedBy      pgtype.UUID
+	IdempotencyKey string
+	CreatedAt      pgtype.Timestamptz
+	ReversesID     pgtype.UUID
+	WasInserted    bool
+}
+
 // Insert a money_in / money_out row. Idempotency: ON CONFLICT on
-// idempotency_key returns the existing row (RETURNING * with no DO update),
-// so duplicate POSTs from the LLM API silently return the original record
-// per spec §7.2. The application's atomicity wrapper layers on top.
-func (q *Queries) InsertMoneyTransaction(ctx context.Context, arg InsertMoneyTransactionParams) (Transaction, error) {
+// idempotency_key returns the existing row; the (xmax = 0) projection
+// distinguishes a fresh insert (was_inserted=true) from a conflict
+// (was_inserted=false), so the application can skip the notification
+// loop on idempotent re-submission per spec §10.8. Duplicate POSTs
+// silently return the original record per spec §7.2.
+func (q *Queries) InsertMoneyTransaction(ctx context.Context, arg InsertMoneyTransactionParams) (InsertMoneyTransactionRow, error) {
 	row := q.db.QueryRow(ctx, insertMoneyTransaction,
 		arg.Type,
 		arg.EffectiveDate,
@@ -86,7 +106,7 @@ func (q *Queries) InsertMoneyTransaction(ctx context.Context, arg InsertMoneyTra
 		arg.IdempotencyKey,
 		arg.ReversesID,
 	)
-	var i Transaction
+	var i InsertMoneyTransactionRow
 	err := row.Scan(
 		&i.ID,
 		&i.Type,
@@ -102,6 +122,7 @@ func (q *Queries) InsertMoneyTransaction(ctx context.Context, arg InsertMoneyTra
 		&i.IdempotencyKey,
 		&i.CreatedAt,
 		&i.ReversesID,
+		&i.WasInserted,
 	)
 	return i, err
 }

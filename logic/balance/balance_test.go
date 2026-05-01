@@ -184,32 +184,31 @@ func TestProperty_InterPosLines_ReconcilePerCurrency(t *testing.T) {
 	}
 }
 
-// genIDREventStream produces a random sequence of valid IDR-only events.
-// Event types are mixed roughly: 50% money_in, 30% money_out, 20% inter_pos.
-// Amounts are bounded so 200-event streams never overflow int64.
+// genIDREventStream produces a random sequence of valid IDR-only events
+// across MULTIPLE accounts and pos. The multi-account spread is what
+// distinguishes "code correctly aggregates §10.5 across accounts" from
+// "code uses the only key it has." Beck Phase-6 R3.
 func genIDREventStream(rng *rand.Rand, n int) []Event {
-	const accountID = "acc-1"
+	accountIDs := []string{"acc-1", "acc-2"}
 	const maxAmount = 1_000_000
 	posIDs := []string{"p-A", "p-B", "p-C"}
 
 	out := make([]Event, 0, n)
 	for i := 0; i < n; i++ {
 		switch rng.Intn(10) {
-		case 0, 1, 2, 3, 4: // money_in
+		case 0, 1, 2, 3, 4:
 			amount := int64(rng.Intn(maxAmount) + 1)
-			pos := posIDs[rng.Intn(len(posIDs))]
 			out = append(out, MoneyIn{
-				AccountID: accountID, AccountIDR: amount,
-				PosID: pos, PosCurrency: IDR, PosAmount: amount,
+				AccountID: accountIDs[rng.Intn(len(accountIDs))], AccountIDR: amount,
+				PosID: posIDs[rng.Intn(len(posIDs))], PosCurrency: IDR, PosAmount: amount,
 			})
-		case 5, 6, 7: // money_out
+		case 5, 6, 7:
 			amount := int64(rng.Intn(maxAmount) + 1)
-			pos := posIDs[rng.Intn(len(posIDs))]
 			out = append(out, MoneyOut{
-				AccountID: accountID, AccountIDR: amount,
-				PosID: pos, PosCurrency: IDR, PosAmount: amount,
+				AccountID: accountIDs[rng.Intn(len(accountIDs))], AccountIDR: amount,
+				PosID: posIDs[rng.Intn(len(posIDs))], PosCurrency: IDR, PosAmount: amount,
 			})
-		default: // inter_pos (reallocation, fully reconciled)
+		default:
 			amount := int64(rng.Intn(maxAmount) + 1)
 			src := posIDs[rng.Intn(len(posIDs))]
 			dst := posIDs[rng.Intn(len(posIDs))]
@@ -226,14 +225,32 @@ func genIDREventStream(rng *rand.Rand, n int) []Event {
 }
 
 // genUnreconciledInterPos produces an inter_pos whose per-currency totals
-// don't match — useful for proving §10.6 enforcement.
+// don't match. With 50% probability returns a single-currency mismatch;
+// the other 50% returns a TWO-currency event where one currency
+// reconciles and the other doesn't — the bug surface is "code that
+// aggregates across currencies" wouldn't catch the second form.
+// Beck Phase-6 R4.
 func genUnreconciledInterPos(rng *rand.Rand) InterPos {
-	out := int64(rng.Intn(10000) + 1)
-	in := out + int64(rng.Intn(100)+1) // deliberately off by 1-100
+	if rng.Intn(2) == 0 {
+		out := int64(rng.Intn(10000) + 1)
+		in := out + int64(rng.Intn(100)+1)
+		return InterPos{
+			Lines: []InterPosLine{
+				{PosID: "x", Currency: IDR, Direction: DirOut, Amount: out},
+				{PosID: "y", Currency: IDR, Direction: DirIn, Amount: in},
+			},
+		}
+	}
+	// Two-currency case: IDR reconciles (out=in=1000) but gold-g doesn't.
+	idrAmt := int64(rng.Intn(10000) + 1)
+	goldOut := int64(rng.Intn(10) + 1)
+	goldIn := goldOut + int64(rng.Intn(5)+1)
 	return InterPos{
 		Lines: []InterPosLine{
-			{PosID: "x", Currency: IDR, Direction: DirOut, Amount: out},
-			{PosID: "y", Currency: IDR, Direction: DirIn, Amount: in},
+			{PosID: "x1", Currency: IDR, Direction: DirOut, Amount: idrAmt},
+			{PosID: "y1", Currency: IDR, Direction: DirIn, Amount: idrAmt}, // IDR balances
+			{PosID: "x2", Currency: "gold-g", Direction: DirOut, Amount: goldOut},
+			{PosID: "y2", Currency: "gold-g", Direction: DirIn, Amount: goldIn}, // gold-g doesn't
 		},
 	}
 }

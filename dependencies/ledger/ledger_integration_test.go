@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -208,12 +209,13 @@ func TestIntegration_Insert_NotificationFailureRollsBack(t *testing.T) {
 	if txnCount != 0 {
 		t.Errorf("got %d transaction rows after rollback, want 0 (spec §10.8 violated)", txnCount)
 	}
-	// Recipient should have no notification referencing the would-be txn.
-	if err := pool.QueryRow(ctx, `
-		SELECT count(*) FROM notifications n
-		WHERE n.user_id = $1
-		  AND n.created_at > now() - interval '1 minute'
-	`, pgtype.UUID{Bytes: f.OtherUserID, Valid: true}).Scan(&notifCount); err != nil {
+	// Recipient is freshly stamped per test (seedFixtures uses a uuid
+	// suffix), so any notification on this user_id is from this test —
+	// scope by user_id alone, no wall-clock window.
+	if err := pool.QueryRow(ctx,
+		"SELECT count(*) FROM notifications WHERE user_id = $1",
+		pgtype.UUID{Bytes: f.OtherUserID, Valid: true},
+	).Scan(&notifCount); err != nil {
 		t.Fatalf("count notifs: %v", err)
 	}
 	if notifCount != 0 {
@@ -333,26 +335,189 @@ func TestIntegration_Insert_IdempotentReturnsSameRow(t *testing.T) {
 	}
 }
 
-// TestLint_AppendOnly_NoBannedStatementsInTransactionQueries is a STATIC
-// LINT, not a runtime test (Beck review issue 1). It fences against a
-// future contributor adding UPDATE/DELETE on the transactions table at
-// the SQL-source layer. The runtime guarantee comes from the Service
-// surface (which exposes only Insert) and from spec §10.3 enforcement
-// at the DB role level — both warrant their own coverage in later phases.
-func TestLint_AppendOnly_NoBannedStatementsInTransactionQueries(t *testing.T) {
-	t.Parallel()
-	src, err := os.ReadFile("../../db/queries/transactions.sql")
-	if err != nil {
-		t.Fatalf("read queries: %v", err)
+// TestIntegration_Insert_Idempotent_NoDuplicateNotifications: spec §10.8 +
+// §7.2 interaction — the second submission must NOT spawn extra
+// notification rows. Without the WasInserted gate in ledger.go this fails
+// (recipient gets one notification per submission). Beck Phase-6 R2.
+func TestIntegration_Insert_Idempotent_NoDuplicateNotifications(t *testing.T) {
+	pool := poolFromEnv(t)
+	defer pool.Close()
+	ctx := context.Background()
+	f := seedFixtures(t, ctx, pool)
+
+	users := []user.User{
+		{ID: f.UserID.String(), DisplayName: f.UserDisplay},
+		{ID: f.OtherUserID.String(), DisplayName: f.OtherDisplay},
 	}
-	body := strings.ToUpper(src2s(src))
-	// Match any whitespace between keyword and table — case-insensitive
-	// after upper-casing the whole body.
-	for _, banned := range []string{"UPDATE TRANSACTIONS", "DELETE FROM TRANSACTIONS"} {
-		if strings.Contains(body, banned) {
-			t.Errorf("transactions.sql contains banned statement %q (spec §10.3 violation)", banned)
+	svc := &ledger.Service{Pool: pool, Users: users}
+
+	creator := f.UserID
+	idemKey := "test-idem-notif-" + uuid.NewString()
+	in := ledger.MoneyTxnInput{
+		Type:           "money_in",
+		EffectiveDate:  today(),
+		AccountID:      f.AccountID,
+		AccountAmount:  100_000,
+		PosID:          f.PosID,
+		PosAmount:      100_000,
+		CounterpartyID: f.CounterpartyID,
+		Source:         notification.SourceWeb,
+		CreatedBy:      &creator,
+		IdempotencyKey: idemKey,
+	}
+	txnID, err := svc.Insert(ctx, in)
+	if err != nil {
+		t.Fatalf("first Insert: %v", err)
+	}
+	if _, err := svc.Insert(ctx, in); err != nil {
+		t.Fatalf("second Insert (idempotent): %v", err)
+	}
+
+	// Recipient should have exactly ONE notification for this txn,
+	// regardless of how many times we re-submit.
+	var count int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM notifications
+		WHERE user_id = $1 AND related_transaction_id = $2`,
+		pgtype.UUID{Bytes: f.OtherUserID, Valid: true},
+		pgtype.UUID{Bytes: txnID, Valid: true},
+	).Scan(&count); err != nil {
+		t.Fatalf("count notifications: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("got %d notifications for idempotent re-submit, want 1 (spec §10.8 violated)", count)
+	}
+}
+
+// TestIntegration_Insert_SeedSource_NoNotifications: spec §4.5 — seed
+// source produces no notification rows. Phase-1/initial-load operators
+// shouldn't ping every user with N transaction notifications. Beck R6.
+func TestIntegration_Insert_SeedSource_NoNotifications(t *testing.T) {
+	pool := poolFromEnv(t)
+	defer pool.Close()
+	ctx := context.Background()
+	f := seedFixtures(t, ctx, pool)
+
+	users := []user.User{
+		{ID: f.UserID.String(), DisplayName: f.UserDisplay},
+		{ID: f.OtherUserID.String(), DisplayName: f.OtherDisplay},
+	}
+	svc := &ledger.Service{Pool: pool, Users: users}
+
+	idemKey := "test-seed-" + uuid.NewString()
+	txnID, err := svc.Insert(ctx, ledger.MoneyTxnInput{
+		Type:           "money_in",
+		EffectiveDate:  today(),
+		AccountID:      f.AccountID,
+		AccountAmount:  100_000,
+		PosID:          f.PosID,
+		PosAmount:      100_000,
+		CounterpartyID: f.CounterpartyID,
+		Source:         notification.SourceSeed,
+		CreatedBy:      nil,
+		IdempotencyKey: idemKey,
+	})
+	if err != nil {
+		t.Fatalf("Insert seed: %v", err)
+	}
+
+	// Both users — neither should have a notification for this txn.
+	for _, uid := range []uuid.UUID{f.UserID, f.OtherUserID} {
+		var count int
+		if err := pool.QueryRow(ctx, `
+			SELECT count(*) FROM notifications
+			WHERE user_id = $1 AND related_transaction_id = $2`,
+			pgtype.UUID{Bytes: uid, Valid: true},
+			pgtype.UUID{Bytes: txnID, Valid: true},
+		).Scan(&count); err != nil {
+			t.Fatalf("count: %v", err)
+		}
+		if count != 0 {
+			t.Errorf("seed source produced %d notifications for user %v, want 0",
+				count, uid)
 		}
 	}
 }
 
-func src2s(b []byte) string { return string(b) }
+// TestIntegration_Insert_NonUUIDUserID_FailsFast: parseUserID rejects
+// non-UUID user IDs with a clear error. Without this guard the failure
+// mode is a confusing not-null-constraint violation downstream. Beck R7
+// (Skeet Phase-2-7 R5 paired with the test that pins the contract).
+func TestIntegration_Insert_NonUUIDUserID_FailsFast(t *testing.T) {
+	pool := poolFromEnv(t)
+	defer pool.Close()
+	ctx := context.Background()
+	f := seedFixtures(t, ctx, pool)
+
+	// Inject a user with a non-UUID ID — the seeded user list in
+	// logic/user uses string IDs like "riza", which would not parse.
+	users := []user.User{
+		{ID: "riza", DisplayName: "Riza"}, // non-UUID
+		{ID: f.OtherUserID.String(), DisplayName: f.OtherDisplay},
+	}
+	svc := &ledger.Service{Pool: pool, Users: users}
+
+	creator := f.UserID
+	idemKey := "test-bad-uid-" + uuid.NewString()
+	_, err := svc.Insert(ctx, ledger.MoneyTxnInput{
+		Type:           "money_in",
+		EffectiveDate:  today(),
+		AccountID:      f.AccountID,
+		AccountAmount:  1,
+		PosID:          f.PosID,
+		PosAmount:      1,
+		CounterpartyID: f.CounterpartyID,
+		Source:         notification.SourceWeb,
+		CreatedBy:      &creator,
+		IdempotencyKey: idemKey,
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "is not a uuid") {
+		t.Errorf("err = %v, want it to mention 'is not a uuid'", err)
+	}
+	// And the txn must NOT have committed.
+	var count int
+	if err := pool.QueryRow(ctx,
+		"SELECT count(*) FROM transactions WHERE idempotency_key = $1",
+		idemKey).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("transaction committed despite bad user ID (got %d rows)", count)
+	}
+}
+
+// TestLint_AppendOnly_NoBannedStatementsAcrossSQL is a static lint that
+// scans every SQL file under db/queries/ and db/migrations/ for any
+// UPDATE/DELETE statement targeting the transactions table. The previous
+// version was substring-on-one-file with whitespace fragility. Now it
+// uses a case-insensitive regex with \s+ between keyword and table, and
+// walks the whole SQL corpus. The DO UPDATE SET inside the upsert is
+// excluded by anchoring `UPDATE\s+transactions\b` (no SET keyword).
+func TestLint_AppendOnly_NoBannedStatementsAcrossSQL(t *testing.T) {
+	t.Parallel()
+	bannedRE := regexp.MustCompile(`(?i)\b(?:update|delete\s+from)\s+transactions\b`)
+	roots := []string{"../../db/queries", "../../db/migrations"}
+	for _, root := range roots {
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			t.Fatalf("read %s: %v", root, err)
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
+				continue
+			}
+			path := root + "/" + e.Name()
+			body, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read %s: %v", path, err)
+			}
+			for _, m := range bannedRE.FindAllString(string(body), -1) {
+				t.Errorf("%s contains banned %q (spec §10.3 forbids UPDATE/DELETE on transactions)",
+					path, m)
+			}
+		}
+	}
+}

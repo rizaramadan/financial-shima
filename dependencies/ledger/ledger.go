@@ -108,6 +108,18 @@ func (s *Service) Insert(ctx context.Context, in MoneyTxnInput) (uuid.UUID, erro
 		return uuid.Nil, fmt.Errorf("insert transaction: %w", err)
 	}
 
+	// Spec §7.2 idempotent re-submission: when WasInserted is false the
+	// row already existed, so its notification rows already exist too —
+	// skip the notification loop or we'd duplicate them on every retry,
+	// which spec §10.8 forbids. Commit and return the original ID.
+	if !row.WasInserted {
+		if err := tx.Commit(ctx); err != nil {
+			return uuid.Nil, fmt.Errorf("commit (idempotent hit): %w", err)
+		}
+		committed = true
+		return row.ID.Bytes, nil
+	}
+
 	// §4.5 recipient rule. createdByID is the string form for comparison
 	// against user.User.ID.
 	createdByID := ""

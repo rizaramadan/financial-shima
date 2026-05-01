@@ -1,8 +1,10 @@
 -- name: InsertMoneyTransaction :one
 -- Insert a money_in / money_out row. Idempotency: ON CONFLICT on
--- idempotency_key returns the existing row (RETURNING * with no DO update),
--- so duplicate POSTs from the LLM API silently return the original record
--- per spec §7.2. The application's atomicity wrapper layers on top.
+-- idempotency_key returns the existing row; the (xmax = 0) projection
+-- distinguishes a fresh insert (was_inserted=true) from a conflict
+-- (was_inserted=false), so the application can skip the notification
+-- loop on idempotent re-submission per spec §10.8. Duplicate POSTs
+-- silently return the original record per spec §7.2.
 INSERT INTO transactions (
     type, effective_date,
     account_id, account_amount,
@@ -13,8 +15,8 @@ INSERT INTO transactions (
 )
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 ON CONFLICT (idempotency_key)
-DO UPDATE SET idempotency_key = transactions.idempotency_key  -- no-op write to make RETURNING fire
-RETURNING *;
+DO UPDATE SET idempotency_key = transactions.idempotency_key  -- no-op so RETURNING fires
+RETURNING transactions.*, (xmax = 0) AS was_inserted;
 
 -- name: GetTransaction :one
 SELECT * FROM transactions WHERE id = $1;

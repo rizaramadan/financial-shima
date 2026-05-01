@@ -172,6 +172,18 @@ type Po struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type PosObligation struct {
+	ID            pgtype.UUID
+	TransactionID pgtype.UUID
+	CreditorPosID pgtype.UUID
+	DebtorPosID   pgtype.UUID
+	Currency      string
+	AmountOwed    int64
+	AmountRepaid  int64
+	ClearedAt     pgtype.Timestamptz
+	CreatedAt     pgtype.Timestamptz
+}
+
 type Session struct {
 	Token     string
 	UserID    pgtype.UUID

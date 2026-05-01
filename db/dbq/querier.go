@@ -26,10 +26,12 @@ type Querier interface {
 	GetTransaction(ctx context.Context, id pgtype.UUID) (Transaction, error)
 	GetUserByTelegramIdentifier(ctx context.Context, telegramIdentifier string) (User, error)
 	// Insert a money_in / money_out row. Idempotency: ON CONFLICT on
-	// idempotency_key returns the existing row (RETURNING * with no DO update),
-	// so duplicate POSTs from the LLM API silently return the original record
-	// per spec §7.2. The application's atomicity wrapper layers on top.
-	InsertMoneyTransaction(ctx context.Context, arg InsertMoneyTransactionParams) (Transaction, error)
+	// idempotency_key returns the existing row; the (xmax = 0) projection
+	// distinguishes a fresh insert (was_inserted=true) from a conflict
+	// (was_inserted=false), so the application can skip the notification
+	// loop on idempotent re-submission per spec §10.8. Duplicate POSTs
+	// silently return the original record per spec §7.2.
+	InsertMoneyTransaction(ctx context.Context, arg InsertMoneyTransactionParams) (InsertMoneyTransactionRow, error)
 	InsertNotification(ctx context.Context, arg InsertNotificationParams) (Notification, error)
 	ListAccounts(ctx context.Context) ([]Account, error)
 	ListAccountsIncludingArchived(ctx context.Context) ([]Account, error)
