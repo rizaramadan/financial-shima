@@ -1,0 +1,18 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    queries: "db/queries"
+    schema: "db/migrations"
+    gen:
+      go:
+        package: "dbq"
+        out: "db/dbq"
+        sql_package: "pgx/v5"
+        emit_json_tags: false
+        emit_pointers_for_null_types: true
+        emit_prepared_queries: false
+        emit_interface: true
+        emit_exact_table_names: false
+        output_db_file_name: "db.go"
+        output_models_file_name: "models.go"
+        output_querier_file_name: "querier.go"
