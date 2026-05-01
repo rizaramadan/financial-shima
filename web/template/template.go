@@ -86,6 +86,16 @@ type LoginData struct {
 	Error string
 }
 
+// Compact narrows the card for single-input forms (AntD form widths).
+func (d LoginData) Compact() bool { return true }
+
+// HideBell — pre-auth pages have no bell anyway (SignedIn=false), but
+// satisfy the interface uniformly.
+func (d LoginData) HideBell() bool { return false }
+
+// Route — empty string suppresses the nav (pre-auth pages don't render it).
+func (d LoginData) Route() string { return "" }
+
 // VerifyData drives the OTP-entry template. Identifier round-trips so the
 // hidden field can replay it on POST.
 type VerifyData struct {
@@ -93,6 +103,10 @@ type VerifyData struct {
 	Identifier string
 	Error      string
 }
+
+func (d VerifyData) Compact() bool  { return true }
+func (d VerifyData) HideBell() bool { return false }
+func (d VerifyData) Route() string  { return "" }
 
 // NotificationsData drives the per-user feed (spec §6.5). Items are
 // pre-sorted newest-first by the SQL query.
@@ -107,6 +121,14 @@ type NotificationsData struct {
 // SignedIn reports whether to render the layout's authenticated header
 // (bell badge, etc.). Logged-out templates leave DisplayName empty.
 func (d NotificationsData) SignedIn() bool { return d.DisplayName != "" }
+
+// Compact — list-style pages keep the default card width.
+func (d NotificationsData) Compact() bool { return false }
+
+// HideBell — the bell links to this very page; suppress it here so it
+// doesn't point at itself.
+func (d NotificationsData) HideBell() bool { return true }
+func (d NotificationsData) Route() string  { return "notifications" }
 
 // NotificationRow is one row in the feed.
 type NotificationRow struct {
@@ -137,7 +159,10 @@ type HomeData struct {
 
 // SignedIn for HomeData mirrors NotificationsData — the home page is only
 // reachable post-auth, so a populated DisplayName is the trigger.
-func (d HomeData) SignedIn() bool { return d.DisplayName != "" }
+func (d HomeData) SignedIn() bool  { return d.DisplayName != "" }
+func (d HomeData) Compact() bool   { return false }
+func (d HomeData) HideBell() bool  { return false }
+func (d HomeData) Route() string   { return "home" }
 
 // LoginData and VerifyData are pre-auth; SignedIn always false.
 func (d LoginData) SignedIn() bool  { return false }
@@ -158,6 +183,9 @@ type SpendingData struct {
 
 // SignedIn — only authenticated users reach the spending view.
 func (d SpendingData) SignedIn() bool { return d.DisplayName != "" }
+func (d SpendingData) Compact() bool  { return false }
+func (d SpendingData) HideBell() bool { return false }
+func (d SpendingData) Route() string  { return "spending" }
 
 // SpendingColumn is one of the top-N pos.
 type SpendingColumn struct {
@@ -197,6 +225,9 @@ type PosDetailData struct {
 
 // SignedIn — only authenticated users reach pos detail.
 func (d PosDetailData) SignedIn() bool { return d.DisplayName != "" }
+func (d PosDetailData) Compact() bool  { return false }
+func (d PosDetailData) HideBell() bool { return false }
+func (d PosDetailData) Route() string  { return "pos" }
 
 // ObligationRow is one open obligation involving this Pos. Direction is
 // "receivable" (this pos is creditor) or "payable" (this pos is debtor).
@@ -237,6 +268,9 @@ type TransactionsData struct {
 
 // SignedIn for transactions list — only reachable post-auth.
 func (d TransactionsData) SignedIn() bool { return d.DisplayName != "" }
+func (d TransactionsData) Compact() bool  { return false }
+func (d TransactionsData) HideBell() bool { return false }
+func (d TransactionsData) Route() string  { return "transactions" }
 
 // TransactionRow is one row in the list, pre-flattened from the SQL join.
 type TransactionRow struct {
@@ -282,128 +316,295 @@ const layoutOpen = `<!doctype html>
 <meta name="color-scheme" content="light dark">
 <title>Shima &mdash; {{.Title}}</title>
 <style>
+/* Ant Design v5 design tokens — adapted for plain CSS (no React).
+ * Source: https://ant.design/docs/spec/colors and Seed Tokens reference.
+ * Primary palette: Polar Green, shifted to green-8 so primary text on
+ * white meets WCAG AA (≥4.5:1). Success stays at green-6 to keep the
+ * tokens semantically distinct.
+ * Functional: success #52C41A, warning #FAAD14, error #FF4D4F.
+ */
 :root {
-  --bg: #fafaf9; --fg: #1c1917; --muted: #57534e; --border: #d6d3d1;
-  --accent: #0f172a; --accent-fg: #f8fafc; --focus: #2563eb; --error: #b91c1c;
-  --radius: 0.5rem;
-  accent-color: var(--focus);
+  /* Brand / interactive — Polar Green (deep, for legibility on white) */
+  --primary:        #237804;  /* colorPrimary  (green-8, ~6.0:1 vs white) */
+  --primary-hover:  #389E0D;  /* colorPrimaryHover (green-7) */
+  --primary-active: #135200;  /* colorPrimaryActive (green-9) */
+  --primary-bg:     #F6FFED;  /* colorPrimaryBg (green-1) */
+
+  /* Functional */
+  --success: #52C41A;
+  --warning: #FAAD14;
+  --error:   #FF4D4F;
+  --error-bg:#FFF1F0;
+  --error-border:#FFCCC7;
+
+  /* Neutral text + surfaces (light mode; rgba alphas per AntD v5) */
+  --text:           rgba(0, 0, 0, 0.88);  /* colorText */
+  --text-secondary: rgba(0, 0, 0, 0.65);  /* colorTextSecondary */
+  --text-tertiary:  rgba(0, 0, 0, 0.45);  /* colorTextTertiary */
+  --border:         #D9D9D9;              /* colorBorder */
+  --border-secondary:#F0F0F0;             /* colorBorderSecondary (table dividers) */
+  --bg-container:   #FFFFFF;              /* colorBgContainer */
+  --bg-page:        #F5F5F5;              /* colorBgLayout */
+  --bg-elevated:    #FFFFFF;              /* colorBgElevated */
+  --bg-fill:        rgba(0, 0, 0, 0.02);  /* colorFillQuaternary — softer than bg-page */
+
+  --radius:    6px;   /* borderRadius */
+  --radius-sm: 4px;   /* borderRadiusSM */
+  --radius-lg: 8px;   /* borderRadiusLG */
+
+  --shadow-sm: 0 1px 2px 0 rgba(0,0,0,0.03), 0 1px 6px -1px rgba(0,0,0,0.02), 0 2px 4px 0 rgba(0,0,0,0.02);
+
+  --font-sm: 12px; --font-base: 14px; --font-lg: 16px;
+  --font-h5: 16px; --font-h4: 20px; --font-h3: 24px; --font-h2: 30px; --font-h1: 38px;
+
+  accent-color: var(--primary);
 }
-::selection { background: color-mix(in oklab, var(--focus) 25%, transparent); }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #0c0a09; --fg: #f5f5f4; --muted: #a8a29e; --border: #44403c;
-    --accent: #d6d3d1; --accent-fg: #0c0a09; --focus: #93c5fd; --error: #fca5a5; }
+  :root {
+    /* Dark-mode primary lifts back to green-7 area — on dark surfaces
+     * legibility flips, lighter greens contrast better than green-8. */
+    --primary:        #6ABE39;  /* dark green-7 */
+    --primary-hover:  #8FD460;  /* dark green-6 */
+    --primary-active: #49AA19;  /* dark green-8 */
+    --primary-bg:     #162312;  /* dark green-1 */
+
+    --error:    #DC4446;
+    --error-bg: #2C1618;
+    --error-border:#5C2223;
+
+    --text:           rgba(255, 255, 255, 0.85);
+    --text-secondary: rgba(255, 255, 255, 0.65);
+    --text-tertiary:  rgba(255, 255, 255, 0.45);
+    --border:         #424242;
+    --border-secondary:#303030;
+    --bg-container:   #141414;
+    --bg-page:        #000000;
+    --bg-elevated:    #1F1F1F;
+    --bg-fill:        rgba(255, 255, 255, 0.04);
+  }
 }
+::selection { background: color-mix(in oklab, var(--primary) 25%, transparent); }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
-  background: var(--bg); color: var(--fg);
+  background: var(--bg-page);
+  color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-               "Helvetica Neue", Arial, sans-serif;
-  font-size: 16px; line-height: 1.5;
+               "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB",
+               "Microsoft YaHei", sans-serif;
+  font-size: var(--font-base); line-height: 1.5714;
   min-height: 100vh; display: grid;
   align-items: start; justify-items: center;
-  padding: max(1.5rem, 12vh) 1.5rem 1.5rem;
+  padding: 24px;
 }
-@media (max-width: 360px) { body { padding: 1rem; } }
-main { width: 100%; max-width: 24rem; }
-h1 { font-size: 1.875rem; font-weight: 600; margin: 0 0 1.5rem; letter-spacing: -0.02em; }
+@media (max-width: 360px) { body { padding: 16px; } }
+main {
+  position: relative; /* anchor for the bell */
+  width: 100%; max-width: 720px;
+  background: var(--bg-container);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-secondary);
+}
+main.compact { max-width: 420px; padding: 32px 28px; }
+@media (max-width: 480px) { main { padding: 20px; border-radius: 0;
+  border-left: 0; border-right: 0; } }
+h1 { font-size: var(--font-h2); font-weight: 600; line-height: 1.21;
+  margin: 0 0 16px; color: var(--text); }
+h2 { font-size: var(--font-h5); font-weight: 600; margin: 0 0 8px; color: var(--text); }
+
 form { margin: 0; }
-.field { margin-bottom: 1.5rem; }
-label { display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.5rem; }
-.hint { display: block; font-size: 0.8125rem; color: var(--muted); margin: 0.5rem 0 0; }
-input { width: 100%; padding: 0.625rem 0.75rem; font: inherit; font-size: max(1rem, 16px);
-  color: var(--fg); background: var(--bg); border: 1px solid var(--border);
-  border-radius: var(--radius); }
-input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-button { width: 100%; padding: 0.875rem 1rem; font: inherit; font-size: max(1rem, 16px); font-weight: 600;
-  color: var(--accent-fg); background: var(--accent); border: 1px solid var(--accent);
-  border-radius: var(--radius); cursor: pointer; }
-button:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--accent) 85%, var(--fg));
-  border-color: color-mix(in oklab, var(--accent) 85%, var(--fg));
+.field { margin-bottom: 24px; }
+label { display: block; font-size: var(--font-base); font-weight: 400;
+  margin-bottom: 8px; color: var(--text); }
+.hint { display: block; font-size: var(--font-sm); color: var(--text-tertiary);
+  margin: 4px 0 0; }
+
+input, select {
+  width: 100%; padding: 8px 12px; font: inherit; font-size: var(--font-base);
+  line-height: 1.5714; color: var(--text); background: var(--bg-container);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
-button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-button:disabled { background: var(--border); color: color-mix(in oklab, var(--fg) 60%, transparent);
-  border-color: var(--border); cursor: not-allowed; }
-.alert { margin: 0 0 1rem; padding: 0.75rem 0.875rem; border-radius: var(--radius);
-  background: color-mix(in oklab, var(--error) 12%, var(--bg));
-  color: var(--error); font-size: 0.875rem;
-  border: 1px solid color-mix(in oklab, var(--error) 30%, transparent); }
-/* Subtitle sits directly under h1; tighter coupling than .hint under input. */
-.subtitle { margin: -0.5rem 0 1.5rem; color: var(--muted); font-size: 0.9375rem; }
-.subtitle strong { color: var(--fg); font-weight: 600; }
-.linkbtn { display: inline; background: none; border: 0; padding: 0;
-  color: var(--focus); font: inherit; font-size: 0.875rem; cursor: pointer;
-  text-decoration: underline; text-underline-offset: 2px; width: auto; }
-.linkbtn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 2px; }
-.aside { margin: 1rem 0 0; text-align: center; font-size: 0.875rem; color: var(--muted); }
+input:hover:not(:focus) { border-color: var(--primary-hover); }
+input:focus, input:focus-visible {
+  outline: none; border-color: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 20%, transparent);
+}
+input::placeholder { color: var(--text-tertiary); }
+
+/* AntD primary Button */
+button {
+  width: 100%; padding: 8px 16px; font: inherit; font-size: var(--font-base);
+  font-weight: 400; line-height: 1.5714;
+  color: #FFFFFF; background: var(--primary);
+  border: 1px solid var(--primary); border-radius: var(--radius);
+  cursor: pointer; transition: background 0.2s, border-color 0.2s;
+  box-shadow: 0 2px 0 rgba(35, 120, 4, 0.12);
+}
+button:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
+button:active:not(:disabled) { background: var(--primary-active); border-color: var(--primary-active); }
+button:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 25%, transparent); }
+button:disabled {
+  background: var(--bg-fill); color: var(--text-tertiary);
+  border-color: var(--border); cursor: not-allowed; box-shadow: none;
+}
+
+.alert {
+  margin: 0 0 16px; padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--error-bg); color: var(--error);
+  font-size: var(--font-base); border: 1px solid var(--error-border);
+}
+
+.subtitle { margin: 0 0 24px; color: var(--text-secondary);
+  font-size: var(--font-base); }
+.subtitle strong { color: var(--text); font-weight: 600; }
+
+/* AntD Link Button — Type='link' */
+.linkbtn {
+  display: inline; background: none; border: 0; padding: 0;
+  color: var(--primary); font: inherit; font-size: var(--font-base);
+  cursor: pointer; width: auto;
+  transition: color 0.2s;
+}
+.linkbtn:hover { color: var(--primary-hover); text-decoration: underline; }
+.linkbtn:active { color: var(--primary-active); }
+.linkbtn:focus-visible { outline: none;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 25%, transparent);
+  border-radius: var(--radius-sm); }
+
+.aside { margin: 16px 0 0; text-align: center; font-size: var(--font-base);
+  color: var(--text-tertiary); }
 .aside form { display: inline; }
-.card { margin: 0 0 1.5rem; }
-.card h2 { font-size: 1rem; font-weight: 600; margin: 0 0 0.5rem; color: var(--muted);
-  text-transform: uppercase; letter-spacing: 0.04em; }
-table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; }
-th, td { padding: 0.5rem 0.5rem; border-bottom: 1px solid var(--border); text-align: left; }
-th { font-weight: 500; color: var(--muted); }
+
+.card { margin: 0 0 24px; }
+.card h2 { font-size: var(--font-base); font-weight: 600; margin: 0 0 12px;
+  color: var(--text-tertiary); text-transform: none; letter-spacing: 0; }
+
+/* AntD Table */
+table {
+  width: 100%; border-collapse: collapse;
+  font-size: var(--font-base); color: var(--text);
+}
+thead th {
+  background: var(--bg-fill); color: var(--text);
+  font-weight: 500; padding: 12px 16px;
+  border-bottom: 1px solid var(--border-secondary); text-align: left;
+}
+tbody td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-secondary);
+}
+tbody tr:hover { background: color-mix(in oklab, var(--primary) 4%, transparent); }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
-.bell {
-  position: fixed; top: 1rem; right: 1rem; z-index: 10;
+
+/* AntD Badge — count pip rendered next to the Notifications nav link.
+ * The nav already carries the affordance; the badge attaches an unread
+ * count without duplicating the link as a separate floating bell. */
+.badge {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 2.25rem; height: 2.25rem; border-radius: 999px;
-  color: var(--fg); text-decoration: none;
-  background: color-mix(in oklab, var(--bg) 92%, var(--fg));
-}
-.bell:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.bell svg { width: 1.25rem; height: 1.25rem; }
-.bell .badge {
-  position: absolute; top: -0.25rem; right: -0.25rem;
-  min-width: 1.125rem; height: 1.125rem; padding: 0 0.25rem;
+  min-width: 16px; height: 16px; padding: 0 5px; margin-left: 6px;
   border-radius: 999px;
-  background: var(--error, #b91c1c); color: #fff;
-  font-size: 0.6875rem; font-weight: 700;
-  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--error); color: #FFFFFF;
+  font-size: 11px; font-weight: 600; line-height: 16px;
   font-variant-numeric: tabular-nums;
+  vertical-align: middle;
 }
-.bell .badge:empty { display: none; }
+.badge:empty { display: none; }
+
+/* Notifications feed */
 .notifs { list-style: none; margin: 0; padding: 0; }
-.notif { display: flex; gap: 0.75rem; padding: 0.75rem 0; border-bottom: 1px solid var(--border); }
+.notif {
+  display: flex; gap: 12px; padding: 12px 0;
+  border-bottom: 1px solid var(--border-secondary);
+}
 .notif:last-child { border-bottom: 0; }
-.notif.unread .notif-link strong { color: var(--fg); }
-.notif:not(.unread) .notif-link strong { color: var(--muted); font-weight: 500; }
+.notif.unread .notif-link strong { color: var(--text); font-weight: 600; }
+.notif:not(.unread) .notif-link strong { color: var(--text-secondary); font-weight: 400; }
 .notif-link { flex: 1; display: block; text-decoration: none; color: inherit; }
-.notif-body { display: block; font-size: 0.875rem; color: var(--muted); margin-top: 0.25rem; }
-.notif-time { display: block; font-size: 0.8125rem; color: var(--muted); margin-top: 0.25rem; }
+.notif-body { display: block; font-size: var(--font-base); color: var(--text-secondary); margin-top: 4px; }
+.notif-time { display: block; font-size: var(--font-sm); color: var(--text-tertiary); margin-top: 4px; }
 .notif-actions { flex-shrink: 0; }
-.filter { display: flex; gap: 0.75rem; align-items: end; margin: 0 0 1.5rem; flex-wrap: wrap; }
-.filter label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.875rem; color: var(--muted); }
-.filter input { width: auto; min-width: 9rem; }
-.filter button { width: auto; padding: 0.5rem 1rem; }
-.reversal td { color: var(--muted); text-decoration: line-through; }
-.badge-rev { display: inline-block; padding: 0.0625rem 0.375rem; border-radius: 999px;
-  background: color-mix(in oklab, var(--muted) 18%, var(--bg));
-  color: var(--muted); font-size: 0.6875rem; font-weight: 600;
-  text-decoration: none; margin-left: 0.5rem; }
-tr.totals { border-top: 2px solid var(--border); background: color-mix(in oklab, var(--muted) 8%, var(--bg)); }
-.nav { display: flex; gap: 1rem; margin: 0 0 1.5rem; font-size: 0.9375rem; }
-.nav a { color: var(--focus); text-decoration: none; }
-.nav a:hover { text-decoration: underline; }
+
+/* Filter row — input + button both AntD middle-size (32px tall). */
+.filter { display: flex; gap: 12px; align-items: end; margin: 0 0 24px; flex-wrap: wrap; }
+.filter label { display: flex; flex-direction: column; gap: 4px;
+  font-size: var(--font-sm); color: var(--text-tertiary); }
+.filter input { width: auto; min-width: 144px; height: 32px; padding: 4px 11px; }
+.filter button { width: auto; height: 32px; padding: 0 16px; box-shadow: 0 2px 0 rgba(35, 120, 4, 0.12); }
+
+/* AntD Empty — icon + line for the empty content states. */
+.empty-state {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  padding: 48px 0; gap: 12px; color: var(--text-tertiary);
+}
+.empty-state svg { width: 64px; height: 41px; opacity: 0.6; }
+.empty-state-text { font-size: var(--font-base); color: var(--text-secondary); margin: 0; }
+.empty-state-hint { font-size: var(--font-sm); color: var(--text-tertiary); margin: 0; }
+
+/* AntD OTP-style input — monospace, centred, generously spaced.
+ * text-indent shifts glyphs to compensate for the trailing letter-spacing
+ * gap, keeping the string optically centred (no asymmetric padding hack). */
+.otp {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  text-align: center; letter-spacing: 0.6em; text-indent: 0.6em;
+  max-width: 240px; margin: 0 auto; display: block;
+  font-size: var(--font-h4);
+}
+
+.reversal td { color: var(--text-tertiary); text-decoration: line-through; }
+.badge-rev {
+  display: inline-block; padding: 0 8px; border-radius: var(--radius-sm);
+  background: var(--bg-fill); color: var(--text-tertiary);
+  font-size: var(--font-sm); font-weight: 400;
+  text-decoration: none; margin-left: 8px;
+  border: 1px solid var(--border-secondary);
+}
+
+tr.totals { border-top: 1px solid var(--border); background: var(--bg-fill); }
+tr.totals td { font-weight: 600; }
+
+.nav {
+  display: flex; gap: 24px; align-items: baseline; margin: 0 0 24px;
+  font-size: var(--font-base);
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-secondary);
+}
+.nav a {
+  color: var(--text-secondary); text-decoration: none;
+  padding-bottom: 16px; margin-bottom: -17px;
+  border-bottom: 2px solid transparent;
+  transition: color 0.2s, border-color 0.2s;
+}
+.nav a:hover { color: var(--primary); }
+.nav a[aria-current="page"] {
+  color: var(--primary); font-weight: 500;
+  border-bottom-color: var(--primary);
+}
+.nav-end { margin-left: auto; }
+.nav-end .linkbtn { color: var(--text-tertiary); }
+.nav-end .linkbtn:hover { color: var(--primary); }
 </style>
 </head>
 <body>
-<main>
+<main{{if .Compact}} class="compact"{{end}}>
+{{if .SignedIn}}
+<nav class="nav" aria-label="Primary">
+<a href="/"{{if eq .Route "home"}} aria-current="page"{{end}}>Home</a>
+<a href="/transactions"{{if eq .Route "transactions"}} aria-current="page"{{end}}>Transactions</a>
+<a href="/spending"{{if eq .Route "spending"}} aria-current="page"{{end}}>Spending</a>
+<a href="/notifications"{{if eq .Route "notifications"}} aria-current="page"{{end}}>Notifications<span class="badge" aria-label="{{.UnreadCount}} unread">{{if .UnreadCount}}{{.UnreadCount}}{{end}}</span></a>
+<form method="post" action="/logout" class="nav-end">
+<button type="submit" class="linkbtn">Sign out</button>
+</form>
+</nav>
+{{end}}
 `
 
 const layoutClose = `
 </main>
-{{if .SignedIn}}
-<a class="bell" href="/notifications" aria-label="Notifications{{if .UnreadCount}} ({{.UnreadCount}} unread){{end}}">
-<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/>
-<path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>
-</svg>
-<span class="badge">{{if .UnreadCount}}{{.UnreadCount}}{{end}}</span>
-</a>
-{{end}}
 </body>
 </html>`
 
@@ -428,7 +629,7 @@ const verifyBody = `<h1>Enter your code</h1>
 <input type="hidden" name="identifier" value="{{.Identifier}}">
 <div class="field">
 <label for="code">6-digit code</label>
-<input id="code" name="code" inputmode="numeric"
+<input id="code" name="code" class="otp" inputmode="numeric"
   pattern="[0-9]{6}" maxlength="6" minlength="6"
   autocapitalize="off" autocorrect="off" spellcheck="false"
   required autofocus>
@@ -448,7 +649,16 @@ const notificationsBody = `<h1>Notifications</h1>
 {{if .LoadError}}
 <p class="alert" role="alert">Couldn&rsquo;t load notifications. Refresh in a moment.</p>
 {{else if not .Items}}
-<p class="subtitle">Nothing to read.</p>
+<div class="empty-state">
+<svg viewBox="0 0 64 41" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<ellipse cx="32" cy="33" rx="32" ry="7" fill="currentColor" opacity="0.08"/>
+<path d="M55 12.76L44.85 1.18C44.24 0.43 43.36 0 42.43 0H21.57c-0.93 0-1.81 0.43-2.42 1.18L9 12.76V22h46V12.76z"
+      stroke="currentColor" stroke-width="1" fill="none" opacity="0.5"/>
+<path d="M41.61 16.3c0-1.94 1.39-3.52 3.1-3.52H55v18.69C55 33.95 53.07 36 50.69 36H13.31C10.93 36 9 33.95 9 31.47V12.78h10.29c1.71 0 3.1 1.58 3.1 3.51v0.05c0 1.94 1.41 3.5 3.12 3.5h12.98c1.71 0 3.12-1.57 3.12-3.51v-0.04z"
+      fill="currentColor" opacity="0.15"/>
+</svg>
+<p class="empty-state-text">Nothing to read.</p>
+</div>
 {{else}}
 {{if .UnreadCount}}
 <form method="post" action="/notifications/mark-all-read" class="aside">
@@ -479,8 +689,7 @@ const notificationsBody = `<h1>Notifications</h1>
 </li>
 {{end}}
 </ul>
-{{end}}
-<p class="aside"><a class="linkbtn" href="/">&larr; Home</a></p>`
+{{end}}`
 
 const spendingBody = `<h1>Spending</h1>
 <form method="get" action="/spending" class="filter">
@@ -491,7 +700,18 @@ const spendingBody = `<h1>Spending</h1>
 {{if .LoadError}}
 <p class="alert" role="alert">Couldn&rsquo;t load spending. Refresh in a moment.</p>
 {{else if not .Columns}}
-<p class="subtitle">No money_out transactions in this range.</p>
+<div class="empty-state">
+<svg viewBox="0 0 64 41" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<ellipse cx="32" cy="33" rx="32" ry="7" fill="currentColor" opacity="0.08"/>
+<rect x="14" y="6" width="36" height="24" rx="2" stroke="currentColor" stroke-width="1" fill="none" opacity="0.5"/>
+<rect x="20" y="20" width="4" height="6" fill="currentColor" opacity="0.25"/>
+<rect x="28" y="14" width="4" height="12" fill="currentColor" opacity="0.25"/>
+<rect x="36" y="10" width="4" height="16" fill="currentColor" opacity="0.25"/>
+<rect x="44" y="22" width="4" height="4" fill="currentColor" opacity="0.25"/>
+</svg>
+<p class="empty-state-text">No spending in this range.</p>
+<p class="empty-state-hint">Adjust the filter or check back after the next sync.</p>
+</div>
 {{else}}
 <p class="subtitle">Top {{.TopN}} Pos by money_out volume in this range.</p>
 <table>
@@ -517,13 +737,11 @@ const spendingBody = `<h1>Spending</h1>
 </tr>
 </tbody>
 </table>
-{{end}}
-<p class="aside"><a class="linkbtn" href="/">&larr; Home</a></p>`
+{{end}}`
 
 const posBody = `{{if .NotFound}}
 <h1>Pos not found</h1>
 <p class="subtitle">No Pos with that id, or it has been removed.</p>
-<p class="aside"><a class="linkbtn" href="/">&larr; Home</a></p>
 {{else}}
 <h1>{{.Name}}{{if .Archived}} <span class="badge-rev">archived</span>{{end}}</h1>
 <p class="subtitle">{{.Currency}}{{if .HasTarget}} &middot; target {{.Target}}{{end}}</p>
@@ -587,8 +805,6 @@ const posBody = `{{if .NotFound}}
 {{else}}
 <p class="subtitle">No transactions for this Pos yet.</p>
 {{end}}
-
-<p class="aside"><a class="linkbtn" href="/">&larr; Home</a></p>
 {{end}}`
 
 const transactionsBody = `<h1>Transactions</h1>
@@ -600,7 +816,17 @@ const transactionsBody = `<h1>Transactions</h1>
 {{if .LoadError}}
 <p class="alert" role="alert">Couldn&rsquo;t load transactions. Refresh in a moment.</p>
 {{else if not .Items}}
-<p class="subtitle">No transactions in this range.</p>
+<div class="empty-state">
+<svg viewBox="0 0 64 41" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<ellipse cx="32" cy="33" rx="32" ry="7" fill="currentColor" opacity="0.08"/>
+<rect x="16" y="4" width="32" height="28" rx="2" stroke="currentColor" stroke-width="1" fill="none" opacity="0.5"/>
+<rect x="20" y="10" width="20" height="2" fill="currentColor" opacity="0.25"/>
+<rect x="20" y="16" width="24" height="2" fill="currentColor" opacity="0.25"/>
+<rect x="20" y="22" width="16" height="2" fill="currentColor" opacity="0.25"/>
+</svg>
+<p class="empty-state-text">No transactions in this range.</p>
+<p class="empty-state-hint">Try widening the date filter, or wait for the next sync.</p>
+</div>
 {{else}}
 <table>
 <thead><tr>
@@ -621,19 +847,22 @@ const transactionsBody = `<h1>Transactions</h1>
 {{end}}
 </tbody>
 </table>
-{{end}}
-<p class="aside"><a class="linkbtn" href="/">&larr; Home</a></p>`
+{{end}}`
 
 const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
-<nav class="nav">
-<a href="/transactions">Transactions</a>
-<a href="/spending">Spending</a>
-<a href="/notifications">Notifications</a>
-</nav>
 {{if .LoadError}}
 <p class="alert" role="alert">Couldn&rsquo;t load your accounts and pos right now. Refresh in a moment.</p>
 {{else if and (not .Accounts) (not .PosByCurrency)}}
-<p class="subtitle">Accounts and Pos load once seed data lands. Balance computation wires up next.</p>
+<div class="empty-state">
+<svg viewBox="0 0 64 41" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<ellipse cx="32" cy="33" rx="32" ry="7" fill="currentColor" opacity="0.08"/>
+<path d="M14 14 H50 V30 H14 Z" stroke="currentColor" stroke-width="1" fill="none" opacity="0.5"/>
+<rect x="14" y="14" width="36" height="6" fill="currentColor" opacity="0.15"/>
+<circle cx="42" cy="25" r="2" fill="currentColor" opacity="0.4"/>
+</svg>
+<p class="empty-state-text">Nothing here yet.</p>
+<p class="empty-state-hint">Your accounts and budgets will show up once they&rsquo;re added.</p>
+</div>
 {{end}}
 
 {{if .Accounts}}
@@ -668,6 +897,4 @@ const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
 </section>
 {{end}}
 
-<form method="post" action="/logout" class="aside">
-<button type="submit" class="linkbtn">Sign out</button>
-</form>`
+`

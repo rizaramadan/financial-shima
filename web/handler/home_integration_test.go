@@ -181,9 +181,9 @@ func TestIntegration_HomeGet_DBErrorRendersLoadError(t *testing.T) {
 	if !strings.Contains(body, `class="alert"`) {
 		t.Error("body missing error alert; DB-error path should render LoadError state")
 	}
-	// "load once seed data lands" must NOT appear — that's the empty-state
-	// message, not the error message.
-	if strings.Contains(body, "load once seed data lands") {
+	// The empty-state text must NOT appear — that's the no-data message,
+	// not the error message.
+	if strings.Contains(body, "Nothing here yet") {
 		t.Error("DB-error rendered the empty-state message instead of the error alert")
 	}
 }
