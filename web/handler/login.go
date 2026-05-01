@@ -25,7 +25,6 @@ const loginPageHTML = `<!doctype html>
   --border: #d6d3d1;
   --accent: #0f172a;
   --accent-fg: #f8fafc;
-  --error: #b91c1c;
   --focus: #2563eb;
   --radius: 0.5rem;
 }
@@ -37,7 +36,6 @@ const loginPageHTML = `<!doctype html>
     --border: #44403c;
     --accent: #e7e5e4;
     --accent-fg: #1c1917;
-    --error: #fca5a5;
     --focus: #93c5fd;
   }
 }
@@ -107,13 +105,6 @@ input[type="text"]:focus-visible {
   outline-offset: 1px;
   border-color: var(--focus);
 }
-.error-region {
-  min-height: 1.25rem;
-  margin: 0 0 0.5rem;
-  font-size: 0.875rem;
-  color: var(--error);
-}
-.error-region:empty { margin: 0; min-height: 0; }
 button {
   width: 100%;
   padding: 0.75rem 1rem;
@@ -139,10 +130,10 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
 <p class="wordmark">Shima</p>
 <h1>Sign in</h1>
 <p class="subhead">We&rsquo;ll send a 6-digit code to your Telegram.</p>
-<form method="post" action="/login" novalidate>
-<input type="hidden" name="csrf" value="">
+<form method="post" action="/login">
 <div class="field">
 <label for="identifier">Telegram username or ID</label>
+<small id="identifier-hint" class="hint">e.g. @shima or 123456789</small>
 <input
   id="identifier"
   name="identifier"
@@ -153,11 +144,9 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
   autocorrect="off"
   spellcheck="false"
   required
-  aria-describedby="identifier-hint form-error"
+  aria-describedby="identifier-hint"
 >
-<small id="identifier-hint" class="hint">e.g. @shima or 123456789</small>
 </div>
-<p id="form-error" class="error-region" role="alert" aria-live="polite"></p>
 <button type="submit">Continue</button>
 </form>
 </main>

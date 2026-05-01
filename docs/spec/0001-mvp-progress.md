@@ -38,3 +38,46 @@ Tracks delivery against `0001-mvp.md`. Phases are minimal end-to-end slices, not
 - Tests: split focused tests; structural parse via `golang.org/x/net/html`; assert `Content-Type`; assert `<label for="identifier">`; assert submit button; pin Phase 1 boundary with `POST /login → 405`; assert security headers; `t.Parallel()`.
 - Hygiene: `go mod tidy`; `dump_login.go` checks status; updated handler doc-comment to describe HTTP contract.
 
+#### Round 2 — 2026-05-01
+
+| Persona | Score | Headline |
+|---|---|---|
+| Skeet | 8/10 (↑ 1.5) | Shutdown path: `log.Fatalf` in goroutine skips defers + bypasses Shutdown — use channel pattern; `Shutdown` failure should `Printf` not `Fatalf`; no smoke test that server actually binds (`httptest` recorder bypasses real `net/http.Server`); timeout test is tautological; `WriteTimeout 10s` is a Phase-2 Telegram-call footgun without a TODO marker; ADDR unvalidated; empty CSRF placeholder a contract trap; SIGTERM no-op on Windows. |
+| Ive | 6/10 (↑ 3) | Button "Continue" too generic; no submission/loading state; `role="alert"` + `aria-live="polite"` conflict (drop `aria-live`); `aria-describedby` should not permanently include empty form-error; hint below input but label says "or" — move hint above; long-input overflow on error; sub-320px viewport too tight; dark-mode disabled button breaks contrast; `opacity:0.92` hover is generic; wordmark + h1 redundant — combine "Sign in to Shima"; subhead front-loads system; no no-JS guarantee; focus blue is only color; no "Don't use Telegram?" escape; no honeypot; tracking inconsistent. |
+| Beck | 7.5/10 (↑ 1.5) | CSRF and error-region tests are placeholders (no behavior consumes them — TDD inversion: stub drives test instead of behavior driving stub); label text content untested (empty label would pass); no uniqueness assertions (multiple identifier inputs would pass); `FormPostsToLoginEndpoint` asserts two things; `renderLogin` bypasses middleware — at least one canary should go through `e.ServeHTTP`; round-2 bundling commit hides per-reviewer attribution. (Note: server-test bodies were elided in the prompt — that was the prompt's fault, not the code's; full bodies will be pasted in Round 3.) |
+
+**Changes for Round 3:**
+
+Beck (drives commit 1):
+- Delete `TestLoginGet_HasCSRFTokenPlaceholder` + remove the hidden CSRF input (let Phase 2's "POST without valid token → 403" drive its return).
+- Delete `TestLoginGet_HasErrorRegionForLiveAlerts` + remove the `role="alert"` element (let Phase 2's error-flow tests drive it).
+- Add `TestLoginGet_LabelHasVisibleText` walking the label's children.
+- Add `findAll` helper; assert exactly one `<form>`, one identifier input, one submit button.
+- Split `TestLoginGet_FormPostsToLoginEndpoint` into `_FormUsesPOSTMethod` and `_FormPostsToLoginPath`.
+- Make `renderLogin` go through `e.ServeHTTP` after registering the route, so handler tests exercise the framework dispatch path.
+- Assert `<html lang="en">` and non-empty `<title>`.
+
+Ive (drives commit 2):
+- Drop wordmark; rename h1 to "Sign in to Shima"; subhead → "Sign in with a 6-digit code from Telegram." (user-as-subject).
+- Drop `<form novalidate>` so empty-submit blocked natively.
+- Move hint between `<label>` and `<input>`.
+- `overflow-wrap: anywhere` on `.error-region` (it'll come back in Phase 2; the CSS rule stays even when the DOM is removed — keep it commented or move into Phase 2).
+- `@media (max-width: 360px) { body { padding: 1rem; } }`.
+- Disabled button: separate token, not opacity, to keep AA contrast in dark mode.
+- Hover: `color-mix(in oklab, var(--accent) 92%, var(--fg))` instead of opacity.
+- Button label → "Send code via Telegram" (carries destination so subhead can tighten).
+- Add honeypot `<input name="website" tabindex="-1" autocomplete="off">` off-screen.
+- Tracking tokens `--tracking-tight/normal/wide`.
+
+Skeet (drives commit 3):
+- Channel-based shutdown: server-error chan, `select` on `ctx.Done` vs `serverErr`, then `e.Shutdown` unconditionally; downgrade `Shutdown` failure to `Printf`.
+- Smoke test via `httptest.NewServer` that binds and serves real HTTP.
+- Replace tautological timeout assertions with exact-value comparisons.
+- `net.ResolveTCPAddr` to validate `ADDR` eagerly.
+- `WriteTimeout` TODO comment marking Phase-2 review.
+- Windows SIGTERM no-op comment.
+- Drop `e.HidePort` OR drop the manual `listening on …` log; one source of truth.
+- Rename POST 405 test to describe Echo routing rather than implying we wrote the 405 logic.
+
+Conflict resolution (per spec: safety>simplicity, clarity>performance, convention>magic): Beck wins on the CSRF/error-region tests (delete them), even though Ive's "form shape stability" argument is real — clarity wins, and Phase 2 will drive their return naturally. Ive's `aria-live` removal aligns with Beck's deletion of the test, so no cross-cutting conflict remains there.
+

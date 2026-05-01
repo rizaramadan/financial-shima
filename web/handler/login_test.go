@@ -10,23 +10,20 @@ import (
 	"golang.org/x/net/html"
 )
 
-// renderLogin executes LoginGet and returns the recorder.
-// One construction site for the request — keeps individual tests focused on
-// asserting one behavior each.
+// renderLogin registers the route on a fresh Echo and dispatches via
+// e.ServeHTTP so the test exercises the framework's routing path, not just
+// LoginGet in isolation. Production middleware is intentionally not applied
+// here — that's what cmd/server tests cover.
 func renderLogin(t *testing.T) *httptest.ResponseRecorder {
 	t.Helper()
 	e := echo.New()
+	e.GET("/login", LoginGet)
 	req := httptest.NewRequest(http.MethodGet, "/login", nil)
 	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-	if err := LoginGet(c); err != nil {
-		t.Fatalf("LoginGet returned error: %v", err)
-	}
+	e.ServeHTTP(rec, req)
 	return rec
 }
 
-// parseDoc parses the recorded body as HTML. Panics on parse failure (the
-// handler's contract is to emit valid HTML).
 func parseDoc(t *testing.T, rec *httptest.ResponseRecorder) *html.Node {
 	t.Helper()
 	doc, err := html.Parse(strings.NewReader(rec.Body.String()))
@@ -36,17 +33,39 @@ func parseDoc(t *testing.T, rec *httptest.ResponseRecorder) *html.Node {
 	return doc
 }
 
-// findFirst walks the tree and returns the first node matching pred.
-func findFirst(n *html.Node, pred func(*html.Node) bool) *html.Node {
-	if pred(n) {
-		return n
-	}
+func walk(n *html.Node, visit func(*html.Node)) {
+	visit(n)
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		if got := findFirst(c, pred); got != nil {
-			return got
-		}
+		walk(c, visit)
 	}
-	return nil
+}
+
+func findAll(n *html.Node, pred func(*html.Node) bool) []*html.Node {
+	var out []*html.Node
+	walk(n, func(node *html.Node) {
+		if pred(node) {
+			out = append(out, node)
+		}
+	})
+	return out
+}
+
+func findFirst(n *html.Node, pred func(*html.Node) bool) *html.Node {
+	all := findAll(n, pred)
+	if len(all) == 0 {
+		return nil
+	}
+	return all[0]
+}
+
+func textOf(n *html.Node) string {
+	var b strings.Builder
+	walk(n, func(node *html.Node) {
+		if node.Type == html.TextNode {
+			b.WriteString(node.Data)
+		}
+	})
+	return strings.TrimSpace(b.String())
 }
 
 func attr(n *html.Node, key string) string {
@@ -58,10 +77,23 @@ func attr(n *html.Node, key string) string {
 	return ""
 }
 
+func hasAttr(n *html.Node, key string) bool {
+	for _, a := range n.Attr {
+		if a.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
 func isElement(name string) func(*html.Node) bool {
 	return func(n *html.Node) bool {
 		return n.Type == html.ElementNode && n.Data == name
 	}
+}
+
+func identifierInputPred(n *html.Node) bool {
+	return isElement("input")(n) && attr(n, "name") == "identifier"
 }
 
 func TestLoginGet_Returns200WithTextHTMLContentType(t *testing.T) {
@@ -77,55 +109,108 @@ func TestLoginGet_Returns200WithTextHTMLContentType(t *testing.T) {
 	}
 }
 
-func TestLoginGet_FormPostsToLoginEndpoint(t *testing.T) {
+func TestLoginGet_HasHTMLLangAndNonEmptyTitle(t *testing.T) {
 	t.Parallel()
-	rec := renderLogin(t)
-	doc := parseDoc(t, rec)
+	doc := parseDoc(t, renderLogin(t))
+
+	htmlEl := findFirst(doc, isElement("html"))
+	if htmlEl == nil {
+		t.Fatal("no <html> element")
+	}
+	if got := attr(htmlEl, "lang"); got == "" {
+		t.Error(`<html> missing lang attribute (accessibility / SEO baseline)`)
+	}
+
+	title := findFirst(doc, isElement("title"))
+	if title == nil {
+		t.Fatal("no <title> element")
+	}
+	if textOf(title) == "" {
+		t.Error("<title> is empty")
+	}
+}
+
+func TestLoginGet_FormUsesPOSTMethod(t *testing.T) {
+	t.Parallel()
+	doc := parseDoc(t, renderLogin(t))
+
+	forms := findAll(doc, isElement("form"))
+	if len(forms) != 1 {
+		t.Fatalf("found %d <form> elements, want exactly 1", len(forms))
+	}
+	if got := strings.ToLower(attr(forms[0], "method")); got != "post" {
+		t.Errorf("form method = %q, want post", got)
+	}
+}
+
+func TestLoginGet_FormPostsToLoginPath(t *testing.T) {
+	t.Parallel()
+	doc := parseDoc(t, renderLogin(t))
 
 	form := findFirst(doc, isElement("form"))
 	if form == nil {
-		t.Fatal("no <form> element in body")
-	}
-	if got := strings.ToLower(attr(form, "method")); got != "post" {
-		t.Errorf("form method = %q, want post", got)
+		t.Fatal("no <form>")
 	}
 	if got := attr(form, "action"); got != "/login" {
 		t.Errorf("form action = %q, want /login", got)
 	}
 }
 
-func TestLoginGet_HasIdentifierInputLabelledForAccessibility(t *testing.T) {
+func TestLoginGet_HasExactlyOneIdentifierInput(t *testing.T) {
 	t.Parallel()
-	rec := renderLogin(t)
-	doc := parseDoc(t, rec)
+	doc := parseDoc(t, renderLogin(t))
 
-	input := findFirst(doc, func(n *html.Node) bool {
-		return isElement("input")(n) && attr(n, "name") == "identifier"
-	})
+	inputs := findAll(doc, identifierInputPred)
+	if len(inputs) != 1 {
+		t.Fatalf(`found %d <input name="identifier">, want exactly 1`, len(inputs))
+	}
+}
+
+func TestLoginGet_IdentifierInputIsTextType(t *testing.T) {
+	t.Parallel()
+	doc := parseDoc(t, renderLogin(t))
+
+	input := findFirst(doc, identifierInputPred)
 	if input == nil {
-		t.Fatal(`no <input name="identifier"> in body`)
+		t.Fatal(`no <input name="identifier">`)
+	}
+	// type defaults to "text", but we assert it explicitly so a regression
+	// to type="password" or type="hidden" fails loudly.
+	got := strings.ToLower(attr(input, "type"))
+	if got != "text" && got != "" {
+		t.Errorf(`identifier input type = %q, want "text" (or omitted)`, got)
+	}
+}
+
+func TestLoginGet_IdentifierInputHasLabelWithVisibleText(t *testing.T) {
+	t.Parallel()
+	doc := parseDoc(t, renderLogin(t))
+
+	input := findFirst(doc, identifierInputPred)
+	if input == nil {
+		t.Fatal(`no <input name="identifier">`)
 	}
 	id := attr(input, "id")
 	if id == "" {
-		t.Fatal("identifier input has no id (cannot be associated with a label)")
+		t.Fatal("identifier input has no id")
 	}
 
 	label := findFirst(doc, func(n *html.Node) bool {
 		return isElement("label")(n) && attr(n, "for") == id
 	})
 	if label == nil {
-		t.Errorf(`no <label for=%q> associated with the identifier input`, id)
+		t.Fatalf(`no <label for=%q>`, id)
+	}
+	if text := textOf(label); text == "" {
+		t.Errorf(`<label for=%q> has no visible text content`, id)
 	}
 }
 
 func TestLoginGet_IdentifierInputUsesMobileFriendlyAttributes(t *testing.T) {
 	t.Parallel()
-	rec := renderLogin(t)
-	doc := parseDoc(t, rec)
+	doc := parseDoc(t, renderLogin(t))
 
-	input := findFirst(doc, func(n *html.Node) bool {
-		return isElement("input")(n) && attr(n, "name") == "identifier"
-	})
+	input := findFirst(doc, identifierInputPred)
 	if input == nil {
 		t.Fatal(`no <input name="identifier">`)
 	}
@@ -135,58 +220,54 @@ func TestLoginGet_IdentifierInputUsesMobileFriendlyAttributes(t *testing.T) {
 		{"autocapitalize", "off"},
 		{"autocorrect", "off"},
 		{"spellcheck", "false"},
-		{"required", ""}, // boolean attribute; presence is what matters
 	}
 	for _, c := range cases {
 		t.Run(c.key, func(t *testing.T) {
-			got := attr(input, c.key)
-			if c.key == "required" {
-				// boolean attribute: empty string when present-without-value or with value
-				if !hasAttr(input, "required") {
-					t.Errorf("missing %q attribute on identifier input", c.key)
-				}
-				return
-			}
-			if got != c.want {
+			if got := attr(input, c.key); got != c.want {
 				t.Errorf("input %s = %q, want %q", c.key, got, c.want)
 			}
 		})
 	}
+
+	t.Run("required", func(t *testing.T) {
+		if !hasAttr(input, "required") {
+			t.Error("missing required attribute on identifier input")
+		}
+	})
 }
 
 func TestLoginGet_HasNoAutofocus_PerMobileUXReview(t *testing.T) {
 	t.Parallel()
-	rec := renderLogin(t)
-	doc := parseDoc(t, rec)
+	doc := parseDoc(t, renderLogin(t))
 
-	input := findFirst(doc, func(n *html.Node) bool {
-		return isElement("input")(n) && attr(n, "name") == "identifier"
-	})
+	input := findFirst(doc, identifierInputPred)
 	if input == nil {
 		t.Fatal(`no <input name="identifier">`)
 	}
 	if hasAttr(input, "autofocus") {
-		t.Error(`identifier input has "autofocus"; removed by Round 2 mobile UX review (pops keyboard on page load)`)
+		t.Error(`identifier input has "autofocus"; removed by Round 2 mobile UX review`)
 	}
 }
 
-func TestLoginGet_HasSubmitButton(t *testing.T) {
+func TestLoginGet_HasExactlyOneSubmitButtonWithVisibleText(t *testing.T) {
 	t.Parallel()
-	rec := renderLogin(t)
-	doc := parseDoc(t, rec)
+	doc := parseDoc(t, renderLogin(t))
 
-	btn := findFirst(doc, func(n *html.Node) bool {
+	submitPred := func(n *html.Node) bool {
 		return isElement("button")(n) && strings.ToLower(attr(n, "type")) == "submit"
-	})
-	if btn == nil {
-		t.Fatal(`no <button type="submit"> in body`)
+	}
+	btns := findAll(doc, submitPred)
+	if len(btns) != 1 {
+		t.Fatalf(`found %d <button type="submit">, want exactly 1`, len(btns))
+	}
+	if textOf(btns[0]) == "" {
+		t.Error(`<button type="submit"> has no visible text content`)
 	}
 }
 
 func TestLoginGet_HasViewportMetaForResponsiveLayout(t *testing.T) {
 	t.Parallel()
-	rec := renderLogin(t)
-	doc := parseDoc(t, rec)
+	doc := parseDoc(t, renderLogin(t))
 
 	meta := findFirst(doc, func(n *html.Node) bool {
 		return isElement("meta")(n) && strings.ToLower(attr(n, "name")) == "viewport"
@@ -198,43 +279,4 @@ func TestLoginGet_HasViewportMetaForResponsiveLayout(t *testing.T) {
 	if !strings.Contains(content, "width=device-width") {
 		t.Errorf(`viewport content = %q, want to include "width=device-width"`, content)
 	}
-}
-
-func TestLoginGet_HasErrorRegionForLiveAlerts(t *testing.T) {
-	t.Parallel()
-	rec := renderLogin(t)
-	doc := parseDoc(t, rec)
-
-	region := findFirst(doc, func(n *html.Node) bool {
-		return n.Type == html.ElementNode &&
-			strings.EqualFold(attr(n, "role"), "alert") &&
-			strings.EqualFold(attr(n, "aria-live"), "polite")
-	})
-	if region == nil {
-		t.Fatal(`no element with role="alert" aria-live="polite" (error region for Phase 2 form-error rendering)`)
-	}
-}
-
-func TestLoginGet_HasCSRFTokenPlaceholder(t *testing.T) {
-	t.Parallel()
-	rec := renderLogin(t)
-	doc := parseDoc(t, rec)
-
-	tok := findFirst(doc, func(n *html.Node) bool {
-		return isElement("input")(n) &&
-			strings.ToLower(attr(n, "type")) == "hidden" &&
-			attr(n, "name") == "csrf"
-	})
-	if tok == nil {
-		t.Fatal(`no <input type="hidden" name="csrf"> placeholder (Phase 2 will populate the value)`)
-	}
-}
-
-func hasAttr(n *html.Node, key string) bool {
-	for _, a := range n.Attr {
-		if a.Key == key {
-			return true
-		}
-	}
-	return false
 }
