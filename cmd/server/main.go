@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
-	"time"
 
 	"github.com/labstack/echo/v4"
 
@@ -21,9 +21,13 @@ const (
 	// defaultAddr is the listen address when ADDR is unset. ADDR accepts any
 	// value valid for net.Listen("tcp", ...): ":8080", "127.0.0.1:8080",
 	// "[::1]:8080".
-	defaultAddr           = ":8080"
-	shutdownGraceDuration = 10 * time.Second
+	defaultAddr = ":8080"
 )
+
+// shutdownGraceDuration must be at least setup.WriteTimeout so in-flight
+// requests granted the full write budget can complete before forced close.
+// Bumping setup.WriteTimeout in Phase 2 (for Telegram calls) bumps this too.
+var shutdownGraceDuration = setup.WriteTimeout
 
 func newServer() *echo.Echo {
 	e := echo.New()
@@ -33,15 +37,32 @@ func newServer() *echo.Echo {
 	return e
 }
 
+// validateAddr performs syntactic validation only — no network I/O. It
+// rejects empty host:port pairs, non-numeric ports, and ports outside the
+// 1-65535 range. (Port 0 is valid for net.Listen — "OS-chosen port" — but
+// almost always operator error in production, so we reject it here.)
+func validateAddr(addr string) error {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return err
+	}
+	p, err := strconv.Atoi(port)
+	if err != nil {
+		return errors.New("port must be numeric, got " + strconv.Quote(port))
+	}
+	if p < 1 || p > 65535 {
+		return errors.New("port must be 1-65535, got " + strconv.Itoa(p))
+	}
+	return nil
+}
+
 func main() {
 	addr := os.Getenv("ADDR")
 	if addr == "" {
 		addr = defaultAddr
 	}
-	// Syntactic validation only: SplitHostPort parses "host:port" with no
-	// network I/O. (ResolveTCPAddr would do DNS for "myhost.local:8080".)
-	if _, _, err := net.SplitHostPort(addr); err != nil {
-		log.Fatalf("invalid ADDR %q (want host:port, e.g. \":8080\"): %v", addr, err)
+	if err := validateAddr(addr); err != nil {
+		log.Fatalf("invalid ADDR %q: %v", addr, err)
 	}
 
 	e := newServer()
@@ -55,6 +76,11 @@ func main() {
 	serverErr := make(chan error, 1)
 	go func() {
 		defer close(serverErr)
+		// Log immediately before bind. There's a microsecond window between
+		// this and the actual bind, but no log at all is strictly worse —
+		// silent startup is indistinguishable from "hung pre-listen" in
+		// production logs.
+		log.Printf("listening on %s", addr)
 		if err := e.Start(addr); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErr <- err
 		}
@@ -63,11 +89,20 @@ func main() {
 	select {
 	case <-ctx.Done():
 		log.Print("shutdown signal received")
+		// Drain in case Start() failed concurrently with the signal —
+		// otherwise that error is swallowed and we'd Shutdown a server
+		// that never bound. The buffered channel + non-blocking read make
+		// this safe.
+		select {
+		case err := <-serverErr:
+			if err != nil {
+				log.Fatalf("server start (during shutdown): %v", err)
+			}
+		default:
+		}
 	case err := <-serverErr:
 		// Bind failed (port in use, permission denied, etc.). Exit non-zero
 		// so supervisors (systemd, k8s) treat it as a crash and restart.
-		// log.Fatalf is correct here: there is nothing to drain; the only
-		// pre-shutdown defer (signal stop) doesn't matter on process exit.
 		if err != nil {
 			log.Fatalf("server start: %v", err)
 		}
