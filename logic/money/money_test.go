@@ -224,6 +224,10 @@ func TestProperty_OverflowBoundary_Sub(t *testing.T) {
 		{math.MinInt64, 1, true},
 		{math.MinInt64, -1, false},
 		{math.MinInt64 + 1, 1, false},
+		// Two's-complement asymmetric boundary: 0 - MinInt64 cannot fit
+		// in int64 because |MinInt64| > MaxInt64 (Beck review issue 5).
+		{0, math.MinInt64, true},
+		{1, math.MinInt64, true},
 	}
 	for _, c := range cases {
 		_, err := Money{Cents: c.a, Currency: "x"}.Sub(Money{Cents: c.b, Currency: "x"})

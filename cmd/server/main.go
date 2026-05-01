@@ -70,6 +70,7 @@ func newServerWithDeps(a *auth.Auth, ac assistant.Client) *echo.Echo {
 	e.POST("/login", h.LoginPost)
 	e.GET("/verify", h.VerifyGet)
 	e.POST("/verify", h.VerifyPost)
+	e.POST("/logout", h.LogoutPost)
 	return e
 }
 

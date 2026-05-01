@@ -66,7 +66,12 @@ CREATE TABLE notifications (
     type                   notification_type NOT NULL,
     title                  text              NOT NULL,
     body                   text,
-    related_transaction_id uuid              REFERENCES transactions(id) ON DELETE CASCADE,
+    -- NOT NULL enforces half of §10.8 at the schema layer: a notification
+    -- cannot exist without its transaction. The other half (transaction
+    -- exists -> notifications exist) lives in the application's atomic
+    -- insert path. Phase 9+ may add notification types that don't reference
+    -- a transaction; that warrants a separate migration relaxing this.
+    related_transaction_id uuid              NOT NULL REFERENCES transactions(id),
     read_at                timestamptz,
     created_at             timestamptz       NOT NULL DEFAULT now()
 );

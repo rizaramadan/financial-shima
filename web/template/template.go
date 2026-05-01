@@ -21,6 +21,7 @@ func New() *Renderer {
 	t := template.New("")
 	template.Must(t.New("login").Parse(layoutOpen + loginBody + layoutClose))
 	template.Must(t.New("verify").Parse(layoutOpen + verifyBody + layoutClose))
+	template.Must(t.New("home").Parse(layoutOpen + homeBody + layoutClose))
 	return &Renderer{t: t}
 }
 
@@ -41,6 +42,13 @@ type VerifyData struct {
 	Title      string
 	Identifier string
 	Error      string
+}
+
+// HomeData drives the (Phase-2 placeholder) home view. Phase 9 replaces
+// the placeholder body with the real balances/transactions UI.
+type HomeData struct {
+	Title       string
+	DisplayName string
 }
 
 const layoutOpen = `<!doctype html>
@@ -98,6 +106,15 @@ button:disabled { background: var(--border); color: color-mix(in oklab, var(--fg
   background: color-mix(in oklab, var(--error) 12%, var(--bg));
   color: var(--error); font-size: 0.875rem;
   border: 1px solid color-mix(in oklab, var(--error) 30%, transparent); }
+/* Subtitle sits directly under h1; tighter coupling than .hint under input. */
+.subtitle { margin: -0.5rem 0 1.5rem; color: var(--muted); font-size: 0.9375rem; }
+.subtitle strong { color: var(--fg); font-weight: 600; }
+.linkbtn { display: inline; background: none; border: 0; padding: 0;
+  color: var(--focus); font: inherit; font-size: 0.875rem; cursor: pointer;
+  text-decoration: underline; text-underline-offset: 2px; width: auto; }
+.linkbtn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 2px; }
+.aside { margin: 1rem 0 0; text-align: center; font-size: 0.875rem; color: var(--muted); }
+.aside form { display: inline; }
 </style>
 </head>
 <body>
@@ -124,7 +141,7 @@ const loginBody = `<h1>Sign in</h1>
 </form>`
 
 const verifyBody = `<h1>Enter your code</h1>
-<p class="hint" style="margin: -1rem 0 1.5rem;">Sent to your Telegram. Code expires in 5 minutes.</p>
+<p class="subtitle">Sent to <strong>{{.Identifier}}</strong> on Telegram. Code expires in 5 minutes.</p>
 {{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
 <form method="post" action="/verify">
 <input type="hidden" name="identifier" value="{{.Identifier}}">
@@ -132,8 +149,22 @@ const verifyBody = `<h1>Enter your code</h1>
 <label for="code">6-digit code</label>
 <input id="code" name="code" inputmode="numeric"
   pattern="[0-9]{6}" maxlength="6" minlength="6"
-  autocomplete="one-time-code" autocapitalize="off" autocorrect="off" spellcheck="false"
+  autocapitalize="off" autocorrect="off" spellcheck="false"
   required autofocus>
 </div>
 <button type="submit">Verify</button>
+</form>
+<p class="aside">
+<form method="post" action="/login">
+<input type="hidden" name="identifier" value="{{.Identifier}}">
+<button type="submit" class="linkbtn">Send a new code</button>
+</form>
+&nbsp;·&nbsp;
+<a class="linkbtn" href="/login">Use a different identifier</a>
+</p>`
+
+const homeBody = `<h1>Signed in</h1>
+<p class="subtitle">As <strong>{{.DisplayName}}</strong>. Balances, transactions, and Pos views ship in Phase 9.</p>
+<form method="post" action="/logout">
+<button type="submit">Sign out</button>
 </form>`

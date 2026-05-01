@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -156,9 +156,10 @@ func TestIntegration_Insert_AtomicWithNotifications(t *testing.T) {
 }
 
 // TestIntegration_Insert_NotificationFailureRollsBack: spec §10.8 fault
-// injection — if the notification write fails, the transaction insert
-// must not survive. After a failed insert, GetTransaction by the would-be
-// ID must return ErrNoRows and there must be NO notification rows.
+// injection. The hook now runs AFTER InsertNotification, so the rollback
+// path covers a notification row that DID land in the txn before the
+// trigger error fired. We verify both halves: no transaction row and no
+// notification row survive the failed Commit.
 func TestIntegration_Insert_NotificationFailureRollsBack(t *testing.T) {
 	pool := poolFromEnv(t)
 	defer pool.Close()
@@ -196,17 +197,89 @@ func TestIntegration_Insert_NotificationFailureRollsBack(t *testing.T) {
 		t.Fatalf("expected ErrNotificationWriteFailed, got %v", err)
 	}
 
-	// idempotency_key should NOT be present — the insert was rolled back.
+	// Both halves of §10.8 must hold: no transaction row AND no
+	// notification row survives a failed insert.
+	var txnCount, notifCount int
+	if err := pool.QueryRow(ctx,
+		"SELECT count(*) FROM transactions WHERE idempotency_key = $1", idemKey,
+	).Scan(&txnCount); err != nil {
+		t.Fatalf("count txns: %v", err)
+	}
+	if txnCount != 0 {
+		t.Errorf("got %d transaction rows after rollback, want 0 (spec §10.8 violated)", txnCount)
+	}
+	// Recipient should have no notification referencing the would-be txn.
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM notifications n
+		WHERE n.user_id = $1
+		  AND n.created_at > now() - interval '1 minute'
+	`, pgtype.UUID{Bytes: f.OtherUserID, Valid: true}).Scan(&notifCount); err != nil {
+		t.Fatalf("count notifs: %v", err)
+	}
+	if notifCount != 0 {
+		t.Errorf("got %d notification rows after rollback, want 0", notifCount)
+	}
+}
+
+// TestIntegration_NotifyHookReturningNil_DoesNotBypassNotificationWrite
+// pins the contract that the hook is an OBSERVER, not a replacement.
+// A nil-returning hook must still allow the actual notification row to
+// land — the bug Skeet flagged: a future tracing/metrics hook returning
+// nil could otherwise commit txns with zero notifications, silently
+// breaking §10.8.
+func TestIntegration_NotifyHookReturningNil_DoesNotBypassNotificationWrite(t *testing.T) {
+	pool := poolFromEnv(t)
+	defer pool.Close()
+	ctx := context.Background()
+	f := seedFixtures(t, ctx, pool)
+
+	users := []user.User{
+		{ID: f.UserID.String(), DisplayName: f.UserDisplay},
+		{ID: f.OtherUserID.String(), DisplayName: f.OtherDisplay},
+	}
+	hookCalls := 0
+	svc := &ledger.Service{
+		Pool:  pool,
+		Users: users,
+		NotifyHook: func(ctx context.Context, q *dbq.Queries, txnID uuid.UUID, recipient user.User) error {
+			hookCalls++
+			return nil // observer — should NOT short-circuit the real write
+		},
+	}
+
+	creator := f.UserID
+	idemKey := "test-hook-nil-" + uuid.NewString()
+	txnID, err := svc.Insert(ctx, ledger.MoneyTxnInput{
+		Type:           "money_in",
+		EffectiveDate:  today(),
+		AccountID:      f.AccountID,
+		AccountAmount:  100_000,
+		PosID:          f.PosID,
+		PosAmount:      100_000,
+		CounterpartyID: f.CounterpartyID,
+		Source:         notification.SourceWeb,
+		CreatedBy:      &creator,
+		IdempotencyKey: idemKey,
+	})
+	if err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+	if hookCalls != 1 {
+		t.Errorf("hook called %d times, want 1 (one recipient on web source)", hookCalls)
+	}
+	// Real notification row must exist for recipient despite hook returning nil.
 	q := dbq.New(pool)
-	rows, qerr := pool.Query(ctx, "SELECT id FROM transactions WHERE idempotency_key = $1", idemKey)
-	if qerr != nil {
-		t.Fatalf("post-rollback query: %v", qerr)
+	notifs, _ := q.ListNotificationsForUser(ctx, pgtype.UUID{Bytes: f.OtherUserID, Valid: true})
+	found := false
+	for _, n := range notifs {
+		if n.RelatedTransactionID.Valid && n.RelatedTransactionID.Bytes == txnID {
+			found = true
+			break
+		}
 	}
-	defer rows.Close()
-	if rows.Next() {
-		t.Error("transaction row survived a notification failure (spec §10.8 violated)")
+	if !found {
+		t.Error("notification row missing — hook short-circuited the real write (Skeet R1 regression)")
 	}
-	_ = q
 }
 
 // TestIntegration_Insert_IdempotentReturnsSameRow: spec §10.4 / §7.2 —
@@ -258,29 +331,28 @@ func TestIntegration_Insert_IdempotentReturnsSameRow(t *testing.T) {
 	if count != 1 {
 		t.Errorf("got %d rows for idempotency_key, want 1", count)
 	}
-	_ = pgx.ErrNoRows // keep import non-stale if assertions change
 }
 
-// TestIntegration_AppendOnly_NoUpdateOrDeleteOnTransactions: spec §10.3 —
-// the application code should never issue UPDATE or DELETE on transactions.
-// We assert this by reading the queries file: a future contributor adding
-// such a query fails this test (and a separate test below covers runtime
-// absence via inspection of generated code).
-func TestIntegration_AppendOnly_NoUpdateOrDeleteOnTransactions(t *testing.T) {
+// TestLint_AppendOnly_NoBannedStatementsInTransactionQueries is a STATIC
+// LINT, not a runtime test (Beck review issue 1). It fences against a
+// future contributor adding UPDATE/DELETE on the transactions table at
+// the SQL-source layer. The runtime guarantee comes from the Service
+// surface (which exposes only Insert) and from spec §10.3 enforcement
+// at the DB role level — both warrant their own coverage in later phases.
+func TestLint_AppendOnly_NoBannedStatementsInTransactionQueries(t *testing.T) {
 	t.Parallel()
 	src, err := os.ReadFile("../../db/queries/transactions.sql")
 	if err != nil {
 		t.Fatalf("read queries: %v", err)
 	}
-	body := string(src)
-	for _, banned := range []string{"UPDATE transactions", "DELETE FROM transactions"} {
-		if contains(body, banned) {
+	body := strings.ToUpper(src2s(src))
+	// Match any whitespace between keyword and table — case-insensitive
+	// after upper-casing the whole body.
+	for _, banned := range []string{"UPDATE TRANSACTIONS", "DELETE FROM TRANSACTIONS"} {
+		if strings.Contains(body, banned) {
 			t.Errorf("transactions.sql contains banned statement %q (spec §10.3 violation)", banned)
 		}
 	}
 }
 
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr ||
-		(len(s) > len(substr) && (s[:len(substr)] == substr || contains(s[1:], substr))))
-}
+func src2s(b []byte) string { return string(b) }

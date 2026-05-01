@@ -45,9 +45,11 @@ type Pool interface {
 	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
 }
 
-// NotifyHook lets tests fault-inject the notification write. Production
-// passes a nil hook (or one that always returns nil); tests pass a hook
-// that returns an error to drive the rollback path.
+// NotifyHook is a side-channel observer called AFTER each successful
+// q.InsertNotification. Returning a non-nil error rolls back the
+// transaction (used by tests to drive the §10.8 fault path). Hook does
+// NOT replace the real notification write — that runs unconditionally —
+// so a hook that returns nil cannot silently break atomicity.
 type NotifyHook func(ctx context.Context, q *dbq.Queries, txnID uuid.UUID, recipient user.User) error
 
 // Service wires the Pool with the seeded user list and an optional notify
@@ -115,15 +117,13 @@ func (s *Service) Insert(ctx context.Context, in MoneyTxnInput) (uuid.UUID, erro
 	recipients := notification.RecipientsFor(in.Source, createdByID, s.Users)
 
 	for _, r := range recipients {
-		if s.NotifyHook != nil {
-			if err := s.NotifyHook(ctx, q, row.ID.Bytes, r); err != nil {
-				return uuid.Nil, fmt.Errorf("%w: %v", ErrNotificationWriteFailed, err)
-			}
-			continue
+		uid, perr := parseUserID(r.ID)
+		if perr != nil {
+			return uuid.Nil, fmt.Errorf("recipient %q: %w", r.ID, perr)
 		}
 		title := notificationTitle(in.Type, r.DisplayName)
 		_, err := q.InsertNotification(ctx, dbq.InsertNotificationParams{
-			UserID:               toPgUUID(r.ID),
+			UserID:               pgtype.UUID{Bytes: uid, Valid: true},
 			Type:                 dbq.NotificationTypeTransactionCreated,
 			Title:                title,
 			Body:                 ptrStr(in.Note),
@@ -131,6 +131,13 @@ func (s *Service) Insert(ctx context.Context, in MoneyTxnInput) (uuid.UUID, erro
 		})
 		if err != nil {
 			return uuid.Nil, fmt.Errorf("%w: %v", ErrNotificationWriteFailed, err)
+		}
+		// Hook runs AFTER the real write — observer or fault injector,
+		// never a replacement (Skeet review issue 1).
+		if s.NotifyHook != nil {
+			if err := s.NotifyHook(ctx, q, row.ID.Bytes, r); err != nil {
+				return uuid.Nil, fmt.Errorf("%w: %v", ErrNotificationWriteFailed, err)
+			}
 		}
 	}
 
@@ -153,17 +160,15 @@ func ptrStr(s string) *string {
 	return &s
 }
 
-// toPgUUID parses a user.User.ID string. Seeded users carry "riza" / "shima"
-// as IDs which are NOT uuids — for Phase 6 we'll need DB-side user IDs
-// instead. The Phase-6 integration test creates users via UpsertUser and
-// passes the resulting uuid.UUID; this helper expects a parseable uuid.
-func toPgUUID(id string) pgtype.UUID {
+// parseUserID converts a user.User.ID string to a uuid.UUID. The seed file
+// (logic/user) currently uses string IDs like "riza" — those will not parse
+// here. Returning an explicit error lets Insert fail fast with a clear
+// message (Skeet review issue 5) instead of pushing a NULL through to the
+// DB and surfacing a confusing not-null-constraint violation.
+func parseUserID(id string) (uuid.UUID, error) {
 	u, err := uuid.Parse(id)
 	if err != nil {
-		// Caller passed a non-UUID ID. Phase 6 integration test surfaces
-		// this as a notification write error — we don't panic so the rollback
-		// path is exercised cleanly.
-		return pgtype.UUID{}
+		return uuid.Nil, fmt.Errorf("ledger: user id %q is not a uuid: %w", id, err)
 	}
-	return pgtype.UUID{Bytes: u, Valid: true}
+	return u, nil
 }
