@@ -151,3 +151,33 @@ Skeet (commit 3):
 - Add `log.Printf("listening on %s", addr)` before `e.Start` (one source of truth; no Echo banner to compete).
 - Already covered by Beck commit: `_AppliesContentSecurityPolicy` test; `shutdownGraceDuration` aliased to `setup.WriteTimeout`.
 
+#### Round 5 — 2026-05-01
+
+| Persona | Score | Headline |
+|---|---|---|
+| Skeet | 8.9/10 (↑ 0.1) | `main` does four things; extract `run(ctx, e, addr) error` so the lifecycle is unit-testable. `validateAddr` error format inconsistent (`Quote` vs `Itoa`). Only `http.ErrServerClosed` whitelisted; `net.ErrClosed` should be too. `shutdownGraceDuration = WriteTimeout` is racy on slow machines — needs slack. |
+| Ive | 8.5/10 (↑ 0.5) | "S" monogram is "absence wearing a costume" — delete or commit to a real letterform. Spacing scale ad hoc (5 different gaps, no shared unit) — pick base 0.5rem and use multiples. Hint carries label's disclosure burden — label = "Telegram username or numeric ID"; hint = single example. `--accent` paints both wordmark and button — separate `--brand`. `font-weight: 650` rounds to 700 in system font — use 600. Button full-width reads as mobile-first leakage on desktop. `autocomplete="off"` hostile to returning users (Ive flip-flopped from R4). |
+| Beck | 9.4/10 (↑ 0.4) ✅ | `IdentifierInputOmitsTypeAttribute` is strictly weaker than asserting effective text-equivalence. TCP test re-asserts DOM facts with three substrings — one structural check would do. `DisablesKeyboardCorrections` bundles three vendor contracts under one name. `HasNonEmptyTitle` true-by-construction; assert contains identifying token. |
+
+**Changes for Round 6:**
+
+Skeet (commit 1):
+- Extract `run(ctx context.Context, e *echo.Echo, addr string) error` so `main` is reduced to env read + validate + signal wiring + `run`. Adds `TestRun_StopsOnContextCancel` that exercises the lifecycle without spawning a process.
+- `validateAddr` errors via `fmt.Errorf("…%q/%d…")` for consistency.
+- Whitelist `net.ErrClosed` alongside `http.ErrServerClosed`.
+- `shutdownGraceDuration = setup.WriteTimeout + 1*time.Second` so a write hitting WriteTimeout still has a beat to surface its error before forced close.
+
+Ive (commit 2):
+- DELETE the `<div class="mark">S</div>`. A single Latin glyph in the system sans is not a brand mark; until a real one exists, silence > scaffolding.
+- Spacing scale on 0.5rem multiples: label→input 0.5rem, input→hint 0.5rem, h1→form 2rem, field→button 1.5rem (already), body→main padding stays 1.5rem.
+- Label copy → `"Telegram username or numeric ID"`. Hint → `"e.g. @shima"`. Hint illustrates, doesn't disclose.
+- `font-weight: 650` → `font-weight: 600` (system fonts won't render 650).
+- Keep button full-width (the form is genuinely narrow at 24rem; Ive's "mobile-first leakage" applies more to wide forms).
+- Keep `autocomplete="off"`. Round 4 Ive flagged saved-email surfacing as a credibility risk; that argument still holds. Round 5 flip is cosmetic.
+
+Beck (commit 3):
+- `_IdentifierInputOmitsTypeAttribute` → `_IdentifierInputAcceptsPlainText` allowing `""` or `"text"`.
+- Trim TCP-test substrings from 3 → 1 (`action="/login"` proves wire path serves the right page).
+- Split `_DisablesKeyboardCorrections` into platform-named tests.
+- `_HasNonEmptyTitle` → `_TitleContainsSignIn` asserting `"Sign in"` substring.
+

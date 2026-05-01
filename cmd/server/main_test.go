@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func dispatch(t *testing.T, method, path string) *httptest.ResponseRecorder {
@@ -72,6 +75,41 @@ func TestServer_AppliesSecurityHeaders(t *testing.T) {
 // NOT exercise main()'s e.Start(addr) bind path or signal-driven shutdown —
 // those are not reachable from a test without extracting main into a
 // run() helper. Body content asserted so a 200 with empty body fails.
+// TestRun_StopsCleanlyOnContextCancel exercises run()'s lifecycle: bind on a
+// real OS-chosen port, cancel the context, expect a clean nil return. This
+// is the regression guard against future shutdown bugs in run() — drain
+// races, missed close, deadlocks — that no in-memory test can surface.
+func TestRun_StopsCleanlyOnContextCancel(t *testing.T) {
+	t.Parallel()
+
+	// :0 asks the OS for a free port; we don't care which.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve port: %v", err)
+	}
+	addr := ln.Addr().String()
+	ln.Close() // run() will rebind below; small race window is acceptable in tests.
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- run(ctx, newServer(), addr)
+	}()
+
+	// Give Start a beat to actually bind before we ask it to stop.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("run returned %v, want nil after context cancel", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("run did not return within 2s of context cancel")
+	}
+}
+
 func TestServer_HandlerOverRealTCP_ServesLoginForm(t *testing.T) {
 	t.Parallel()
 	e := newServer()
