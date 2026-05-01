@@ -117,6 +117,26 @@ func (h *Handlers) NotificationMarkRead(c echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, "/notifications")
 }
 
+// loadBellCount fetches the unread count for the current user. Used by
+// authenticated handlers that need to populate the layout's bell badge
+// (spec §6.5: "Unread count surfaces in the global header"). Returns 0
+// silently on any failure path so the bell never breaks the page render.
+func (h *Handlers) loadBellCount(ctx context.Context, c echo.Context, uidStr string) int {
+	if h.DB == nil {
+		return 0
+	}
+	uid, err := uuid.Parse(uidStr)
+	if err != nil {
+		return 0
+	}
+	count, err := dbq.New(h.DB).UnreadCount(ctx, pgtype.UUID{Bytes: uid, Valid: true})
+	if err != nil {
+		c.Logger().Errorf("UnreadCount: %v", err)
+		return 0
+	}
+	return int(count)
+}
+
 // NotificationsMarkAllRead bulk-marks unread notifications. Used by the
 // "Mark all read" button at the top of the feed.
 func (h *Handlers) NotificationsMarkAllRead(c echo.Context) error {

@@ -42,6 +42,69 @@ func homeTestServer(t *testing.T, signedIn user.User, signedInOK bool) *echo.Ech
 	return e
 }
 
+// TestHomeGet_BellHiddenWhenUnauthenticated: the bell only renders when
+// the page is authenticated (template's {{if .SignedIn}} guard).
+func TestHomeGet_BellHiddenOnLoginPage(t *testing.T) {
+	t.Parallel()
+	// Construct a Handlers + Echo with the login route — the login data
+	// has SignedIn() == false, so the layout's bell branch must not fire.
+	src := bytes.NewReader(make([]byte, 64))
+	a := auth.New(user.Seeded(), clock.Fixed{T: t0}, src, idgen.Fixed{Value: "tok"})
+	h := New(a, &assistant.Recorder{}, nil)
+	e := echo.New()
+	e.Renderer = tplpkg.New()
+	e.GET("/login", h.LoginGet)
+
+	req := httptest.NewRequest(http.MethodGet, "/login", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if strings.Contains(rec.Body.String(), `class="bell"`) {
+		t.Error("bell rendered on login page (should be hidden)")
+	}
+}
+
+// TestHomeGet_BellRendersWhenSignedIn pins the layout's authenticated
+// header. Without DB the count is zero so the badge is empty.
+func TestHomeGet_BellRendersWhenSignedIn(t *testing.T) {
+	t.Parallel()
+	signedIn := user.User{ID: "u-1", DisplayName: "Tester"}
+	e := homeTestServer(t, signedIn, true)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `class="bell"`) {
+		t.Error("bell missing from authenticated home")
+	}
+	if !strings.Contains(body, `href="/notifications"`) {
+		t.Error("bell does not link to /notifications")
+	}
+	// No DB → UnreadCount=0 → badge body is empty.
+	if !strings.Contains(body, `<span class="badge"></span>`) {
+		t.Errorf("expected empty badge with no DB; body excerpt around bell:\n%s",
+			extractAround(body, "bell", 200))
+	}
+}
+
+func extractAround(s, needle string, span int) string {
+	i := strings.Index(s, needle)
+	if i < 0 {
+		return ""
+	}
+	start := i - span
+	if start < 0 {
+		start = 0
+	}
+	end := i + span
+	if end > len(s) {
+		end = len(s)
+	}
+	return s[start:end]
+}
+
 // TestHomeGet_Unauthenticated_RedirectsToLogin: spec §3.2 access control.
 func TestHomeGet_Unauthenticated_RedirectsToLogin(t *testing.T) {
 	t.Parallel()

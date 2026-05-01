@@ -101,6 +101,10 @@ type NotificationsData struct {
 	LoadError   bool
 }
 
+// SignedIn reports whether to render the layout's authenticated header
+// (bell badge, etc.). Logged-out templates leave DisplayName empty.
+func (d NotificationsData) SignedIn() bool { return d.DisplayName != "" }
+
 // NotificationRow is one row in the feed.
 type NotificationRow struct {
 	ID           string
@@ -112,6 +116,9 @@ type NotificationRow struct {
 	CreatedAt    time.Time
 }
 
+// Methods on data structs the layout calls for the authenticated header.
+// LoginData / VerifyData are not authenticated → SignedIn() returns false.
+
 // HomeData drives the home view per spec §6.2 (current balances).
 // Empty Accounts / PosByCurrency triggers either the placeholder fallback
 // (LoadError = false: DB is unwired or empty) or an error message
@@ -122,7 +129,16 @@ type HomeData struct {
 	Accounts      []AccountRow
 	PosByCurrency []PosCurrencyGroup
 	LoadError     bool
+	UnreadCount   int // server-rendered bell badge (no JS, full-page poll)
 }
+
+// SignedIn for HomeData mirrors NotificationsData — the home page is only
+// reachable post-auth, so a populated DisplayName is the trigger.
+func (d HomeData) SignedIn() bool { return d.DisplayName != "" }
+
+// LoginData and VerifyData are pre-auth; SignedIn always false.
+func (d LoginData) SignedIn() bool  { return false }
+func (d VerifyData) SignedIn() bool { return false }
 
 // AccountRow is one row in the Accounts table on /. Balance is derived
 // from transactions; until that path is wired, render zero.
@@ -216,6 +232,25 @@ table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; }
 th, td { padding: 0.5rem 0.5rem; border-bottom: 1px solid var(--border); text-align: left; }
 th { font-weight: 500; color: var(--muted); }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
+.bell {
+  position: fixed; top: 1rem; right: 1rem; z-index: 10;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 2.25rem; height: 2.25rem; border-radius: 999px;
+  color: var(--fg); text-decoration: none;
+  background: color-mix(in oklab, var(--bg) 92%, var(--fg));
+}
+.bell:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.bell svg { width: 1.25rem; height: 1.25rem; }
+.bell .badge {
+  position: absolute; top: -0.25rem; right: -0.25rem;
+  min-width: 1.125rem; height: 1.125rem; padding: 0 0.25rem;
+  border-radius: 999px;
+  background: var(--error, #b91c1c); color: #fff;
+  font-size: 0.6875rem; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+.bell .badge:empty { display: none; }
 .notifs { list-style: none; margin: 0; padding: 0; }
 .notif { display: flex; gap: 0.75rem; padding: 0.75rem 0; border-bottom: 1px solid var(--border); }
 .notif:last-child { border-bottom: 0; }
@@ -233,6 +268,16 @@ th { font-weight: 500; color: var(--muted); }
 
 const layoutClose = `
 </main>
+{{if .SignedIn}}
+<a class="bell" href="/notifications" aria-label="Notifications{{if .UnreadCount}} ({{.UnreadCount}} unread){{end}}">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/>
+<path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>
+</svg>
+<span class="badge">{{if .UnreadCount}}{{.UnreadCount}}{{end}}</span>
+</a>
+{{end}}
 </body>
 </html>`
 

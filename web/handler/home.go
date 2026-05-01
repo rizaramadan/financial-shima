@@ -41,6 +41,11 @@ func (h *Handlers) HomeGet(c echo.Context) error {
 			c.Logger().Errorf("home loadHomeData: %v", err)
 			data.LoadError = true
 		}
+		// Bell badge is server-rendered on every page nav (option 3 —
+		// no client-side polling, no third-party JS). One UnreadCount
+		// query per home view; the value lives in HomeData.UnreadCount
+		// and the layout reads it.
+		data.UnreadCount = h.loadBellCount(ctx, c, u.ID)
 	}
 
 	return c.Render(http.StatusOK, "home", data)
