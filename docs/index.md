@@ -1,3 +1,8 @@
+---
+layout: default
+title: financial-shima — Phase 9 UI
+---
+
 # Screenshots — Phase 9 UI
 
 Rendered against the Ant Design v5 design tokens (Polar Green primary,
