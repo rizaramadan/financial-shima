@@ -63,10 +63,19 @@ main {
   width: 100%;
   max-width: 24rem;
 }
+.mark {
+  display: block;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  color: var(--accent);
+  margin: 0 0 1.25rem;
+  user-select: none;
+}
 h1 {
   font-size: 1.875rem;
   font-weight: 650;
-  margin: 0 0 1.75rem;
+  margin: 0 0 2rem;
   letter-spacing: -0.02em;
 }
 form { margin: 0; }
@@ -75,13 +84,13 @@ label {
   display: block;
   font-size: 0.875rem;
   font-weight: 500;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.375rem;
 }
 .hint {
   display: block;
   font-size: 0.8125rem;
   color: var(--muted);
-  margin: 0 0 0.5rem;
+  margin: 0.375rem 0 0;
 }
 input {
   width: 100%;
@@ -95,7 +104,7 @@ input {
 }
 input:focus-visible {
   outline: 2px solid var(--focus);
-  outline-offset: 1px;
+  outline-offset: 2px;
   border-color: var(--focus);
 }
 button {
@@ -111,8 +120,8 @@ button {
   cursor: pointer;
 }
 button:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--accent) 92%, var(--fg));
-  border-color: color-mix(in oklab, var(--accent) 92%, var(--fg));
+  background: color-mix(in oklab, var(--accent) 85%, var(--fg));
+  border-color: color-mix(in oklab, var(--accent) 85%, var(--fg));
 }
 button:focus-visible {
   outline: 2px solid var(--focus);
@@ -128,11 +137,11 @@ button:disabled {
 </head>
 <body>
 <main>
+<div class="mark" aria-hidden="true">S</div>
 <h1>Sign in to Shima</h1>
 <form method="post" action="/login">
 <div class="field">
 <label for="identifier">Telegram username or ID</label>
-<small id="identifier-hint" class="hint">e.g. @shima or 123456789</small>
 <input
   id="identifier"
   name="identifier"
@@ -144,6 +153,7 @@ button:disabled {
   required
   aria-describedby="identifier-hint"
 >
+<small id="identifier-hint" class="hint">e.g. @shima or 123456789</small>
 </div>
 <button type="submit">Send code</button>
 </form>
