@@ -5,8 +5,138 @@
 package dbq
 
 import (
+	"database/sql/driver"
+	"fmt"
+
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+type NotificationType string
+
+const (
+	NotificationTypeTransactionCreated NotificationType = "transaction_created"
+)
+
+func (e *NotificationType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = NotificationType(s)
+	case string:
+		*e = NotificationType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for NotificationType: %T", src)
+	}
+	return nil
+}
+
+type NullNotificationType struct {
+	NotificationType NotificationType
+	Valid            bool // Valid is true if NotificationType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullNotificationType) Scan(value interface{}) error {
+	if value == nil {
+		ns.NotificationType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.NotificationType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullNotificationType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.NotificationType), nil
+}
+
+type TransactionSource string
+
+const (
+	TransactionSourceWeb  TransactionSource = "web"
+	TransactionSourceApi  TransactionSource = "api"
+	TransactionSourceSeed TransactionSource = "seed"
+)
+
+func (e *TransactionSource) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TransactionSource(s)
+	case string:
+		*e = TransactionSource(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TransactionSource: %T", src)
+	}
+	return nil
+}
+
+type NullTransactionSource struct {
+	TransactionSource TransactionSource
+	Valid             bool // Valid is true if TransactionSource is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTransactionSource) Scan(value interface{}) error {
+	if value == nil {
+		ns.TransactionSource, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TransactionSource.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTransactionSource) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TransactionSource), nil
+}
+
+type TransactionType string
+
+const (
+	TransactionTypeMoneyIn  TransactionType = "money_in"
+	TransactionTypeMoneyOut TransactionType = "money_out"
+	TransactionTypeInterPos TransactionType = "inter_pos"
+)
+
+func (e *TransactionType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TransactionType(s)
+	case string:
+		*e = TransactionType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TransactionType: %T", src)
+	}
+	return nil
+}
+
+type NullTransactionType struct {
+	TransactionType TransactionType
+	Valid           bool // Valid is true if TransactionType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTransactionType) Scan(value interface{}) error {
+	if value == nil {
+		ns.TransactionType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TransactionType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTransactionType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TransactionType), nil
+}
 
 type Account struct {
 	ID        pgtype.UUID
@@ -20,6 +150,17 @@ type Counterparty struct {
 	Name      string
 	NameLower string
 	CreatedAt pgtype.Timestamptz
+}
+
+type Notification struct {
+	ID                   pgtype.UUID
+	UserID               pgtype.UUID
+	Type                 NotificationType
+	Title                string
+	Body                 *string
+	RelatedTransactionID pgtype.UUID
+	ReadAt               pgtype.Timestamptz
+	CreatedAt            pgtype.Timestamptz
 }
 
 type Po struct {
@@ -36,6 +177,23 @@ type Session struct {
 	UserID    pgtype.UUID
 	IssuedAt  pgtype.Timestamptz
 	ExpiresAt pgtype.Timestamptz
+}
+
+type Transaction struct {
+	ID             pgtype.UUID
+	Type           TransactionType
+	EffectiveDate  pgtype.Date
+	AccountID      pgtype.UUID
+	AccountAmount  *int64
+	PosID          pgtype.UUID
+	PosAmount      *int64
+	CounterpartyID pgtype.UUID
+	Note           *string
+	Source         TransactionSource
+	CreatedBy      pgtype.UUID
+	IdempotencyKey string
+	CreatedAt      pgtype.Timestamptz
+	ReversesID     pgtype.UUID
 }
 
 type User struct {

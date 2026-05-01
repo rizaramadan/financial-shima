@@ -23,14 +23,25 @@ type Querier interface {
 	GetOrCreateCounterparty(ctx context.Context, name string) (Counterparty, error)
 	GetPos(ctx context.Context, id pgtype.UUID) (Po, error)
 	GetSession(ctx context.Context, token string) (GetSessionRow, error)
+	GetTransaction(ctx context.Context, id pgtype.UUID) (Transaction, error)
 	GetUserByTelegramIdentifier(ctx context.Context, telegramIdentifier string) (User, error)
+	// Insert a money_in / money_out row. Idempotency: ON CONFLICT on
+	// idempotency_key returns the existing row (RETURNING * with no DO update),
+	// so duplicate POSTs from the LLM API silently return the original record
+	// per spec §7.2. The application's atomicity wrapper layers on top.
+	InsertMoneyTransaction(ctx context.Context, arg InsertMoneyTransactionParams) (Transaction, error)
+	InsertNotification(ctx context.Context, arg InsertNotificationParams) (Notification, error)
 	ListAccounts(ctx context.Context) ([]Account, error)
 	ListAccountsIncludingArchived(ctx context.Context) ([]Account, error)
 	ListCounterparties(ctx context.Context) ([]Counterparty, error)
+	ListNotificationsForUser(ctx context.Context, userID pgtype.UUID) ([]Notification, error)
 	ListPos(ctx context.Context) ([]Po, error)
+	ListTransactionsByAccount(ctx context.Context, accountID pgtype.UUID) ([]Transaction, error)
 	ListUsers(ctx context.Context) ([]User, error)
+	MarkNotificationRead(ctx context.Context, arg MarkNotificationReadParams) error
 	PurgeExpiredSessions(ctx context.Context) (int64, error)
 	SearchCounterparties(ctx context.Context, lower string) ([]Counterparty, error)
+	UnreadCount(ctx context.Context, userID pgtype.UUID) (int64, error)
 	UpsertUser(ctx context.Context, arg UpsertUserParams) (User, error)
 }
 
