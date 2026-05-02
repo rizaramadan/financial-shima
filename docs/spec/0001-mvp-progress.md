@@ -360,3 +360,33 @@ R5 polish was cosmetic (gofmt + comment style). Reviews on unchanged production 
 **Apikey middleware sub-phase: complete** (commit `570c4ca`). Final scores Skeet 9.7 / Ive 9.7 / Beck 9.8, all carried items deliberately deferred with rationale. 20 tests pin every godoc-promised behavior (multi-header precedence, missing-or-empty disjunction, mismatch sweep, casing canonicalization, pass-through, panic-on-empty with prefix-and-sentinel pinning, runnable example).
 
 **Next Phase-10 sub-phase**: register `/api/v1` route group with `APIKey(env.LLMAPIKey)` armed, plus the first endpoint to drive end-to-end JSON validation. Per spec §7.2 the cheapest first endpoint is `GET /api/v1/accounts` (pure read; no idempotency; no body). That round adds the route group wiring in `cmd/server/main.go` (or a new `web/handler/api_accounts.go`), unit tests for both the unauthenticated 401 path (already covered by middleware tests, but pinned at the route level) and the authenticated 200 path returning a JSON list. Phase 10 stays "in progress" until the full §7.2 surface lands.
+
+### Phase 10 — `/api/v1/accounts` sub-phase
+
+#### Round 1 — 2026-05-02 (commit `cdeb7e8`)
+
+Implementation: `web/handler/api_accounts.go` + `_test.go`. `APIAccountsList` returns a JSON array of non-archived accounts; nil-DB tolerance returns `[]`. `APIAccount` shape `{id, name, archived, created_at}`. Two tests: no-key 401 (with `WWW-Authenticate` pin at the route level) + valid-key on nil-DB returns empty slice. Production wiring deferred — `cmd/server/main.go` has uncommitted in-flight changes from a parallel phase-9 polish effort.
+
+| Persona | Score | Headline |
+|---|---|---|
+| Skeet | 8.7/10 | `log.Printf` instead of `c.Logger()` (project voice drift); nil-DB shortcut bypasses timeout context; brittle `ct[:16]` slice in tests; no 500-path coverage; minor: name asymmetry in test names. |
+| Ive | 6.5/10 | Big blast-radius issues across the rest of §7.2: missing handler-error taxonomy (`internal_error` invented inline); nil-DB returns 200 `[]` silently lying to caller; no `?include_archived=true` query convention; ordering tiebreaker missing (`name, id`); no pagination envelope decision frozen. Two §7.2 endpoints in and the contract is already drifting. |
+| Beck | 8.5/10 | Genuine test-first sequencing, no retrofit smells. Untested behaviors (deferred to integration): ordering, archived filter, JSON-shape per row, DB-error path. One nit: `ct[:16]` panic-prone — swap for `strings.HasPrefix`. |
+
+#### Round 2 — 2026-05-02 (commit `36ac2f0`)
+
+R1 fixes shipped:
+- **Ive #1**: Added `APIErrorCodeInternal` / `ServiceUnavailable` / `Validation` / `NotFound` / `Conflict` constants in `apierror.go`. Every `/api/v1` handler now pulls from this list.
+- **Ive #2** (+ Skeet #4.2): nil-DB now returns 503 + `service_unavailable` code, not 200 `[]`. Honest failure mode for the API surface; HTML routes keep nil-DB tolerance.
+- **Ive #3**: New `?include_archived=true` query param routes to `ListAccountsIncludingArchived`. Convention frozen for the rest of §7.2.
+- **Ive #5**: Pagination decision documented inline — bare arrays for bounded reads (accounts, pos, counterparties); envelope-with-cursor for unbounded (transactions).
+- **Skeet #4.1**: `log.Printf` → `c.Logger().Errorf`.
+- **Skeet #4.3 + Beck**: `ct[:16]` → `strings.HasPrefix` in tests.
+- New `TestAPIAccountsList_QueryParam_AcceptsTruthyForms` (6 subtests) pins the query-param surface.
+
+Carried, deferred:
+- **Ive #4** (`ORDER BY name, id` tiebreaker): requires sqlc regen; dbq files are in unrelated in-flight changes — regen would conflict. Will land alongside that branch.
+- **Skeet #4.4** (`r.ID.Valid` check): schema NOT NULL guarantees it; comment added at conversion site.
+- **Skeet #4.6** (500-path coverage): needs fake-DB scaffold; deferred to integration test file.
+
+9 handler tests (was 2); full suite 305 pass (was 298). R2 reviews pending the next fire.
