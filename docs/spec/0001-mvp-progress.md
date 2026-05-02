@@ -390,3 +390,29 @@ Carried, deferred:
 - **Skeet #4.6** (500-path coverage): needs fake-DB scaffold; deferred to integration test file.
 
 9 handler tests (was 2); full suite 305 pass (was 298). R2 reviews pending the next fire.
+
+#### Round 2 reviews — 2026-05-02 (on commit `36ac2f0`)
+
+| Persona | Score | Headline |
+|---|---|---|
+| Skeet | 9.4/10 (↑ 0.7) | **New issues raised.** R2 changelog claimed "(4) one-line comment on conversion site" for r.ID.Valid but the comment didn't actually ship — discrepancy between plan and code. `strconv.ParseBool` error swallowed silently with no comment (defensible behavior, undocumented). Test name asymmetry between `_NoAPIKey_Returns401` (state-then-status) and `_NilDB_Returns503ServiceUnavailable` (state-then-status-then-code) — pick one schema. |
+| Ive | 8.0/10 (↑ 1.5) | **One new issue.** Five carried+deferred R1 items remain (ORDER BY tiebreaker, r.ID.Valid hard guard, ETag — all correctly deferred with reasons). New: `listTimeout` lives in handler file but R2 godoc framed it as "every /api/v1 list" — should be hoisted next to API error constants or to a `web/middleware/apitimeout.go` once a second consumer lands. |
+| Beck | 9.0/10 (↑ 0.5) | **New issues.** Truthy-forms slice contains `""` which is *falsy* per `strconv.ParseBool` — name-vs-content mismatch. Test name `_AcceptsTruthyForms` promises more than nil-DB path can prove — `_DoesNotRejectTruthyForms` is more precise. |
+
+#### Round 3 — 2026-05-02 (commit `39abf79`)
+
+R2 fixes shipped:
+- **Skeet #1 + Ive #2 (R1 carryover)**: r.ID.Valid guard added at the conversion site with comment explaining schema-NOT-NULL invariant + defensive intent. Invalid uuids now log a warning and skip the row.
+- **Skeet #2**: Comment on `strconv.ParseBool` swallow — Postel's law for read endpoints; flip to `APIErrorCodeValidation` if strict 400-on-malformed becomes the right call.
+- **Skeet #3**: Tests renamed to consistent `_Returns{Status}_{State}` schema.
+- **Beck**: `_DoesNotRejectTruthyForms` rename + dropped `""` from the truthy slice; split into separate `_EmptyDefaultsToFalse` test.
+- **Ive #3 (half-fix)**: Doc note that future list endpoints should reuse `listTimeout`; full hoist to shared file deferred until second consumer lands.
+
+Carried, still deferred:
+- ORDER BY `name, id` tiebreaker (sqlc regen blocked by parallel in-flight changes).
+- DB-error 500-path coverage (needs fake-DB scaffold).
+- ETag/Last-Modified (not load-bearing for LLM caller).
+
+9 tests pass; full suite 305. R3 reviews pending the next fire.
+
+**Score trajectory:** R1 8.7/6.5/8.5 → R2 9.4/8.0/9.0. Each round closing 5–8 issues but new (smaller) ones surface. Countdown not yet begun (R2 had new issues from each reviewer).
