@@ -25,9 +25,12 @@ their primary screenshot. Scenarios that don't yet have UI (S5–S15
 transaction-creation forms, S23–S25 LLM API endpoints) are listed at
 the bottom under **Open gaps**.
 
-> **See also:** [**UAT walkthrough**](./uat) — every implemented
-> scenario plus the high-impact validation negatives, captured by
-> Playwright driving real Chromium against the real local app.
+> **See also:**
+> - [**UAT walkthrough**](./uat) — every implemented scenario plus
+>   the high-impact validation negatives, captured by Playwright
+>   driving real Chromium against the real local app.
+> - [**Theme switcher**](./theme) — light / dark / auto (follow OS)
+>   via a cookie + CSS variable overrides; no JS.
 
 ---
 

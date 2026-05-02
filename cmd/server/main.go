@@ -107,6 +107,7 @@ func newServerWithDeps(a *auth.Auth, ac assistant.Client, db *pgxpool.Pool) *ech
 	setup.Apply(e)
 	e.Renderer = template.New()
 	e.Use(mw.Session(a))
+	e.Use(mw.Theme())
 
 	h := handler.New(a, ac, db)
 	e.GET("/", h.HomeGet)
@@ -129,6 +130,8 @@ func newServerWithDeps(a *auth.Auth, ac assistant.Client, db *pgxpool.Pool) *ech
 	e.GET("/income-templates/:id", h.IncomeTemplateGet)
 	e.POST("/income-templates/:id/preview", h.IncomeTemplatePreviewPost)
 	e.POST("/income-templates/:id/apply", h.IncomeTemplateApplyPost)
+	e.GET("/settings", h.SettingsGet)
+	e.POST("/settings/theme", h.SettingsThemePost)
 
 	// /api/v1 — LLM JSON API per spec §7.2. APIKey middleware reads
 	// LLM_API_KEY at boot; the apikey package panics if it's empty

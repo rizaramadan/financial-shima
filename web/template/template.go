@@ -19,6 +19,12 @@ type Renderer struct {
 	t *template.Template
 }
 
+// ThemeContextKey is the key under which the active theme ("light",
+// "dark", or empty for "auto") is stored in echo.Context. Middleware
+// sets it from the shima_theme cookie; the Renderer reads it to fill
+// in the {{themeAttr}} placeholder on <html>.
+const ThemeContextKey = "shima_theme"
+
 func New() *Renderer {
 	t := template.New("").Funcs(template.FuncMap{
 		"relTime":  relativeTime,
@@ -29,6 +35,9 @@ func New() *Renderer {
 		"txnSign":  txnAmountSign,
 		"pct":      pctOf,
 		"intRange": intRange,
+		// Default no-op; per-request themeAttr is wired in Render
+		// after Clone() so concurrent requests don't share state.
+		"themeAttr": func() template.HTMLAttr { return "" },
 	})
 	template.Must(t.New("login").Parse(layoutOpen + loginBody + layoutClose))
 	template.Must(t.New("verify").Parse(layoutOpen + verifyBody + layoutClose))
@@ -42,6 +51,7 @@ func New() *Renderer {
 	template.Must(t.New("income_template_new").Parse(layoutOpen + incomeTemplateNewBody + layoutClose))
 	template.Must(t.New("income_template_detail").Parse(layoutOpen + incomeTemplateDetailBody + layoutClose))
 	template.Must(t.New("income_template_preview").Parse(layoutOpen + incomeTemplatePreviewBody + layoutClose))
+	template.Must(t.New("settings").Parse(layoutOpen + settingsBody + layoutClose))
 	return &Renderer{t: t}
 }
 
@@ -225,8 +235,30 @@ func pctOf(num, denom int64) int {
 	return int(p)
 }
 
-func (r *Renderer) Render(w io.Writer, name string, data interface{}, _ echo.Context) error {
-	return r.t.ExecuteTemplate(w, name, data)
+// Render is the echo.Renderer entry point. We Clone() the parsed
+// template tree per request so the {{themeAttr}} func can closure
+// over the request-scoped theme without racing other in-flight
+// requests. Cloning a parsed template is microsecond-cheap.
+func (r *Renderer) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
+	theme := ""
+	if c != nil {
+		if v, ok := c.Get(ThemeContextKey).(string); ok {
+			theme = v
+		}
+	}
+	clone, err := r.t.Clone()
+	if err != nil {
+		return err
+	}
+	clone = clone.Funcs(template.FuncMap{
+		"themeAttr": func() template.HTMLAttr {
+			if theme != "light" && theme != "dark" {
+				return "" // no override → CSS @media decides
+			}
+			return template.HTMLAttr(` data-theme="` + theme + `"`)
+		},
+	})
+	return clone.ExecuteTemplate(w, name, data)
 }
 
 // LoginData drives the login template. Error is non-empty when the user
@@ -490,7 +522,7 @@ type PosRow struct {
 }
 
 const layoutOpen = `<!doctype html>
-<html lang="en">
+<html lang="en"{{themeAttr}}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -540,14 +572,15 @@ const layoutOpen = `<!doctype html>
 
   accent-color: var(--primary);
 }
+/* Dark-mode tokens — used by both the @media auto path AND the
+ * explicit :root[data-theme="dark"] override below. Defined once via
+ * a custom-property block we can re-apply. */
 @media (prefers-color-scheme: dark) {
   :root {
-    /* Dark-mode primary lifts back to green-7 area — on dark surfaces
-     * legibility flips, lighter greens contrast better than green-8. */
-    --primary:        #6ABE39;  /* dark green-7 */
-    --primary-hover:  #8FD460;  /* dark green-6 */
-    --primary-active: #49AA19;  /* dark green-8 */
-    --primary-bg:     #162312;  /* dark green-1 */
+    --primary:        #6ABE39;
+    --primary-hover:  #8FD460;
+    --primary-active: #49AA19;
+    --primary-bg:     #162312;
 
     --error:    #DC4446;
     --error-bg: #2C1618;
@@ -563,6 +596,50 @@ const layoutOpen = `<!doctype html>
     --bg-elevated:    #1F1F1F;
     --bg-fill:        rgba(255, 255, 255, 0.04);
   }
+}
+/* Explicit user choice — beats the @media query.
+ *   data-theme="light"  forces light even when OS prefers dark
+ *   data-theme="dark"   forces dark even when OS prefers light
+ *   no attribute        falls through to @media (= "auto" / OS) */
+:root[data-theme="light"] {
+  --primary:        #237804;
+  --primary-hover:  #389E0D;
+  --primary-active: #135200;
+  --primary-bg:     #F6FFED;
+
+  --error:    #FF4D4F;
+  --error-bg: #FFF1F0;
+  --error-border:#FFCCC7;
+
+  --text:           rgba(0, 0, 0, 0.88);
+  --text-secondary: rgba(0, 0, 0, 0.65);
+  --text-tertiary:  rgba(0, 0, 0, 0.45);
+  --border:         #D9D9D9;
+  --border-secondary:#F0F0F0;
+  --bg-container:   #FFFFFF;
+  --bg-page:        #F5F5F5;
+  --bg-elevated:    #FFFFFF;
+  --bg-fill:        rgba(0, 0, 0, 0.02);
+}
+:root[data-theme="dark"] {
+  --primary:        #6ABE39;
+  --primary-hover:  #8FD460;
+  --primary-active: #49AA19;
+  --primary-bg:     #162312;
+
+  --error:    #DC4446;
+  --error-bg: #2C1618;
+  --error-border:#5C2223;
+
+  --text:           rgba(255, 255, 255, 0.85);
+  --text-secondary: rgba(255, 255, 255, 0.65);
+  --text-tertiary:  rgba(255, 255, 255, 0.45);
+  --border:         #424242;
+  --border-secondary:#303030;
+  --bg-container:   #141414;
+  --bg-page:        #000000;
+  --bg-elevated:    #1F1F1F;
+  --bg-fill:        rgba(255, 255, 255, 0.04);
 }
 ::selection { background: color-mix(in oklab, var(--primary) 25%, transparent); }
 * { box-sizing: border-box; }
@@ -812,6 +889,27 @@ tr.totals td { font-weight: 600; }
 .nav-end { margin-left: auto; }
 .nav-end .linkbtn { color: var(--text-tertiary); }
 .nav-end .linkbtn:hover { color: var(--primary); }
+
+/* Theme switcher — three side-by-side buttons; the active one
+ * adopts the primary fill so the user sees their current pick. */
+.theme-switch {
+  display: flex; gap: 8px; margin: 0 0 12px; flex-wrap: wrap;
+}
+.theme-switch button {
+  width: auto; padding: 6px 14px;
+  background: var(--bg-container); color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: none;
+  font-weight: 400;
+}
+.theme-switch button:hover:not(.active):not(:disabled) {
+  border-color: var(--primary); color: var(--primary); background: var(--bg-container);
+}
+.theme-switch button.active {
+  background: var(--primary); color: #fff;
+  border-color: var(--primary);
+  font-weight: 500;
+}
 </style>
 </head>
 <body>
@@ -823,7 +921,8 @@ tr.totals td { font-weight: 600; }
 <a href="/spending"{{if eq .Route "spending"}} aria-current="page"{{end}}>Spending</a>
 <a href="/income-templates"{{if eq .Route "income"}} aria-current="page"{{end}}>Income</a>
 <a href="/notifications"{{if eq .Route "notifications"}} aria-current="page"{{end}}>Notifications<span class="badge" aria-label="{{.UnreadCount}} unread">{{if .UnreadCount}}{{.UnreadCount}}{{end}}</span></a>
-<form method="post" action="/logout" class="nav-end">
+<a href="/settings" class="nav-end"{{if eq .Route "settings"}} aria-current="page"{{end}} aria-label="Settings">⚙</a>
+<form method="post" action="/logout">
 <button type="submit" class="linkbtn">Sign out</button>
 </form>
 </nav>
@@ -1489,3 +1588,31 @@ const incomeTemplatePreviewBody = `<h1>Review allocation</h1>
 <button type="submit">Approve and apply</button>
 </form>
 <p class="aside"><a class="linkbtn" href="/income-templates/{{.ID}}">&larr; Back to template</a></p>`
+
+// SettingsData drives /settings — currently just the theme switch.
+type SettingsData struct {
+	Title        string
+	DisplayName  string
+	UnreadCount  int
+	CurrentTheme string // "light" | "dark" | "auto"
+}
+
+func (d SettingsData) SignedIn() bool { return d.DisplayName != "" }
+func (d SettingsData) Compact() bool  { return false }
+func (d SettingsData) Wide() bool     { return false }
+func (d SettingsData) HideBell() bool { return false }
+func (d SettingsData) Route() string  { return "settings" }
+
+const settingsBody = `<h1>Settings</h1>
+<p class="subtitle">Display preferences for this device. Stored in a cookie.</p>
+
+<section class="card">
+<h2>Theme</h2>
+<p class="subtitle">Choose how the app looks on this device. <strong>Auto</strong> follows your system preference.</p>
+<form method="post" action="/settings/theme" class="theme-switch">
+<button type="submit" name="theme" value="light"{{if eq .CurrentTheme "light"}} class="active"{{end}}>☀ Light</button>
+<button type="submit" name="theme" value="dark"{{if eq .CurrentTheme "dark"}} class="active"{{end}}>☾ Dark</button>
+<button type="submit" name="theme" value="auto"{{if eq .CurrentTheme "auto"}} class="active"{{end}}>◐ Auto (follow OS)</button>
+</form>
+<p class="hint">Currently selected: <strong>{{.CurrentTheme}}</strong>.</p>
+</section>`

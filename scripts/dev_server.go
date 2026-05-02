@@ -76,6 +76,7 @@ func main() {
 	e := echo.New()
 	e.Renderer = template.New()
 	e.Use(mw.Session(a))
+	e.Use(mw.Theme())
 
 	// Production routes — same as cmd/server.
 	e.GET("/", h.HomeGet)
@@ -98,6 +99,8 @@ func main() {
 	e.GET("/income-templates/:id", h.IncomeTemplateGet)
 	e.POST("/income-templates/:id/preview", h.IncomeTemplatePreviewPost)
 	e.POST("/income-templates/:id/apply", h.IncomeTemplateApplyPost)
+	e.GET("/settings", h.SettingsGet)
+	e.POST("/settings/theme", h.SettingsThemePost)
 
 	// Dev shim: read the most recently recorded OTP for a given
 	// identifier. Returns the bare 6-digit string or 404 if none.
