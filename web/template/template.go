@@ -374,12 +374,13 @@ func (d PosDetailData) Route() string  { return "pos" }
 // ObligationRow is one open obligation involving this Pos. Direction is
 // "receivable" (this pos is creditor) or "payable" (this pos is debtor).
 type ObligationRow struct {
-	ID          string
-	Direction   string // "receivable" | "payable"
-	OtherPosID  string
-	Currency    string
-	Outstanding int64
-	CreatedAt   time.Time
+	ID           string
+	Direction    string // "receivable" | "payable"
+	OtherPosID   string
+	OtherPosName string // empty when handler hasn't resolved the name yet
+	Currency     string
+	Outstanding  int64
+	CreatedAt    time.Time
 }
 
 // PosTransactionRow is one row of the scoped transaction list. Trimmer
