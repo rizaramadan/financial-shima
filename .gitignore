@@ -5,3 +5,5 @@ old/
 .claude/
 .ive_dump/
 /server
+scripts/playwright/node_modules/
+scripts/playwright/out/
