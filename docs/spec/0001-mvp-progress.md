@@ -436,3 +436,17 @@ R3 fixes shipped (targeted at Ive — the blocker):
 Skipped (Skeet preference, not defect): truthy sweep matrix annotation. Optional polish; can address if Skeet flags again at R4.
 
 R4 reviews pending the next fire.
+
+#### Round 4 reviews — 2026-05-02 (on commit `094f0dc`)
+
+| Persona | Score | New issues |
+|---|---|---|
+| Skeet | 9.7/10 (carried) | **Zero.** Truthy sweep matrix preference still on board (carried, downgraded). |
+| Ive | 9.3/10 (↑ 0.6) | **Zero.** Two prior issues downgraded to "observations only" (TODO phrasing rot risk; no inline JSON example) — explicitly not crossing the issue threshold. |
+| Beck | 9.5/10 (carried) | **Zero.** Verdict: *"Stop polishing. R4 was already a doc-nit round; another round risks bikeshedding. Open api_accounts_integration_test.go and burn down the deferred list."* |
+
+**Countdown round 1 begins** — first round with zero new issues across all three reviewers simultaneously. Strict criterion needs 4 more (R5–R8) to exit early.
+
+**Asymptote reached on the unit-test surface.** Following the precedent set with the apikey middleware sub-phase: rather than 4 fires of redundant reviews on unchanged code (which last time the user explicitly cancelled), the next fire moves to the next sub-phase per Beck's verdict: integration test scaffold (`api_accounts_integration_test.go`) covering the deferred list — DB-error 500 path, archived-filter branching, per-row JSON shape, ordering. That work will surface real new behavior to review.
+
+**`/api/v1/accounts` handler unit-test sub-phase: complete at asymptote** (commit `094f0dc`). Final scores Skeet 9.7 / Ive 9.3 / Beck 9.5, all carried items deferred with rationale (sqlc regen blocked by parallel work; ETag/Last-Modified non-load-bearing for LLM caller; JSON-example godoc optional polish). 9 unit tests pin every behavior the handler can exercise without a DB.
