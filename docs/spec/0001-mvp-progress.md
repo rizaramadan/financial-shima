@@ -416,3 +416,23 @@ Carried, still deferred:
 9 tests pass; full suite 305. R3 reviews pending the next fire.
 
 **Score trajectory:** R1 8.7/6.5/8.5 → R2 9.4/8.0/9.0. Each round closing 5–8 issues but new (smaller) ones surface. Countdown not yet begun (R2 had new issues from each reviewer).
+
+#### Round 3 reviews — 2026-05-02 (on commit `39abf79`)
+
+| Persona | Score | Headline |
+|---|---|---|
+| Skeet | 9.7/10 (↑ 0.3) | **Zero new issues.** "Round 1 of 5 toward loop exit at the ≥9 / zero-new-issues bar." Single residual nit (preference, not defect): truthy sweep doesn't deliberately matrix lowercase/uppercase/numeric/single-letter. |
+| Ive | 8.7/10 (↑ 0.7) | **One new issue (I2).** Carry I1: ORDER BY tiebreaker still deferred — handler godoc doesn't surface the determinism gap to LLM callers; one-line caveat at line 54 would close. New I2: `listTimeout` doc over-explains the deferral (8 lines of prose for one constant); trim to one sentence and move the hoist-when-second-consumer rationale to the commit message. |
+| Beck | 9.5/10 (↑ 0.5) | **Zero new issues.** Counter increments toward 5-consecutive exit gate. R3 honors a semantic distinction in test renames rather than retrofitting for line coverage — inverse of retrofit behavior. |
+
+**Countdown status**: Skeet round 1 zero-new ✓; Beck round 1 zero-new ✓; Ive disqualified (8.7 + new issue). Countdown does NOT advance — strict criterion is all three simultaneously.
+
+#### Round 4 — 2026-05-02 (commit pending)
+
+R3 fixes shipped (targeted at Ive — the blocker):
+- **Ive I2**: `listTimeout` godoc trimmed from 8 lines to 2. Hoist rationale moved to commit message.
+- **Ive I1 (R1 carryover)**: Added `TODO(sqlc-regen):` breadcrumb in handler godoc warning that ordering is unstable on duplicate names until sqlc regen lands. Now the LLM caller reading the handler sees the caveat in source rather than buried in commits.
+
+Skipped (Skeet preference, not defect): truthy sweep matrix annotation. Optional polish; can address if Skeet flags again at R4.
+
+R4 reviews pending the next fire.
