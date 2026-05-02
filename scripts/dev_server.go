@@ -92,6 +92,11 @@ func main() {
 	e.POST("/pos", h.PosNewPost)
 	e.GET("/pos/:id", h.PosGet)
 	e.GET("/spending", h.SpendingGet)
+	e.GET("/income-templates", h.IncomeTemplatesGet)
+	e.GET("/income-templates/new", h.IncomeTemplateNewGet)
+	e.POST("/income-templates", h.IncomeTemplateNewPost)
+	e.GET("/income-templates/:id", h.IncomeTemplateGet)
+	e.POST("/income-templates/:id/apply", h.IncomeTemplateApplyPost)
 
 	// Dev shim: read the most recently recorded OTP for a given
 	// identifier. Returns the bare 6-digit string or 404 if none.
