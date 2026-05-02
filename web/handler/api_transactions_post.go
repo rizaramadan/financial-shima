@@ -75,41 +75,41 @@ type createTransactionRequest struct {
 func (h *Handlers) APITransactionsCreate(c echo.Context) error {
 	if h.DB == nil {
 		return mw.WriteAPIError(c, http.StatusServiceUnavailable,
-			mw.APIErrorCodeServiceUnavailable,
+			"FS-0060", mw.APIErrorCodeServiceUnavailable,
 			"data layer not configured (DATABASE_URL unset)")
 	}
 
 	var req createTransactionRequest
 	if err := decodeJSONStrict(c.Request().Body, &req); err != nil {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, "invalid JSON body: "+err.Error())
+			"FS-0061", mw.APIErrorCodeValidation, "invalid JSON body: "+err.Error())
 	}
 
 	// Required fields the JSON shape can't enforce on its own.
 	if req.Type != "money_in" && req.Type != "money_out" {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, `type must be "money_in" or "money_out"`)
+			"FS-0062", mw.APIErrorCodeValidation, `type must be "money_in" or "money_out"`)
 	}
 	if strings.TrimSpace(req.IdempotencyKey) == "" {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, "idempotency_key is required")
+			"FS-0063", mw.APIErrorCodeValidation, "idempotency_key is required")
 	}
 
 	effDate, err := time.Parse("2006-01-02", req.EffectiveDate)
 	if err != nil {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation,
+			"FS-0064", mw.APIErrorCodeValidation,
 			"effective_date must be YYYY-MM-DD: "+err.Error())
 	}
 	accountID, err := uuid.Parse(req.AccountID)
 	if err != nil {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, "account_id must be a valid UUID")
+			"FS-0065", mw.APIErrorCodeValidation, "account_id must be a valid UUID")
 	}
 	posID, err := uuid.Parse(req.PosID)
 	if err != nil {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, "pos_id must be a valid UUID")
+			"FS-0066", mw.APIErrorCodeValidation, "pos_id must be a valid UUID")
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
@@ -121,11 +121,11 @@ func (h *Handlers) APITransactionsCreate(c echo.Context) error {
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return mw.WriteAPIError(c, http.StatusNotFound,
-				mw.APIErrorCodeNotFound, "account not found")
+				"FS-0067", mw.APIErrorCodeNotFound, "account not found")
 		}
-		c.Logger().Errorf("api txn: GetAccount: %v", err)
+		mw.LogError(c, "FS-0068", "api txn: GetAccount: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to resolve account")
+			"FS-0068", mw.APIErrorCodeInternal, "failed to resolve account")
 	}
 
 	// Resolve pos.
@@ -133,11 +133,11 @@ func (h *Handlers) APITransactionsCreate(c echo.Context) error {
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return mw.WriteAPIError(c, http.StatusNotFound,
-				mw.APIErrorCodeNotFound, "pos not found")
+				"FS-0069", mw.APIErrorCodeNotFound, "pos not found")
 		}
-		c.Logger().Errorf("api txn: GetPos: %v", err)
+		mw.LogError(c, "FS-0070", "api txn: GetPos: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to resolve pos")
+			"FS-0070", mw.APIErrorCodeInternal, "failed to resolve pos")
 	}
 
 	// Resolve counterparty: prefer id, fall back to get-or-create by name.
@@ -148,7 +148,7 @@ func (h *Handlers) APITransactionsCreate(c echo.Context) error {
 		cpID, err := uuid.Parse(req.CounterpartyID)
 		if err != nil {
 			return mw.WriteAPIError(c, http.StatusBadRequest,
-				mw.APIErrorCodeValidation, "counterparty_id must be a valid UUID")
+				"FS-0071", mw.APIErrorCodeValidation, "counterparty_id must be a valid UUID")
 		}
 		// We don't have GetCounterparty; just trust the id and let the
 		// FK constraint surface a not-found at insert time. Name still
@@ -160,26 +160,26 @@ func (h *Handlers) APITransactionsCreate(c echo.Context) error {
 		).Scan(&name); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return mw.WriteAPIError(c, http.StatusNotFound,
-					mw.APIErrorCodeNotFound, "counterparty not found")
+					"FS-0072", mw.APIErrorCodeNotFound, "counterparty not found")
 			}
-			c.Logger().Errorf("api txn: lookup counterparty: %v", err)
+			mw.LogError(c, "FS-0073", "api txn: lookup counterparty: %v", err)
 			return mw.WriteAPIError(c, http.StatusInternalServerError,
-				mw.APIErrorCodeInternal, "failed to resolve counterparty")
+				"FS-0073", mw.APIErrorCodeInternal, "failed to resolve counterparty")
 		}
 		counterpartyID = cpID
 		counterpartyName = name
 	case strings.TrimSpace(req.CounterpartyName) != "":
 		row, err := q.GetOrCreateCounterparty(ctx, strings.TrimSpace(req.CounterpartyName))
 		if err != nil {
-			c.Logger().Errorf("api txn: get-or-create counterparty: %v", err)
+			mw.LogError(c, "FS-0074", "api txn: get-or-create counterparty: %v", err)
 			return mw.WriteAPIError(c, http.StatusInternalServerError,
-				mw.APIErrorCodeInternal, "failed to resolve counterparty")
+				"FS-0074", mw.APIErrorCodeInternal, "failed to resolve counterparty")
 		}
 		counterpartyID = uuid.UUID(row.ID.Bytes)
 		counterpartyName = row.Name
 	default:
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation,
+			"FS-0075", mw.APIErrorCodeValidation,
 			"either counterparty_id or counterparty_name is required")
 	}
 
@@ -207,7 +207,7 @@ func (h *Handlers) APITransactionsCreate(c echo.Context) error {
 	}
 	if len(violations) > 0 {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, violations[0])
+			"FS-0076", mw.APIErrorCodeValidation, violations[0])
 	}
 
 	// Pre-check whether this idempotency_key already corresponds to an
@@ -246,9 +246,9 @@ func (h *Handlers) APITransactionsCreate(c echo.Context) error {
 	}
 	txnID, err := svc.Insert(ctx, txnInput)
 	if err != nil {
-		c.Logger().Errorf("api txn: ledger.Insert: %v", err)
+		mw.LogError(c, "FS-0077", "api txn: ledger.Insert: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to record transaction")
+			"FS-0077", mw.APIErrorCodeInternal, "failed to record transaction")
 	}
 
 	// Re-fetch the row so we can return its created_at and was_inserted
@@ -261,9 +261,9 @@ func (h *Handlers) APITransactionsCreate(c echo.Context) error {
 		`SELECT idempotency_key, created_at FROM transactions WHERE id = $1`,
 		pgtype.UUID{Bytes: txnID, Valid: true},
 	).Scan(&idemKey, &createdAt); err != nil {
-		c.Logger().Errorf("api txn: re-fetch %s: %v", txnID, err)
+		mw.LogError(c, "FS-0078", "api txn: re-fetch %s: %v", txnID, err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "transaction created but lookup failed")
+			"FS-0078", mw.APIErrorCodeInternal, "transaction created but lookup failed")
 	}
 	// was_inserted is decided by the pre-check above (whether the
 	// idempotency_key was already present at the start of this request).

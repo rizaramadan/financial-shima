@@ -20,7 +20,7 @@ import (
 func (h *Handlers) APICounterpartiesList(c echo.Context) error {
 	if h.DB == nil {
 		return mw.WriteAPIError(c, http.StatusServiceUnavailable,
-			mw.APIErrorCodeServiceUnavailable,
+			"FS-0030", mw.APIErrorCodeServiceUnavailable,
 			"data layer not configured (DATABASE_URL unset)")
 	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), listTimeout)
@@ -36,9 +36,9 @@ func (h *Handlers) APICounterpartiesList(c echo.Context) error {
 		rows, err = q.ListCounterparties(ctx)
 	}
 	if err != nil {
-		c.Logger().Errorf("api list counterparties: %v", err)
+		mw.LogError(c, "FS-0031", "api list counterparties: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to list counterparties")
+			"FS-0031", mw.APIErrorCodeInternal, "failed to list counterparties")
 	}
 
 	out := make([]APICounterparty, 0, len(rows))

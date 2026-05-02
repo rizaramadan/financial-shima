@@ -56,12 +56,12 @@ func APIKey(expected string) echo.MiddlewareFunc {
 			values := c.Request().Header.Values(APIKeyHeader)
 			switch {
 			case len(values) > 1:
-				return reject(c, APIErrorCodeMultipleKeyHeaders, "multiple x-api-key headers; send exactly one")
+				return reject(c, "FS-0001", APIErrorCodeMultipleKeyHeaders, "multiple x-api-key headers; send exactly one")
 			case len(values) == 0 || values[0] == "":
-				return reject(c, APIErrorCodeMissingKey, "missing x-api-key header")
+				return reject(c, "FS-0002", APIErrorCodeMissingKey, "missing x-api-key header")
 			}
 			if subtle.ConstantTimeCompare([]byte(values[0]), expectedBytes) != 1 {
-				return reject(c, APIErrorCodeInvalidKey, "invalid x-api-key")
+				return reject(c, "FS-0003", APIErrorCodeInvalidKey, "invalid x-api-key")
 			}
 			return next(c)
 		}
@@ -71,7 +71,7 @@ func APIKey(expected string) echo.MiddlewareFunc {
 // reject writes the 401 JSON body and sets `WWW-Authenticate: ApiKey`,
 // composing [WriteAPIError] with the auth challenge. Used for every
 // rejection path inside [APIKey].
-func reject(c echo.Context, code, message string) error {
+func reject(c echo.Context, site, code, message string) error {
 	c.Response().Header().Set("WWW-Authenticate", APIKeyAuthChallenge)
-	return WriteAPIError(c, http.StatusUnauthorized, code, message)
+	return WriteAPIError(c, http.StatusUnauthorized, site, code, message)
 }

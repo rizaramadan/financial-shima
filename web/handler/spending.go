@@ -78,7 +78,7 @@ func (h *Handlers) SpendingGet(c echo.Context) error {
 		EffectiveDate_2: pgtype.Date{Time: to, Valid: true},
 	})
 	if err != nil {
-		c.Logger().Errorf("SumMoneyOutByPosMonth: %v", err)
+		c.Logger().Errorf("[FS-0230] SumMoneyOutByPosMonth: %v", err)
 		data.LoadError = true
 		data.UnreadCount = h.loadBellCount(ctx, c, u.ID)
 		return c.Render(http.StatusOK, "spending", data)

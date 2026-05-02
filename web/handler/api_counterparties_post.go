@@ -42,23 +42,23 @@ type createCounterpartyRequest struct {
 func (h *Handlers) APICounterpartiesCreate(c echo.Context) error {
 	if h.DB == nil {
 		return mw.WriteAPIError(c, http.StatusServiceUnavailable,
-			mw.APIErrorCodeServiceUnavailable,
+			"FS-0032", mw.APIErrorCodeServiceUnavailable,
 			"data layer not configured (DATABASE_URL unset)")
 	}
 
 	var req createCounterpartyRequest
 	if err := decodeJSONStrict(c.Request().Body, &req); err != nil {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, "invalid JSON body: "+err.Error())
+			"FS-0033", mw.APIErrorCodeValidation, "invalid JSON body: "+err.Error())
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, "name is required")
+			"FS-0034", mw.APIErrorCodeValidation, "name is required")
 	}
 	if !counterpartyNameRegex.MatchString(name) {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation,
+			"FS-0035", mw.APIErrorCodeValidation,
 			"name must contain only letters, digits, spaces, underscore, or hyphen")
 	}
 
@@ -67,9 +67,9 @@ func (h *Handlers) APICounterpartiesCreate(c echo.Context) error {
 	q := dbq.New(h.DB)
 	row, err := q.GetOrCreateCounterparty(ctx, name)
 	if err != nil {
-		c.Logger().Errorf("api get-or-create counterparty: %v", err)
+		mw.LogError(c, "FS-0036", "api get-or-create counterparty: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to create counterparty")
+			"FS-0036", mw.APIErrorCodeInternal, "failed to create counterparty")
 	}
 	return c.JSON(http.StatusCreated, APICounterparty{
 		ID:        uuid.UUID(row.ID.Bytes).String(),

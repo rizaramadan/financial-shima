@@ -40,7 +40,7 @@ func (h *Handlers) IncomeTemplatesGet(c echo.Context) error {
 	q := dbq.New(h.DB)
 	rows, err := q.ListIncomeTemplates(ctx)
 	if err != nil {
-		c.Logger().Errorf("list income templates: %v", err)
+		c.Logger().Errorf("[FS-0250] list income templates: %v", err)
 		data.LoadError = true
 		return c.Render(http.StatusOK, "income_templates", data)
 	}
@@ -77,7 +77,7 @@ func (h *Handlers) IncomeTemplateNewGet(c echo.Context) error {
 	q := dbq.New(h.DB)
 	pos, err := q.ListPos(ctx)
 	if err != nil {
-		c.Logger().Errorf("list pos: %v", err)
+		c.Logger().Errorf("[FS-0251] list pos: %v", err)
 		data.LoadError = true
 		return c.Render(http.StatusOK, "income_template_new", data)
 	}
@@ -101,7 +101,7 @@ func (h *Handlers) IncomeTemplateNewPost(c echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/login")
 	}
 	if h.DB == nil {
-		return c.String(http.StatusInternalServerError, "database not configured")
+		return c.String(http.StatusInternalServerError, "[FS-0260] database not configured")
 	}
 
 	render := func(errs []string, name, leftover string, posIDs []string, amounts []string) error {
@@ -215,7 +215,7 @@ func (h *Handlers) IncomeTemplateNewPost(c echo.Context) error {
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return render([]string{"A template with that name already exists."}, name, leftover, posIDs, amounts)
 		}
-		c.Logger().Errorf("create template: %v", err)
+		c.Logger().Errorf("[FS-0252] create template: %v", err)
 		return render([]string{"Could not save template."}, name, leftover, posIDs, amounts)
 	}
 	for _, l := range parsedLines {
@@ -229,7 +229,7 @@ func (h *Handlers) IncomeTemplateNewPost(c echo.Context) error {
 			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 				return render([]string{"Duplicate Pos in template lines."}, name, leftover, posIDs, amounts)
 			}
-			c.Logger().Errorf("add line: %v", err)
+			c.Logger().Errorf("[FS-0253] add line: %v", err)
 			return render([]string{"Could not save line."}, name, leftover, posIDs, amounts)
 		}
 	}
@@ -252,7 +252,7 @@ func (h *Handlers) IncomeTemplateGet(c echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/income-templates")
 	}
 	if h.DB == nil {
-		return c.String(http.StatusInternalServerError, "database not configured")
+		return c.String(http.StatusInternalServerError, "[FS-0260] database not configured")
 	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
 	defer cancel()
@@ -262,8 +262,8 @@ func (h *Handlers) IncomeTemplateGet(c echo.Context) error {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return c.Redirect(http.StatusSeeOther, "/income-templates")
 		}
-		c.Logger().Errorf("get template: %v", err)
-		return c.String(http.StatusInternalServerError, "could not load template")
+		c.Logger().Errorf("[FS-0254] get template: %v", err)
+		return c.String(http.StatusInternalServerError, "[FS-0261] could not load template")
 	}
 	lineRows, _ := q.ListIncomeTemplateLines(ctx, tmpl.ID)
 	posByID := map[string]template.PosOption{}
@@ -326,7 +326,7 @@ func (h *Handlers) IncomeTemplatePreviewPost(c echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/login")
 	}
 	if h.DB == nil {
-		return c.String(http.StatusInternalServerError, "database not configured")
+		return c.String(http.StatusInternalServerError, "[FS-0260] database not configured")
 	}
 
 	tmplID, err := uuid.Parse(c.Param("id"))
@@ -510,7 +510,7 @@ func (h *Handlers) IncomeTemplateApplyPost(c echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/login")
 	}
 	if h.DB == nil {
-		return c.String(http.StatusInternalServerError, "database not configured")
+		return c.String(http.StatusInternalServerError, "[FS-0260] database not configured")
 	}
 	tmplID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -609,7 +609,7 @@ func (h *Handlers) IncomeTemplateApplyPost(c echo.Context) error {
 			IdempotencyKey: idemKey + ":" + r.PosID.String(),
 		})
 		if err != nil {
-			c.Logger().Errorf("apply row %s: %v", r.PosID, err)
+			c.Logger().Errorf("[FS-0255] apply row %s: %v", r.PosID, err)
 			return flashTo(c, tmplID,
 				"Partial apply: row for pos "+r.PosID.String()[:8]+
 					" failed; re-approve with the same form to complete safely.")

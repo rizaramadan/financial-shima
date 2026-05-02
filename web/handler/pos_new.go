@@ -115,7 +115,7 @@ func (h *Handlers) PosNewPost(c echo.Context) error {
 				Errors:      []string{"A Pos with that name and currency already exists."},
 			})
 		}
-		c.Logger().Errorf("CreatePos: %v", err)
+		c.Logger().Errorf("[FS-0220] CreatePos: %v", err)
 		return c.Render(http.StatusOK, "pos_new", template.PosNewData{
 			Title:       "New Pos",
 			DisplayName: u.DisplayName,

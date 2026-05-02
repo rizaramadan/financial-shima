@@ -65,24 +65,24 @@ func (h *Handlers) APITransactionsList(c echo.Context) error {
 		if v := strings.TrimSpace(c.QueryParam("from")); v != "" {
 			if _, err := time.Parse(dateLayout, v); err != nil {
 				return mw.WriteAPIError(c, http.StatusBadRequest,
-					mw.APIErrorCodeValidation, "from must be YYYY-MM-DD")
+					"FS-0040", mw.APIErrorCodeValidation, "from must be YYYY-MM-DD")
 			}
 		}
 		if v := strings.TrimSpace(c.QueryParam("to")); v != "" {
 			if _, err := time.Parse(dateLayout, v); err != nil {
 				return mw.WriteAPIError(c, http.StatusBadRequest,
-					mw.APIErrorCodeValidation, "to must be YYYY-MM-DD")
+					"FS-0041", mw.APIErrorCodeValidation, "to must be YYYY-MM-DD")
 			}
 		}
 		if v := strings.TrimSpace(c.QueryParam("type")); v != "" {
 			if v != "money_in" && v != "money_out" && v != "inter_pos" {
 				return mw.WriteAPIError(c, http.StatusBadRequest,
-					mw.APIErrorCodeValidation,
+					"FS-0042", mw.APIErrorCodeValidation,
 					`type must be "money_in", "money_out", or "inter_pos"`)
 			}
 		}
 		return mw.WriteAPIError(c, http.StatusServiceUnavailable,
-			mw.APIErrorCodeServiceUnavailable,
+			"FS-0043", mw.APIErrorCodeServiceUnavailable,
 			"data layer not configured (DATABASE_URL unset)")
 	}
 
@@ -93,7 +93,7 @@ func (h *Handlers) APITransactionsList(c echo.Context) error {
 		t, err := time.Parse(dateLayout, v)
 		if err != nil {
 			return mw.WriteAPIError(c, http.StatusBadRequest,
-				mw.APIErrorCodeValidation, "from must be YYYY-MM-DD")
+				"FS-0044", mw.APIErrorCodeValidation, "from must be YYYY-MM-DD")
 		}
 		from = t
 	}
@@ -101,14 +101,14 @@ func (h *Handlers) APITransactionsList(c echo.Context) error {
 		t, err := time.Parse(dateLayout, v)
 		if err != nil {
 			return mw.WriteAPIError(c, http.StatusBadRequest,
-				mw.APIErrorCodeValidation, "to must be YYYY-MM-DD")
+				"FS-0045", mw.APIErrorCodeValidation, "to must be YYYY-MM-DD")
 		}
 		to = t
 	}
 	typeFilter := strings.TrimSpace(c.QueryParam("type"))
 	if typeFilter != "" && typeFilter != "money_in" && typeFilter != "money_out" && typeFilter != "inter_pos" {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation,
+			"FS-0046", mw.APIErrorCodeValidation,
 			`type must be "money_in", "money_out", or "inter_pos"`)
 	}
 
@@ -126,17 +126,17 @@ func (h *Handlers) APITransactionsList(c echo.Context) error {
 	accountID, hasAccount, err := parseUUIDQuery("account_id")
 	if err != nil {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, "account_id must be a valid UUID")
+			"FS-0047", mw.APIErrorCodeValidation, "account_id must be a valid UUID")
 	}
 	posID, hasPos, err := parseUUIDQuery("pos_id")
 	if err != nil {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, "pos_id must be a valid UUID")
+			"FS-0048", mw.APIErrorCodeValidation, "pos_id must be a valid UUID")
 	}
 	cpID, hasCP, err := parseUUIDQuery("counterparty_id")
 	if err != nil {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, "counterparty_id must be a valid UUID")
+			"FS-0049", mw.APIErrorCodeValidation, "counterparty_id must be a valid UUID")
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request().Context(), listTimeout)
@@ -147,9 +147,9 @@ func (h *Handlers) APITransactionsList(c echo.Context) error {
 		EffectiveDate_2: pgtype.Date{Time: to, Valid: true},
 	})
 	if err != nil {
-		c.Logger().Errorf("api list transactions: %v", err)
+		mw.LogError(c, "FS-0050", "api list transactions: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to list transactions")
+			"FS-0050", mw.APIErrorCodeInternal, "failed to list transactions")
 	}
 
 	out := make([]APITransactionListItem, 0, len(rows))

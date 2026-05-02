@@ -58,7 +58,7 @@ type APICurrencyReconciliation struct {
 func (h *Handlers) APIBalancesGet(c echo.Context) error {
 	if h.DB == nil {
 		return mw.WriteAPIError(c, http.StatusServiceUnavailable,
-			mw.APIErrorCodeServiceUnavailable,
+			"FS-0090", mw.APIErrorCodeServiceUnavailable,
 			"data layer not configured (DATABASE_URL unset)")
 	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), listTimeout)
@@ -71,9 +71,9 @@ func (h *Handlers) APIBalancesGet(c echo.Context) error {
 			accountBal[r.ID.Bytes] = r.Balance
 		}
 	} else {
-		c.Logger().Errorf("balances: SumAccountBalances: %v", err)
+		mw.LogError(c, "FS-0091", "balances: SumAccountBalances: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to compute account balances")
+			"FS-0091", mw.APIErrorCodeInternal, "failed to compute account balances")
 	}
 	posBal := map[[16]byte]int64{}
 	if rows, err := q.SumPosCashBalances(ctx); err == nil {
@@ -81,9 +81,9 @@ func (h *Handlers) APIBalancesGet(c echo.Context) error {
 			posBal[r.ID.Bytes] = r.Balance
 		}
 	} else {
-		c.Logger().Errorf("balances: SumPosCashBalances: %v", err)
+		mw.LogError(c, "FS-0092", "balances: SumPosCashBalances: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to compute pos balances")
+			"FS-0092", mw.APIErrorCodeInternal, "failed to compute pos balances")
 	}
 	// Per-currency account-side flow restricted to that currency's
 	// pos transactions — this is what §10.5 actually compares against
@@ -96,22 +96,22 @@ func (h *Handlers) APIBalancesGet(c echo.Context) error {
 			accFlowByCcy[r.Currency] = r.Total
 		}
 	} else {
-		c.Logger().Errorf("balances: SumAccountBalancesByPosCurrency: %v", err)
+		mw.LogError(c, "FS-0093", "balances: SumAccountBalancesByPosCurrency: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to compute reconciliation totals")
+			"FS-0093", mw.APIErrorCodeInternal, "failed to compute reconciliation totals")
 	}
 
 	accounts, err := q.ListAccounts(ctx)
 	if err != nil {
-		c.Logger().Errorf("balances: ListAccounts: %v", err)
+		mw.LogError(c, "FS-0094", "balances: ListAccounts: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to list accounts")
+			"FS-0094", mw.APIErrorCodeInternal, "failed to list accounts")
 	}
 	pos, err := q.ListPos(ctx)
 	if err != nil {
-		c.Logger().Errorf("balances: ListPos: %v", err)
+		mw.LogError(c, "FS-0095", "balances: ListPos: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to list pos")
+			"FS-0095", mw.APIErrorCodeInternal, "failed to list pos")
 	}
 
 	out := APIBalances{

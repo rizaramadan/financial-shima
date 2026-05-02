@@ -67,7 +67,7 @@ func (h *Handlers) TransactionsGet(c echo.Context) error {
 		EffectiveDate_2: pgtype.Date{Time: to, Valid: true},
 	})
 	if err != nil {
-		c.Logger().Errorf("ListTransactionsByDateRange: %v", err)
+		c.Logger().Errorf("[FS-0240] ListTransactionsByDateRange: %v", err)
 		data.LoadError = true
 	}
 	for _, r := range rows {

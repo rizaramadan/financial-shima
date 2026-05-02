@@ -47,7 +47,7 @@ func (h *Handlers) NotificationsGet(c echo.Context) error {
 	q := dbq.New(h.DB)
 	rows, err := q.ListNotificationsForUser(ctx, pgtype.UUID{Bytes: uid, Valid: true})
 	if err != nil {
-		c.Logger().Errorf("ListNotificationsForUser: %v", err)
+		c.Logger().Errorf("[FS-0201] ListNotificationsForUser: %v", err)
 		data.LoadError = true
 		return c.Render(http.StatusOK, "notifications", data)
 	}
@@ -112,7 +112,7 @@ func (h *Handlers) NotificationMarkRead(c echo.Context) error {
 		ID:     pgtype.UUID{Bytes: nid, Valid: true},
 		UserID: pgtype.UUID{Bytes: uid, Valid: true},
 	}); err != nil {
-		c.Logger().Errorf("MarkNotificationRead: %v", err)
+		c.Logger().Errorf("[FS-0202] MarkNotificationRead: %v", err)
 	}
 	return c.Redirect(http.StatusSeeOther, "/notifications")
 }
@@ -131,7 +131,7 @@ func (h *Handlers) loadBellCount(ctx context.Context, c echo.Context, uidStr str
 	}
 	count, err := dbq.New(h.DB).UnreadCount(ctx, pgtype.UUID{Bytes: uid, Valid: true})
 	if err != nil {
-		c.Logger().Errorf("UnreadCount: %v", err)
+		c.Logger().Errorf("[FS-0203] UnreadCount: %v", err)
 		return 0
 	}
 	return int(count)
@@ -156,7 +156,7 @@ func (h *Handlers) NotificationsMarkAllRead(c echo.Context) error {
 	defer cancel()
 	q := dbq.New(h.DB)
 	if _, err := q.MarkAllNotificationsRead(ctx, pgtype.UUID{Bytes: uid, Valid: true}); err != nil {
-		c.Logger().Errorf("MarkAllNotificationsRead: %v", err)
+		c.Logger().Errorf("[FS-0204] MarkAllNotificationsRead: %v", err)
 	}
 	return c.Redirect(http.StatusSeeOther, "/notifications")
 }
