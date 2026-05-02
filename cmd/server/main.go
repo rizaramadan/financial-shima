@@ -127,6 +127,7 @@ func newServerWithDeps(a *auth.Auth, ac assistant.Client, db *pgxpool.Pool) *ech
 	e.GET("/income-templates/new", h.IncomeTemplateNewGet)
 	e.POST("/income-templates", h.IncomeTemplateNewPost)
 	e.GET("/income-templates/:id", h.IncomeTemplateGet)
+	e.POST("/income-templates/:id/preview", h.IncomeTemplatePreviewPost)
 	e.POST("/income-templates/:id/apply", h.IncomeTemplateApplyPost)
 
 	// /api/v1 — LLM JSON API per spec §7.2. APIKey middleware reads

@@ -96,6 +96,7 @@ func main() {
 	e.GET("/income-templates/new", h.IncomeTemplateNewGet)
 	e.POST("/income-templates", h.IncomeTemplateNewPost)
 	e.GET("/income-templates/:id", h.IncomeTemplateGet)
+	e.POST("/income-templates/:id/preview", h.IncomeTemplatePreviewPost)
 	e.POST("/income-templates/:id/apply", h.IncomeTemplateApplyPost)
 
 	// Dev shim: read the most recently recorded OTP for a given

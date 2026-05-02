@@ -175,31 +175,44 @@ Detail subtitle: `Income template · allocation total Rp 20.000.000 · leftover 
 
 ---
 
-## 14. Income template — apply with amount **below** total (rejected)
+## 14. Income template — preview the suggested allocation
 
-If incoming amount is less than Σ(lines) the apply is rejected —
-regardless of whether a leftover Pos is configured. The page
-re-renders with a flash error.
+When the operator submits the **incoming form** (amount, date,
+account, counterparty), the server runs the template's allocation
+logic to produce a **suggested split** and renders an editable
+preview page — the human sees the proposed breakdown BEFORE
+anything is written. No transactions exist yet; this step has zero
+side effects.
 
-![apply below](./screenshots/uat/14_income_template_apply_below.png)
+![preview suggested](./screenshots/uat/14_income_template_preview_suggested.png)
 
-Flash: *"incometemplate: amount below template total"* (raw error
-shown for clarity in this UAT; the user-facing handler can wrap
-this into something gentler in a follow-up).
+The Incoming summary card pins what was entered (Rp 25.000.000
+salary). The Allocation table is pre-filled from the template:
+3 lines (Anak Sekolah 12M, Belanja Bulanan 5M, Liburan 3M) plus a
+leftover row (Mortgage 5M, since 25M − 20M = 5M overflow). Six
+empty rows below are slots for adding new allocations.
 
 ---
 
-## 15. Income template — apply with amount **above** total (leftover absorbs)
+## 15. Income template — adjust and approve
 
-When amount > Σ(lines) **and** a leftover Pos is set, the template
-expands into N+1 transactions: one per line + a remainder row to
-the leftover Pos. All wrapped in one DB transaction; idempotency
-keys derived from the form's request key + each line id.
+The human can edit any row before approving — bump amounts, swap
+the Pos, or zero out the leftover and add a new row. On submit,
+the server validates **Σ(rows) = entered amount** (else
+re-renders with the mismatch error) and creates one money_in
+transaction per non-empty row, atomically per row, with
+idempotency keys derived from the preview-stamped key + the row's
+pos_id. Re-approving the same preview yields identical txn ids
+(retry is safe).
 
-![apply success](./screenshots/uat/15_income_template_apply_success.png)
+| 1. After adjust (Liburan 3M → 5M, Mortgage leftover 5M → 3M) | 2. After approve |
+|---|---|
+| ![preview adjusted](./screenshots/uat/15a_income_template_preview_adjusted.png) | ![apply success](./screenshots/uat/15b_income_template_apply_after_adjust.png) |
 
-Flash: *"Applied 25000000 — created 4 transactions."* (Σ(lines) =
-20M, incoming = 25M → 5M overflow lands on the leftover Pos.)
+Flash: *"Approved & applied 25000000 across 4 Pos."* Σ stays 25M
+(12 + 5 + 5 + 3) so validation passes; the human's adjustment
+overrode the template's leftover suggestion by changing two row
+amounts.
 
 ---
 
@@ -235,8 +248,8 @@ attempts the OTP locks; user must request a new one.)
 | 11 | Notifications: read/unread distinction, mark-read | ✓ |
 | 12 | Income templates: list page | ✓ |
 | 13 | Income template: create form → detail (with leftover Pos) | ✓ |
-| 14 | Income template: apply amount < Σ(lines) → rejected | ✓ |
-| 15 | Income template: apply amount > Σ(lines) → leftover absorbs | ✓ |
+| 14 | Income template: preview shows suggested allocation | ✓ |
+| 15 | Income template: human adjusts then approves | ✓ |
 | 16 | Verify: wrong OTP → inline error | ✓ |
 
 Plus two API harnesses driving the same handlers programmatically:
