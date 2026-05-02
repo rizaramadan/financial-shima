@@ -41,6 +41,7 @@ func New() *Renderer {
 	template.Must(t.New("income_templates").Parse(layoutOpen + incomeTemplatesListBody + layoutClose))
 	template.Must(t.New("income_template_new").Parse(layoutOpen + incomeTemplateNewBody + layoutClose))
 	template.Must(t.New("income_template_detail").Parse(layoutOpen + incomeTemplateDetailBody + layoutClose))
+	template.Must(t.New("income_template_preview").Parse(layoutOpen + incomeTemplatePreviewBody + layoutClose))
 	return &Renderer{t: t}
 }
 
@@ -1267,6 +1268,44 @@ type IncomeTemplateLineRow struct {
 	Amount      int64
 }
 
+// IncomeTemplatePreviewData drives /income-templates/:id (preview
+// step). Pre-fills the editable allocation form with the suggested
+// rows from the template; user can adjust amounts, swap Pos, or
+// add/remove rows before approving.
+type IncomeTemplatePreviewData struct {
+	Title            string
+	DisplayName      string
+	UnreadCount      int
+	ID               string
+	TemplateName     string
+	Amount           int64
+	AmountRaw        string
+	EffectiveDate    string
+	AccountID        string
+	AccountName      string
+	CounterpartyName string
+	IdempotencyKey   string
+	PosOptions       []PosOption
+	Rows             []IncomeAllocationRow
+	SuggestionTotal  int64
+	SuggestionNotice string // surfaced when the suggestion isn't directly approvable
+}
+
+func (d IncomeTemplatePreviewData) SignedIn() bool { return d.DisplayName != "" }
+func (d IncomeTemplatePreviewData) Compact() bool  { return false }
+func (d IncomeTemplatePreviewData) Wide() bool     { return false }
+func (d IncomeTemplatePreviewData) HideBell() bool { return false }
+func (d IncomeTemplatePreviewData) Route() string  { return "income" }
+
+// IncomeAllocationRow is one editable preview row. PosID empty +
+// Amount empty = "skip me" (lets the operator zero out a pre-filled
+// row by clearing both fields).
+type IncomeAllocationRow struct {
+	PosID    string // selected option value
+	PosLabel string // display-only convenience (e.g. "Mortgage (idr)")
+	Amount   string // raw integer string so empty stays empty across re-renders
+}
+
 const incomeTemplatesListBody = `<h1>Income templates</h1>
 <p class="subtitle">Each template names an income type and the fixed allocation across Pos when it lands.</p>
 <p class="aside" style="text-align:right; margin: 0 0 -8px;"><a class="linkbtn" href="/income-templates/new">+ New template</a></p>
@@ -1368,13 +1407,14 @@ const incomeTemplateDetailBody = `<h1>{{.Name}}</h1>
 </section>
 
 <section class="card">
-<h2>Apply this template</h2>
-<form method="post" action="/income-templates/{{.ID}}/apply">
+<h2>New incoming → preview allocation</h2>
+<p class="subtitle">Enter the details; the next step shows the suggested split (from this template) — you can adjust it before approving.</p>
+<form method="post" action="/income-templates/{{.ID}}/preview">
 <div class="field">
 <label for="amount">Incoming amount (IDR)</label>
 <input id="amount" name="amount" type="text" inputmode="numeric" pattern="[0-9]*" required
   placeholder="e.g. 25000000">
-<p class="hint">Must be ≥ {{money .LinesTotal "idr"}}{{if not .HasLeftoverPos}} and equal exactly (no leftover Pos configured){{end}}.</p>
+<p class="hint">Suggested allocation total: {{money .LinesTotal "idr"}}{{if .HasLeftoverPos}} (overflow → {{.LeftoverPosName}}){{end}}. You can override the split on the next page.</p>
 </div>
 <div class="field">
 <label for="effective_date">Effective date</label>
@@ -1392,8 +1432,60 @@ const incomeTemplateDetailBody = `<h1>{{.Name}}</h1>
 <input id="counterparty_name" name="counterparty_name" type="text" required maxlength="80"
   placeholder="e.g. PT Telkom">
 </div>
-<button type="submit">Apply</button>
+<button type="submit">Preview allocation</button>
 </form>
 </section>
 
 <p class="aside"><a class="linkbtn" href="/income-templates">&larr; All templates</a></p>`
+
+const incomeTemplatePreviewBody = `<h1>Review allocation</h1>
+<p class="subtitle">Template &middot; <strong>{{.TemplateName}}</strong></p>
+
+<section class="card">
+<h2>Incoming</h2>
+<table>
+<tbody>
+<tr><td>Amount</td><td class="num"><strong>{{money .Amount "idr"}}</strong></td></tr>
+<tr><td>Date</td><td class="num">{{.EffectiveDate}}</td></tr>
+<tr><td>Account</td><td class="num">{{.AccountName}}</td></tr>
+<tr><td>Counterparty</td><td class="num">{{.CounterpartyName}}</td></tr>
+</tbody>
+</table>
+</section>
+
+{{if .SuggestionNotice}}
+<div class="alert" role="alert">{{.SuggestionNotice}}</div>
+{{end}}
+
+<form method="post" action="/income-templates/{{.ID}}/apply">
+<input type="hidden" name="amount" value="{{.AmountRaw}}">
+<input type="hidden" name="effective_date" value="{{.EffectiveDate}}">
+<input type="hidden" name="account_id" value="{{.AccountID}}">
+<input type="hidden" name="counterparty_name" value="{{.CounterpartyName}}">
+<input type="hidden" name="idempotency_key" value="{{.IdempotencyKey}}">
+
+<section class="card">
+<h2>Allocation</h2>
+<p class="subtitle">Adjust as needed. The rows must sum to {{money .Amount "idr"}}.</p>
+<table>
+<thead><tr><th>Pos</th><th class="num">Amount (IDR, smallest unit)</th></tr></thead>
+<tbody>
+{{range $i, $row := .Rows}}
+<tr>
+<td><select name="alloc_pos_{{$i}}">
+<option value="">— skip —</option>
+{{range $.PosOptions}}<option value="{{.ID}}"{{if eq .ID $row.PosID}} selected{{end}}>{{.Name}} ({{.Currency}})</option>{{end}}
+</select></td>
+<td><input name="alloc_amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9]*"
+  value="{{$row.Amount}}" placeholder="e.g. 12000000"></td>
+</tr>
+{{end}}
+<tr class="totals"><td><strong>Salary total to allocate</strong></td><td class="num"><strong>{{money .Amount "idr"}}</strong></td></tr>
+</tbody>
+</table>
+<p class="hint">Tip: leave a row empty to drop it. Add a Pos to a previously-empty row to introduce a new line. Each Pos can appear only once.</p>
+</section>
+
+<button type="submit">Approve and apply</button>
+</form>
+<p class="aside"><a class="linkbtn" href="/income-templates/{{.ID}}">&larr; Back to template</a></p>`

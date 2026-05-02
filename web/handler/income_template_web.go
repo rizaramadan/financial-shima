@@ -309,10 +309,18 @@ func (h *Handlers) IncomeTemplateGet(c echo.Context) error {
 	return c.Render(http.StatusOK, "income_template_detail", data)
 }
 
-// IncomeTemplateApplyPost handles the apply form submission from the
-// detail page. Mirrors the API path but consumes form-encoded input
-// and redirects back to the detail page with a flash message.
-func (h *Handlers) IncomeTemplateApplyPost(c echo.Context) error {
+// IncomeTemplatePreviewPost — Step 1 of the human-in-the-loop apply
+// flow. Receives the operator's intent (amount/date/account/
+// counterparty), runs the template's allocation logic to produce a
+// SUGGESTED breakdown, and renders an editable preview page so the
+// human can adjust before approving.
+//
+// This step has no side effects — no transactions are created, no
+// counterparty rows are written. The preview is pure presentation.
+//
+// Apply itself happens in [IncomeTemplateApplyPost], which receives
+// the (possibly user-adjusted) per-row allocation as form fields.
+func (h *Handlers) IncomeTemplatePreviewPost(c echo.Context) error {
 	u, ok := mw.CurrentUser(c)
 	if !ok {
 		return c.Redirect(http.StatusSeeOther, "/login")
@@ -325,49 +333,38 @@ func (h *Handlers) IncomeTemplateApplyPost(c echo.Context) error {
 	if err != nil {
 		return c.Redirect(http.StatusSeeOther, "/income-templates")
 	}
-
 	rawAmount := strings.TrimSpace(c.FormValue("amount"))
 	amount, err := strconv.ParseInt(rawAmount, 10, 64)
 	if err != nil || amount <= 0 {
-		return c.Redirect(http.StatusSeeOther, "/income-templates/"+tmplID.String()+
-			"?flash="+enc("Amount must be a positive whole number."))
+		return flashTo(c, tmplID, "Amount must be a positive whole number.")
 	}
-	effDate, err := time.Parse("2006-01-02", strings.TrimSpace(c.FormValue("effective_date")))
+	effDateStr := strings.TrimSpace(c.FormValue("effective_date"))
+	effDate, err := time.Parse("2006-01-02", effDateStr)
 	if err != nil {
-		return c.Redirect(http.StatusSeeOther, "/income-templates/"+tmplID.String()+
-			"?flash="+enc("Effective date is required (YYYY-MM-DD)."))
+		return flashTo(c, tmplID, "Effective date is required (YYYY-MM-DD).")
 	}
-	accountID, err := uuid.Parse(strings.TrimSpace(c.FormValue("account_id")))
-	if err != nil {
-		return c.Redirect(http.StatusSeeOther, "/income-templates/"+tmplID.String()+
-			"?flash="+enc("Account is required."))
+	accountIDStr := strings.TrimSpace(c.FormValue("account_id"))
+	if _, err := uuid.Parse(accountIDStr); err != nil {
+		return flashTo(c, tmplID, "Account is required.")
 	}
 	cpName := strings.TrimSpace(c.FormValue("counterparty_name"))
 	if cpName == "" {
-		return c.Redirect(http.StatusSeeOther, "/income-templates/"+tmplID.String()+
-			"?flash="+enc("Counterparty is required."))
-	}
-	idemKey := strings.TrimSpace(c.FormValue("idempotency_key"))
-	if idemKey == "" {
-		// Auto-generate when the form omits it (typical for human
-		// users who shouldn't be made to think about idempotency).
-		idemKey = "web-" + tmplID.String() + "-" + effDate.Format("2006-01-02") + "-" +
-			strconv.FormatInt(time.Now().UnixNano(), 36)
+		return flashTo(c, tmplID, "Counterparty is required.")
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
 	defer cancel()
 	q := dbq.New(h.DB)
 	tmpl, err := q.GetIncomeTemplate(ctx, pgtype.UUID{Bytes: tmplID, Valid: true})
 	if err != nil {
-		return c.Redirect(http.StatusSeeOther, "/income-templates/"+tmplID.String()+
-			"?flash="+enc("Template not found."))
+		return flashTo(c, tmplID, "Template not found.")
 	}
 	lineRows, err := q.ListIncomeTemplateLines(ctx, tmpl.ID)
 	if err != nil {
-		return c.Redirect(http.StatusSeeOther, "/income-templates/"+tmplID.String()+
-			"?flash="+enc("Could not load template lines."))
+		return flashTo(c, tmplID, "Could not load template lines.")
 	}
+
+	// Compute the suggestion via the pure logic package.
 	logicTmpl := logictpl.Template{
 		ID:    uuid.UUID(tmpl.ID.Bytes).String(),
 		Name:  tmpl.Name,
@@ -384,44 +381,243 @@ func (h *Handlers) IncomeTemplateApplyPost(c echo.Context) error {
 			Amount: l.Amount,
 		})
 	}
-	allocations, err := logictpl.Apply(logicTmpl, amount)
-	if err != nil {
-		return c.Redirect(http.StatusSeeOther, "/income-templates/"+tmplID.String()+
-			"?flash="+enc(err.Error()))
+	allocations, allocErr := logictpl.Apply(logicTmpl, amount)
+	// allocErr is informational here — even if Apply rejects (e.g.
+	// amount > Σ(lines) without leftover), we still render the page
+	// so the human can adjust toward a valid total. Show the
+	// suggestion notice and let them decide.
+	suggestionNotice := ""
+	if allocErr != nil {
+		switch {
+		case errors.Is(allocErr, logictpl.ErrAmountBelowTemplate):
+			suggestionNotice = "Heads up: the entered amount is BELOW the template's lines total. Adjust amounts so they sum to your salary, or change the salary amount."
+		case errors.Is(allocErr, logictpl.ErrAmountExceedsTemplate):
+			suggestionNotice = "Heads up: the entered amount EXCEEDS the template's lines total and there's no leftover Pos configured. Add a row for the surplus before approving."
+		default:
+			suggestionNotice = allocErr.Error()
+		}
+		// Fall back to the raw template lines as the starting suggestion.
+		allocations = nil
+		for _, l := range logicTmpl.Lines {
+			allocations = append(allocations, logictpl.Allocation{
+				LineID: l.ID, PosID: l.PosID, Amount: l.Amount,
+			})
+		}
 	}
+
+	// Build the suggested rows for rendering. Pad with empty rows so
+	// the operator has slots to add more lines without dynamic JS.
+	const editableRows = 10
+	posByID, posOpts, err := loadPosOptions(ctx, q)
+	if err != nil {
+		return flashTo(c, tmplID, "Could not load Pos list.")
+	}
+	rows := make([]template.IncomeAllocationRow, editableRows)
+	for i, a := range allocations {
+		if i >= editableRows {
+			break
+		}
+		opt := posByID[a.PosID]
+		rows[i] = template.IncomeAllocationRow{
+			PosID:    a.PosID,
+			PosLabel: opt.Name + " (" + opt.Currency + ")",
+			Amount:   strconv.FormatInt(a.Amount, 10),
+		}
+	}
+
+	// Stable idempotency root for this preview → apply trip. Round-
+	// trips through a hidden field so re-approving the preview (back
+	// button, double-click) dedups on the existing transactions.
+	idemKey := strings.TrimSpace(c.FormValue("idempotency_key"))
+	if idemKey == "" {
+		idemKey = uuid.NewString()
+	}
+
+	data := template.IncomeTemplatePreviewData{
+		Title:            "Review allocation — " + tmpl.Name,
+		DisplayName:      u.DisplayName,
+		ID:               tmplID.String(),
+		TemplateName:     tmpl.Name,
+		Amount:           amount,
+		AmountRaw:        rawAmount,
+		EffectiveDate:    effDateStr,
+		AccountID:        accountIDStr,
+		AccountName:      "", // resolved below
+		CounterpartyName: cpName,
+		IdempotencyKey:   idemKey,
+		PosOptions:       posOpts,
+		Rows:             rows,
+		SuggestionNotice: suggestionNotice,
+		UnreadCount:      h.loadBellCount(ctx, c, u.ID),
+	}
+	if accountID, err := uuid.Parse(accountIDStr); err == nil {
+		if acc, err := q.GetAccount(ctx, pgtype.UUID{Bytes: accountID, Valid: true}); err == nil {
+			data.AccountName = acc.Name
+		}
+	}
+	// Derive the running expected total. If user-supplied amount is
+	// less than Σ(lines) (the rejected case), we still show the lines
+	// total alongside so the user can decide which way to converge.
+	for _, a := range allocations {
+		data.SuggestionTotal += a.Amount
+	}
+	_ = effDate
+	return c.Render(http.StatusOK, "income_template_preview", data)
+}
+
+// loadPosOptions returns Pos info indexed by id (for display) and as
+// a slice of options (for <select> rendering).
+func loadPosOptions(ctx context.Context, q *dbq.Queries) (map[string]template.PosOption, []template.PosOption, error) {
+	pos, err := q.ListPos(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	byID := map[string]template.PosOption{}
+	opts := make([]template.PosOption, 0, len(pos))
+	for _, p := range pos {
+		o := template.PosOption{
+			ID:       uuid.UUID(p.ID.Bytes).String(),
+			Name:     p.Name,
+			Currency: p.Currency,
+		}
+		byID[o.ID] = o
+		opts = append(opts, o)
+	}
+	return byID, opts, nil
+}
+
+func flashTo(c echo.Context, tmplID uuid.UUID, msg string) error {
+	return c.Redirect(http.StatusSeeOther, "/income-templates/"+tmplID.String()+
+		"?flash="+enc(msg))
+}
+
+// IncomeTemplateApplyPost — Step 2 of the human-in-the-loop apply
+// flow. Receives the (possibly user-adjusted) per-row allocation
+// from the preview form's hidden + visible fields and creates one
+// money_in row per non-empty allocation row, atomically per row,
+// with idempotency keys derived from the preview-stamped key + the
+// row's pos_id.
+//
+// Validation:
+//   - Σ(rows) must equal the entered amount (else re-render preview).
+//   - Each filled row needs a valid pos_id (non-empty UUID) and amount > 0.
+//   - No duplicate pos_id across rows (the per-pos idempotency key
+//     would collide).
+//   - At least one filled row.
+func (h *Handlers) IncomeTemplateApplyPost(c echo.Context) error {
+	u, ok := mw.CurrentUser(c)
+	if !ok {
+		return c.Redirect(http.StatusSeeOther, "/login")
+	}
+	if h.DB == nil {
+		return c.String(http.StatusInternalServerError, "database not configured")
+	}
+	tmplID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return c.Redirect(http.StatusSeeOther, "/income-templates")
+	}
+
+	rawAmount := strings.TrimSpace(c.FormValue("amount"))
+	amount, err := strconv.ParseInt(rawAmount, 10, 64)
+	if err != nil || amount <= 0 {
+		return flashTo(c, tmplID, "Amount must be a positive whole number.")
+	}
+	effDate, err := time.Parse("2006-01-02", strings.TrimSpace(c.FormValue("effective_date")))
+	if err != nil {
+		return flashTo(c, tmplID, "Effective date is required (YYYY-MM-DD).")
+	}
+	accountID, err := uuid.Parse(strings.TrimSpace(c.FormValue("account_id")))
+	if err != nil {
+		return flashTo(c, tmplID, "Account is required.")
+	}
+	cpName := strings.TrimSpace(c.FormValue("counterparty_name"))
+	if cpName == "" {
+		return flashTo(c, tmplID, "Counterparty is required.")
+	}
+	idemKey := strings.TrimSpace(c.FormValue("idempotency_key"))
+	if idemKey == "" {
+		idemKey = uuid.NewString()
+	}
+
+	// Read the editable allocation rows.
+	const maxRows = 10
+	type row struct {
+		PosID  uuid.UUID
+		Amount int64
+	}
+	var rows []row
+	seenPos := map[uuid.UUID]bool{}
+	var sum int64
+	for i := 0; i < maxRows; i++ {
+		idx := strconv.Itoa(i)
+		posStr := strings.TrimSpace(c.FormValue("alloc_pos_" + idx))
+		amtStr := strings.TrimSpace(c.FormValue("alloc_amount_" + idx))
+		if posStr == "" && amtStr == "" {
+			continue
+		}
+		if posStr == "" || amtStr == "" {
+			return flashTo(c, tmplID, "Row "+strconv.Itoa(i+1)+": Pos and amount are both required (or leave the row empty).")
+		}
+		pid, err := uuid.Parse(posStr)
+		if err != nil {
+			return flashTo(c, tmplID, "Row "+strconv.Itoa(i+1)+": invalid Pos.")
+		}
+		amt, err := strconv.ParseInt(amtStr, 10, 64)
+		if err != nil || amt <= 0 {
+			return flashTo(c, tmplID, "Row "+strconv.Itoa(i+1)+": amount must be a positive whole number.")
+		}
+		if seenPos[pid] {
+			return flashTo(c, tmplID, "Row "+strconv.Itoa(i+1)+": this Pos already appears earlier — combine the amounts.")
+		}
+		seenPos[pid] = true
+		rows = append(rows, row{PosID: pid, Amount: amt})
+		sum += amt
+	}
+	if len(rows) == 0 {
+		return flashTo(c, tmplID, "At least one allocation row is required.")
+	}
+	if sum != amount {
+		return flashTo(c, tmplID,
+			"Allocation sum ("+strconv.FormatInt(sum, 10)+") must equal the salary amount ("+rawAmount+"). Adjust rows and try again.")
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
+	defer cancel()
+	q := dbq.New(h.DB)
 
 	cpRow, err := q.GetOrCreateCounterparty(ctx, cpName)
 	if err != nil {
-		return c.Redirect(http.StatusSeeOther, "/income-templates/"+tmplID.String()+
-			"?flash="+enc("Counterparty resolve failed."))
+		return flashTo(c, tmplID, "Counterparty resolve failed.")
 	}
 	cpID := uuid.UUID(cpRow.ID.Bytes)
 
 	svc := &ledger.Service{Pool: h.DB, Users: h.Auth.Users}
-	for _, a := range allocations {
-		posID, _ := uuid.Parse(a.PosID)
+	for _, r := range rows {
 		_, err := svc.Insert(ctx, ledger.MoneyTxnInput{
 			Type:           "money_in",
 			EffectiveDate:  pgtype.Date{Time: effDate, Valid: true},
 			AccountID:      accountID,
-			AccountAmount:  a.Amount,
-			PosID:          posID,
-			PosAmount:      a.Amount,
+			AccountAmount:  r.Amount,
+			PosID:          r.PosID,
+			PosAmount:      r.Amount,
 			CounterpartyID: cpID,
 			Note:           "",
 			Source:         notification.SourceWeb,
 			CreatedBy:      parseOptUUID(u.ID),
-			IdempotencyKey: idemKey + ":" + a.LineID,
+			// Per-pos idempotency: re-approving the same preview yields
+			// the same derived keys, so retries dedup on transactions.
+			IdempotencyKey: idemKey + ":" + r.PosID.String(),
 		})
 		if err != nil {
-			c.Logger().Errorf("apply line %s: %v", a.LineID, err)
-			return c.Redirect(http.StatusSeeOther, "/income-templates/"+tmplID.String()+
-				"?flash="+enc("Partial apply: line "+a.LineID+" failed; retry the same form to complete safely."))
+			c.Logger().Errorf("apply row %s: %v", r.PosID, err)
+			return flashTo(c, tmplID,
+				"Partial apply: row for pos "+r.PosID.String()[:8]+
+					" failed; re-approve with the same form to complete safely.")
 		}
 	}
 
 	return c.Redirect(http.StatusSeeOther, "/income-templates/"+tmplID.String()+
-		"?flash="+enc("Applied "+rawAmount+" — created "+strconv.Itoa(len(allocations))+" transactions."))
+		"?flash="+enc("Approved & applied "+rawAmount+" across "+strconv.Itoa(len(rows))+" Pos."))
 }
 
 func enc(s string) string {

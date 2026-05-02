@@ -257,35 +257,9 @@ async function fetchOTP(page, identifier) {
     pass('created template ' + templateID + ' with Σ(lines)=Rp 20.000.000');
   }
 
-  // ── 14 Negative: apply with amount < Σ(lines) → flash error ────
+  // ── 14 Happy: preview allocation (server pre-fills suggestion) ──
   {
-    const id = step('Negative — apply income template with amount < total');
-    await page.goto(BASE + '/income-templates/' + templateID);
-    await page.fill('input[name="amount"]', '15000000');
-    await page.fill('input[name="effective_date"]', new Date().toISOString().slice(0, 10));
-    // Pick first account
-    await page.evaluate(() => {
-      const opts = [...document.querySelectorAll('select[name="account_id"] option')].filter(o => o.value);
-      if (opts.length) document.querySelector('select[name="account_id"]').value = opts[0].value;
-    });
-    await page.fill('input[name="counterparty_name"]', 'PT Telkom');
-    await Promise.all([
-      page.waitForLoadState('load'),
-      page.evaluate(() => document.querySelectorAll('form')[1 /* apply form is 2nd */].requestSubmit()),
-    ]);
-    await page.waitForTimeout(300);
-    const flash = await page.locator('.alert').textContent().catch(() => '');
-    if (!flash.toLowerCase().includes('amount') && !flash.toLowerCase().includes('below')) {
-      console.log('  flash text:', flash);
-      die('expected amount-below alert');
-    }
-    await shoot(page, id, 'income_template_apply_below');
-    pass('flash: ' + flash.trim());
-  }
-
-  // ── 15 Happy: apply with amount > Σ(lines) → leftover absorbs ──
-  {
-    const id = step('Happy — apply income template with leftover');
+    const id = step('Happy — preview allocation from template');
     await page.goto(BASE + '/income-templates/' + templateID);
     await page.fill('input[name="amount"]', '25000000');
     await page.fill('input[name="effective_date"]', new Date().toISOString().slice(0, 10));
@@ -295,12 +269,45 @@ async function fetchOTP(page, identifier) {
     });
     await page.fill('input[name="counterparty_name"]', 'PT Telkom');
     await Promise.all([
+      page.waitForURL(/\/income-templates\/[0-9a-f-]{36}\/preview$/, { timeout: 10000 }).catch(() => {}),
+      page.evaluate(() => document.querySelector('form[action$="/preview"]').requestSubmit()),
+    ]);
+    // The redirect target was /preview — the actual page is rendered there.
+    // Some Echo configs may not change the URL; just check content.
+    await page.waitForLoadState('load');
+    const pageBody = await page.locator('main').textContent();
+    if (!pageBody.includes('Review allocation')) {
+      die('preview page missing heading; got:\n' + pageBody.slice(0, 300));
+    }
+    await shoot(page, id, 'income_template_preview_suggested');
+    pass('rendered preview with suggested allocation pre-filled');
+  }
+
+  // ── 15 Happy: human adjusts the suggestion + approves ───────────
+  {
+    const id = step('Happy — adjust + approve allocation');
+    // The preview form has hidden meta + visible per-row inputs:
+    //   alloc_pos_0..9 (select), alloc_amount_0..9 (text)
+    // Original suggestion (sum 25M): line0=12M, line1=5M, line2=3M, leftover=5M.
+    // Adjust: bump line2 by 2M, drop the leftover (zero out → empty its row).
+    await page.evaluate(() => {
+      // Find the leftover row (row index 3, since 3 lines + leftover)
+      const amt2 = document.querySelector('input[name="alloc_amount_2"]');
+      const amt3 = document.querySelector('input[name="alloc_amount_3"]');
+      const pos3 = document.querySelector('select[name="alloc_pos_3"]');
+      if (amt2) amt2.value = '5000000';   // 3M → 5M
+      if (amt3) amt3.value = '3000000';   // 5M → 3M (leftover lower)
+      if (pos3) pos3.dispatchEvent(new Event('change')); // no-op, just for symmetry
+    });
+    await shoot(page, id + 'a', 'income_template_preview_adjusted');
+    // Σ should still be 25M: 12 + 5 + 5 + 3 = 25.
+    await Promise.all([
       page.waitForURL(/\/income-templates\/[0-9a-f-]{36}\?flash=/),
-      page.evaluate(() => document.querySelectorAll('form')[1].requestSubmit()),
+      page.evaluate(() => document.querySelector('form[action$="/apply"]').requestSubmit()),
     ]);
     const flash = await page.locator('.alert').textContent();
-    if (!flash.toLowerCase().includes('applied')) die('expected applied-N alert; got ' + flash);
-    await shoot(page, id, 'income_template_apply_success');
+    if (!flash.toLowerCase().includes('approved')) die('expected approved alert; got ' + flash);
+    await shoot(page, id + 'b', 'income_template_apply_after_adjust');
     pass('flash: ' + flash.trim());
   }
 
