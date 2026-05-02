@@ -123,6 +123,11 @@ func newServerWithDeps(a *auth.Auth, ac assistant.Client, db *pgxpool.Pool) *ech
 	e.POST("/pos", h.PosNewPost)
 	e.GET("/pos/:id", h.PosGet)
 	e.GET("/spending", h.SpendingGet)
+	e.GET("/income-templates", h.IncomeTemplatesGet)
+	e.GET("/income-templates/new", h.IncomeTemplateNewGet)
+	e.POST("/income-templates", h.IncomeTemplateNewPost)
+	e.GET("/income-templates/:id", h.IncomeTemplateGet)
+	e.POST("/income-templates/:id/apply", h.IncomeTemplateApplyPost)
 
 	// /api/v1 — LLM JSON API per spec §7.2. APIKey middleware reads
 	// LLM_API_KEY at boot; the apikey package panics if it's empty
@@ -137,6 +142,9 @@ func newServerWithDeps(a *auth.Auth, ac assistant.Client, db *pgxpool.Pool) *ech
 		api.POST("/pos", h.APIPosCreate)
 		api.POST("/counterparties", h.APICounterpartiesCreate)
 		api.POST("/transactions", h.APITransactionsCreate)
+		api.GET("/income-templates", h.APIIncomeTemplatesList)
+		api.POST("/income-templates", h.APIIncomeTemplatesCreate)
+		api.POST("/income-templates/:id/apply", h.APIIncomeTemplateApply)
 	}
 	return e
 }

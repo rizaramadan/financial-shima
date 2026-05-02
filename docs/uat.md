@@ -149,7 +149,61 @@ template func.
 
 ---
 
-## 12. Verify fails — wrong OTP (S2)
+## 12. Income templates — list
+
+A salary-allocation template names an income type and the fixed
+allocation across Pos when it lands. Templates are the **only** way
+for a single incoming event to credit multiple Pos; without one,
+`money_in` stays single-Pos.
+
+![income templates list](./screenshots/uat/12_income_templates_list.png)
+
+---
+
+## 13. Income template — create end-to-end
+
+Form lets the operator name the template, optionally pick a
+**leftover Pos** (absorbs any amount above Σ(lines) on apply), and
+add up to 8 line rows (Pos + amount). Submit → redirected to the
+detail view.
+
+| 1. Empty form | 2. Filled | 3. After create |
+|---|---|---|
+| ![empty](./screenshots/uat/13a_income_template_new_empty.png) | ![filled](./screenshots/uat/13b_income_template_new_filled.png) | ![created](./screenshots/uat/13c_income_template_detail_after_create.png) |
+
+Detail subtitle: `Income template · allocation total Rp 20.000.000 · leftover → Mortgage`.
+
+---
+
+## 14. Income template — apply with amount **below** total (rejected)
+
+If incoming amount is less than Σ(lines) the apply is rejected —
+regardless of whether a leftover Pos is configured. The page
+re-renders with a flash error.
+
+![apply below](./screenshots/uat/14_income_template_apply_below.png)
+
+Flash: *"incometemplate: amount below template total"* (raw error
+shown for clarity in this UAT; the user-facing handler can wrap
+this into something gentler in a follow-up).
+
+---
+
+## 15. Income template — apply with amount **above** total (leftover absorbs)
+
+When amount > Σ(lines) **and** a leftover Pos is set, the template
+expands into N+1 transactions: one per line + a remainder row to
+the leftover Pos. All wrapped in one DB transaction; idempotency
+keys derived from the form's request key + each line id.
+
+![apply success](./screenshots/uat/15_income_template_apply_success.png)
+
+Flash: *"Applied 25000000 — created 4 transactions."* (Σ(lines) =
+20M, incoming = 25M → 5M overflow lands on the leftover Pos.)
+
+---
+
+## 16. Verify fails — wrong OTP (S2)
 
 Submitting a wrong 6-digit code increments the per-OTP attempt
 counter and re-renders `/verify` inline with an error. Run with
@@ -157,7 +211,7 @@ counter and re-renders `/verify` inline with an error. Run with
 
 | /verify empty | After wrong code |
 |---|---|
-| ![verify empty](./screenshots/uat/12a_verify_empty_for_negative.png) | ![wrong code](./screenshots/uat/12b_verify_wrong_code.png) |
+| ![verify empty](./screenshots/uat/16a_verify_empty_for_negative.png) | ![wrong code](./screenshots/uat/16b_verify_wrong_code.png) |
 
 Server says: *"That code did not match. Try again."* (After 3 wrong
 attempts the OTP locks; user must request a new one.)
@@ -179,7 +233,19 @@ attempts the OTP locks; user must request a new one.)
 | 9 | Transactions: chips, signs, colors, reversals | ✓ |
 | 10 | Spending: months × Pos pivot, formatted cells | ✓ |
 | 11 | Notifications: read/unread distinction, mark-read | ✓ |
-| 12 | Verify: wrong OTP → inline error | ✓ |
+| 12 | Income templates: list page | ✓ |
+| 13 | Income template: create form → detail (with leftover Pos) | ✓ |
+| 14 | Income template: apply amount < Σ(lines) → rejected | ✓ |
+| 15 | Income template: apply amount > Σ(lines) → leftover absorbs | ✓ |
+| 16 | Verify: wrong OTP → inline error | ✓ |
 
-Plus `scripts/e2e_api.go` (separate harness) walks the four
-`POST /api/v1/*` endpoints in 20 steps with DB consistency checks.
+Plus two API harnesses driving the same handlers programmatically:
+
+- `scripts/e2e_api.go` — 20 steps over the 4 base POST endpoints
+  (accounts, pos, counterparties, transactions) with DB consistency
+  checks, idempotency, validation rejections.
+- `scripts/e2e_income_template.go` — 10 steps over the income-template
+  surface: create + line persistence, apply rejection (below-sum),
+  apply with exact match (3 txns), apply with leftover (4 txns), DB
+  sum verification, idempotency (re-apply yields same ids), strict
+  template (no leftover) rejecting over-sum, list endpoint.

@@ -214,8 +214,99 @@ async function fetchOTP(page, identifier) {
     pass('unread bold + read faded + Mark all read');
   }
 
-  // ── 12 Negative: wrong OTP — runs LAST and uses @shima so it
-  //               doesn't put Riza into cooldown earlier in the run.
+  // ── 12 Happy: income templates — list (empty/populated) ─────────
+  {
+    const id = step('Happy — income templates list');
+    await page.goto(BASE + '/income-templates');
+    await shoot(page, id, 'income_templates_list');
+    pass('rendered list (may be empty if no templates created yet)');
+  }
+
+  // ── 13 Happy: create a new income template via web form ─────────
+  let templateID;
+  let templateName;
+  {
+    const id = step('Happy — create income template');
+    await page.goto(BASE + '/income-templates/new');
+    await shoot(page, id + 'a', 'income_template_new_empty');
+    templateName = 'UAT Salary ' + Date.now();
+    await page.fill('input[name="name"]', templateName);
+    // Pick first 3 IDR Pos and the leftover (4th) from the seed, by
+    // reading the option list.
+    const posOpts = await page.evaluate(() => {
+      return [...document.querySelectorAll('select[name="leftover_pos_id"] option')]
+        .filter(o => o.value !== '' && o.textContent.includes('(idr)'))
+        .map(o => ({ id: o.value, label: o.textContent }));
+    });
+    if (posOpts.length < 4) die('need ≥4 IDR Pos in seed; got ' + posOpts.length);
+    await page.selectOption('select[name="leftover_pos_id"]', posOpts[3].id);
+    await page.selectOption('select[name="pos_id_0"]', posOpts[0].id);
+    await page.fill('input[name="amount_0"]', '12000000');
+    await page.selectOption('select[name="pos_id_1"]', posOpts[1].id);
+    await page.fill('input[name="amount_1"]', '5000000');
+    await page.selectOption('select[name="pos_id_2"]', posOpts[2].id);
+    await page.fill('input[name="amount_2"]', '3000000');
+    await shoot(page, id + 'b', 'income_template_new_filled');
+    await page.evaluate(() => document.querySelector('form[action="/income-templates"]').requestSubmit());
+    await page.waitForURL(/\/income-templates\/[0-9a-f-]{36}/);
+    const url = page.url();
+    templateID = url.match(/\/income-templates\/([0-9a-f-]{36})/)[1];
+    await shoot(page, id + 'c', 'income_template_detail_after_create');
+    const body = await page.locator('main').textContent();
+    if (!body.includes('Rp 20.000.000')) die('detail subtitle missing total');
+    pass('created template ' + templateID + ' with Σ(lines)=Rp 20.000.000');
+  }
+
+  // ── 14 Negative: apply with amount < Σ(lines) → flash error ────
+  {
+    const id = step('Negative — apply income template with amount < total');
+    await page.goto(BASE + '/income-templates/' + templateID);
+    await page.fill('input[name="amount"]', '15000000');
+    await page.fill('input[name="effective_date"]', new Date().toISOString().slice(0, 10));
+    // Pick first account
+    await page.evaluate(() => {
+      const opts = [...document.querySelectorAll('select[name="account_id"] option')].filter(o => o.value);
+      if (opts.length) document.querySelector('select[name="account_id"]').value = opts[0].value;
+    });
+    await page.fill('input[name="counterparty_name"]', 'PT Telkom');
+    await Promise.all([
+      page.waitForLoadState('load'),
+      page.evaluate(() => document.querySelectorAll('form')[1 /* apply form is 2nd */].requestSubmit()),
+    ]);
+    await page.waitForTimeout(300);
+    const flash = await page.locator('.alert').textContent().catch(() => '');
+    if (!flash.toLowerCase().includes('amount') && !flash.toLowerCase().includes('below')) {
+      console.log('  flash text:', flash);
+      die('expected amount-below alert');
+    }
+    await shoot(page, id, 'income_template_apply_below');
+    pass('flash: ' + flash.trim());
+  }
+
+  // ── 15 Happy: apply with amount > Σ(lines) → leftover absorbs ──
+  {
+    const id = step('Happy — apply income template with leftover');
+    await page.goto(BASE + '/income-templates/' + templateID);
+    await page.fill('input[name="amount"]', '25000000');
+    await page.fill('input[name="effective_date"]', new Date().toISOString().slice(0, 10));
+    await page.evaluate(() => {
+      const opts = [...document.querySelectorAll('select[name="account_id"] option')].filter(o => o.value);
+      document.querySelector('select[name="account_id"]').value = opts[0].value;
+    });
+    await page.fill('input[name="counterparty_name"]', 'PT Telkom');
+    await Promise.all([
+      page.waitForURL(/\/income-templates\/[0-9a-f-]{36}\?flash=/),
+      page.evaluate(() => document.querySelectorAll('form')[1].requestSubmit()),
+    ]);
+    const flash = await page.locator('.alert').textContent();
+    if (!flash.toLowerCase().includes('applied')) die('expected applied-N alert; got ' + flash);
+    await shoot(page, id, 'income_template_apply_success');
+    pass('flash: ' + flash.trim());
+  }
+
+  // ── 16 Negative: wrong OTP — runs LAST and uses @shima so it
+  //                doesn't put Riza into cooldown earlier in the run.
+  await page.setViewportSize(VIEWPORT_COMPACT);
   {
     const id = step('Negative — verify with wrong OTP code');
     const ctxN = await browser.newContext({ viewport: VIEWPORT_COMPACT });

@@ -28,6 +28,7 @@ func New() *Renderer {
 		"txnAmt":   txnAmountClass,
 		"txnSign":  txnAmountSign,
 		"pct":      pctOf,
+		"intRange": intRange,
 	})
 	template.Must(t.New("login").Parse(layoutOpen + loginBody + layoutClose))
 	template.Must(t.New("verify").Parse(layoutOpen + verifyBody + layoutClose))
@@ -37,6 +38,9 @@ func New() *Renderer {
 	template.Must(t.New("pos").Parse(layoutOpen + posBody + layoutClose))
 	template.Must(t.New("pos_new").Parse(layoutOpen + posNewBody + layoutClose))
 	template.Must(t.New("spending").Parse(layoutOpen + spendingBody + layoutClose))
+	template.Must(t.New("income_templates").Parse(layoutOpen + incomeTemplatesListBody + layoutClose))
+	template.Must(t.New("income_template_new").Parse(layoutOpen + incomeTemplateNewBody + layoutClose))
+	template.Must(t.New("income_template_detail").Parse(layoutOpen + incomeTemplateDetailBody + layoutClose))
 	return &Renderer{t: t}
 }
 
@@ -189,6 +193,19 @@ func txnAmountSign(t string) string {
 		return "−"
 	}
 	return ""
+}
+
+// intRange returns the half-open range [from, to) as a []int. Used by
+// templates to render N identical rows (e.g. 8 empty line inputs).
+func intRange(from, to int) []int {
+	if to <= from {
+		return nil
+	}
+	out := make([]int, 0, to-from)
+	for i := from; i < to; i++ {
+		out = append(out, i)
+	}
+	return out
 }
 
 // pctOf clamps to [0, 100] and rounds. Used for budget-progress rails on
@@ -803,6 +820,7 @@ tr.totals td { font-weight: 600; }
 <a href="/"{{if eq .Route "home"}} aria-current="page"{{end}}>Home</a>
 <a href="/transactions"{{if eq .Route "transactions"}} aria-current="page"{{end}}>Transactions</a>
 <a href="/spending"{{if eq .Route "spending"}} aria-current="page"{{end}}>Spending</a>
+<a href="/income-templates"{{if eq .Route "income"}} aria-current="page"{{end}}>Income</a>
 <a href="/notifications"{{if eq .Route "notifications"}} aria-current="page"{{end}}>Notifications<span class="badge" aria-label="{{.UnreadCount}} unread">{{if .UnreadCount}}{{.UnreadCount}}{{end}}</span></a>
 <form method="post" action="/logout" class="nav-end">
 <button type="submit" class="linkbtn">Sign out</button>
@@ -1153,3 +1171,229 @@ const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
 {{end}}
 
 `
+
+// ─── Income templates ──────────────────────────────────────────────
+
+// PosOption is one Pos shown in a <select>. Used by the new-template
+// form (line picker) and the apply form (account picker reuses
+// AccountOption — kept symmetric for clarity).
+type PosOption struct {
+	ID       string
+	Name     string
+	Currency string
+}
+
+// AccountOption is one account shown in a <select> on the apply form.
+type AccountOption struct {
+	ID   string
+	Name string
+}
+
+// IncomeTemplatesListData drives /income-templates.
+type IncomeTemplatesListData struct {
+	Title       string
+	DisplayName string
+	UnreadCount int
+	Items       []IncomeTemplateRow
+	LoadError   bool
+}
+
+func (d IncomeTemplatesListData) SignedIn() bool { return d.DisplayName != "" }
+func (d IncomeTemplatesListData) Compact() bool  { return false }
+func (d IncomeTemplatesListData) Wide() bool     { return false }
+func (d IncomeTemplatesListData) HideBell() bool { return false }
+func (d IncomeTemplatesListData) Route() string  { return "income" }
+
+// IncomeTemplateRow is one row in the list.
+type IncomeTemplateRow struct {
+	ID    string
+	Name  string
+	Total int64 // Σ(lines.amount) — IDR; templates are IDR-only today
+}
+
+// IncomeTemplateNewData drives /income-templates/new. Round-trips
+// the user's input on validation failure so they don't retype.
+type IncomeTemplateNewData struct {
+	Title         string
+	DisplayName   string
+	UnreadCount   int
+	Pos           []PosOption
+	Name          string
+	LeftoverPosID string
+	Lines         []IncomeTemplateLineInput
+	Errors        []string
+	LoadError     bool
+}
+
+func (d IncomeTemplateNewData) SignedIn() bool { return d.DisplayName != "" }
+func (d IncomeTemplateNewData) Compact() bool  { return false }
+func (d IncomeTemplateNewData) Wide() bool     { return false }
+func (d IncomeTemplateNewData) HideBell() bool { return false }
+func (d IncomeTemplateNewData) Route() string  { return "income" }
+
+// IncomeTemplateLineInput is one row of the new-template form (raw
+// strings so we can re-render unchanged on validation failure).
+type IncomeTemplateLineInput struct {
+	PosID  string
+	Amount string
+}
+
+// IncomeTemplateDetailData drives /income-templates/:id.
+type IncomeTemplateDetailData struct {
+	Title           string
+	DisplayName     string
+	UnreadCount     int
+	ID              string
+	Name            string
+	Lines           []IncomeTemplateLineRow
+	LinesTotal      int64
+	LeftoverPosID   string
+	LeftoverPosName string
+	HasLeftoverPos  bool
+	Accounts        []AccountOption
+	Flash           string // surfaced after apply
+}
+
+func (d IncomeTemplateDetailData) SignedIn() bool { return d.DisplayName != "" }
+func (d IncomeTemplateDetailData) Compact() bool  { return false }
+func (d IncomeTemplateDetailData) Wide() bool     { return false }
+func (d IncomeTemplateDetailData) HideBell() bool { return false }
+func (d IncomeTemplateDetailData) Route() string  { return "income" }
+
+// IncomeTemplateLineRow is one allocation row on the detail page.
+type IncomeTemplateLineRow struct {
+	PosName     string
+	PosCurrency string
+	Amount      int64
+}
+
+const incomeTemplatesListBody = `<h1>Income templates</h1>
+<p class="subtitle">Each template names an income type and the fixed allocation across Pos when it lands.</p>
+<p class="aside" style="text-align:right; margin: 0 0 -8px;"><a class="linkbtn" href="/income-templates/new">+ New template</a></p>
+{{if .LoadError}}
+<p class="alert" role="alert">Couldn&rsquo;t load templates. Refresh in a moment.</p>
+{{else if not .Items}}
+<div class="empty-state">
+<p class="empty-state-text">No income templates yet.</p>
+<p class="empty-state-hint">Create one to fan-out a salary across Pos in one step.</p>
+</div>
+{{else}}
+<table>
+<thead><tr><th>Name</th><th class="num">Lines total</th></tr></thead>
+<tbody>
+{{range .Items}}
+<tr><td><a href="/income-templates/{{.ID}}">{{.Name}}</a></td><td class="num">{{money .Total "idr"}}</td></tr>
+{{end}}
+</tbody>
+</table>
+{{end}}`
+
+const incomeTemplateNewBody = `<h1>New income template</h1>
+<p class="subtitle">Each line allocates a fixed amount to one Pos. Up to 8 lines.</p>
+{{if .Errors}}
+<div class="alert" role="alert">
+<strong>Couldn&rsquo;t save template:</strong>
+<ul style="margin:8px 0 0 20px; padding:0;">
+{{range .Errors}}<li>{{.}}</li>{{end}}
+</ul>
+</div>
+{{end}}
+<form method="post" action="/income-templates">
+<div class="field">
+<label for="name">Name</label>
+<input id="name" name="name" type="text" value="{{.Name}}" required maxlength="80"
+  autocapitalize="words" autocorrect="off" spellcheck="false"
+  placeholder="e.g. Riza monthly salary">
+</div>
+<div class="field">
+<label for="leftover_pos_id">Leftover Pos <span style="color:var(--text-tertiary); font-weight:400;">(optional)</span></label>
+<select id="leftover_pos_id" name="leftover_pos_id">
+<option value="">— none (strict: amount must equal Σ(lines)) —</option>
+{{range .Pos}}
+<option value="{{.ID}}"{{if eq .ID $.LeftoverPosID}} selected{{end}}>{{.Name}} ({{.Currency}})</option>
+{{end}}
+</select>
+<p class="hint">If set, any amount above the lines&rsquo; total lands here. Otherwise a too-large amount is rejected.</p>
+</div>
+<h2 style="font-size: var(--font-base); font-weight: 600; margin: 24px 0 12px;">Lines</h2>
+<table>
+<thead><tr><th>Pos</th><th class="num">Amount (smallest unit)</th></tr></thead>
+<tbody>
+{{range $i, $line := .Lines}}
+<tr>
+<td><select name="pos_id_{{$i}}">
+<option value="">— skip —</option>
+{{range $.Pos}}<option value="{{.ID}}"{{if eq .ID $line.PosID}} selected{{end}}>{{.Name}} ({{.Currency}})</option>{{end}}
+</select></td>
+<td><input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9]*" value="{{$line.Amount}}"
+  placeholder="e.g. 12000000"></td>
+</tr>
+{{end}}
+{{if not .Lines}}
+{{range $i := (intRange 0 8)}}
+<tr>
+<td><select name="pos_id_{{$i}}">
+<option value="">— skip —</option>
+{{range $.Pos}}<option value="{{.ID}}">{{.Name}} ({{.Currency}})</option>{{end}}
+</select></td>
+<td><input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 12000000"></td>
+</tr>
+{{end}}
+{{end}}
+</tbody>
+</table>
+<button type="submit" style="margin-top: 16px;">Create template</button>
+</form>
+<p class="aside"><a class="linkbtn" href="/income-templates">&larr; Back</a></p>`
+
+const incomeTemplateDetailBody = `<h1>{{.Name}}</h1>
+<p class="subtitle">Income template &middot; allocation total {{money .LinesTotal "idr"}}{{if .HasLeftoverPos}} &middot; leftover → <strong>{{.LeftoverPosName}}</strong>{{end}}</p>
+{{if .Flash}}<div class="alert" role="status">{{.Flash}}</div>{{end}}
+
+<section class="card">
+<h2>Lines</h2>
+{{if .Lines}}
+<table>
+<thead><tr><th>Pos</th><th class="num">Amount</th></tr></thead>
+<tbody>
+{{range .Lines}}
+<tr><td>{{.PosName}}</td><td class="num">{{money .Amount .PosCurrency}}</td></tr>
+{{end}}
+<tr class="totals"><td><strong>Total</strong></td><td class="num"><strong>{{money .LinesTotal "idr"}}</strong></td></tr>
+</tbody>
+</table>
+{{else}}
+<p class="subtitle">No lines yet.</p>
+{{end}}
+</section>
+
+<section class="card">
+<h2>Apply this template</h2>
+<form method="post" action="/income-templates/{{.ID}}/apply">
+<div class="field">
+<label for="amount">Incoming amount (IDR)</label>
+<input id="amount" name="amount" type="text" inputmode="numeric" pattern="[0-9]*" required
+  placeholder="e.g. 25000000">
+<p class="hint">Must be ≥ {{money .LinesTotal "idr"}}{{if not .HasLeftoverPos}} and equal exactly (no leftover Pos configured){{end}}.</p>
+</div>
+<div class="field">
+<label for="effective_date">Effective date</label>
+<input id="effective_date" name="effective_date" type="date" required>
+</div>
+<div class="field">
+<label for="account_id">Receiving account</label>
+<select id="account_id" name="account_id" required>
+<option value="">— select —</option>
+{{range .Accounts}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+</select>
+</div>
+<div class="field">
+<label for="counterparty_name">Counterparty</label>
+<input id="counterparty_name" name="counterparty_name" type="text" required maxlength="80"
+  placeholder="e.g. PT Telkom">
+</div>
+<button type="submit">Apply</button>
+</form>
+</section>
+
+<p class="aside"><a class="linkbtn" href="/income-templates">&larr; All templates</a></p>`

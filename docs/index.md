@@ -216,7 +216,7 @@ their backing logic is in place but the entry surface is pending.
 
 | Scenarios | Missing surface |
 |---|---|
-| S5, S6 | New-transaction form (web). API path works via `POST /api/v1/transactions`. |
+| S5, S6 | New-transaction form (web) for **single-Pos** money_in / money_out. API path works via `POST /api/v1/transactions`. (Multi-Pos income is now covered by income templates — `/income-templates` web + `POST /api/v1/income-templates/:id/apply`.) |
 | S7 | Counterparty autocomplete UI. API auto-creates by name. |
 | S8, S9, S10 | Inter-Pos transfer / borrow / repayment surface (web + API). Phase-7 schema work pending. |
 | S11, S12 | Multi-currency inter-Pos. |
