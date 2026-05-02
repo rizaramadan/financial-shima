@@ -119,8 +119,25 @@ func newServerWithDeps(a *auth.Auth, ac assistant.Client, db *pgxpool.Pool) *ech
 	e.POST("/notifications/:id/read", h.NotificationMarkRead)
 	e.POST("/notifications/mark-all-read", h.NotificationsMarkAllRead)
 	e.GET("/transactions", h.TransactionsGet)
+	e.GET("/pos/new", h.PosNewGet)
+	e.POST("/pos", h.PosNewPost)
 	e.GET("/pos/:id", h.PosGet)
 	e.GET("/spending", h.SpendingGet)
+
+	// /api/v1 — LLM JSON API per spec §7.2. APIKey middleware reads
+	// LLM_API_KEY at boot; the apikey package panics if it's empty
+	// (deploy-time fail-loud), so production deploys must set it. In
+	// tests / local dev, an empty value here means the API is gated
+	// off entirely, which is fine — the human-facing routes above
+	// still work.
+	if key := os.Getenv("LLM_API_KEY"); key != "" {
+		api := e.Group("/api/v1", mw.APIKey(key))
+		api.GET("/accounts", h.APIAccountsList)
+		api.POST("/accounts", h.APIAccountsCreate)
+		api.POST("/pos", h.APIPosCreate)
+		api.POST("/counterparties", h.APICounterpartiesCreate)
+		api.POST("/transactions", h.APITransactionsCreate)
+	}
 	return e
 }
 

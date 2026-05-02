@@ -35,6 +35,7 @@ func New() *Renderer {
 	template.Must(t.New("notifications").Parse(layoutOpen + notificationsBody + layoutClose))
 	template.Must(t.New("transactions").Parse(layoutOpen + transactionsBody + layoutClose))
 	template.Must(t.New("pos").Parse(layoutOpen + posBody + layoutClose))
+	template.Must(t.New("pos_new").Parse(layoutOpen + posNewBody + layoutClose))
 	template.Must(t.New("spending").Parse(layoutOpen + spendingBody + layoutClose))
 	return &Renderer{t: t}
 }
@@ -370,6 +371,24 @@ func (d PosDetailData) Compact() bool  { return false }
 func (d PosDetailData) Wide() bool     { return false }
 func (d PosDetailData) HideBell() bool { return false }
 func (d PosDetailData) Route() string  { return "pos" }
+
+// PosNewData drives the "create Pos" form. Name/Currency/TargetRaw
+// round-trip on validation failure so the user doesn't retype.
+type PosNewData struct {
+	Title       string
+	DisplayName string
+	UnreadCount int
+	Name        string
+	Currency    string
+	TargetRaw   string   // string form so empty stays empty across re-renders
+	Errors      []string // list of validation messages, all rendered together
+}
+
+func (d PosNewData) SignedIn() bool { return d.DisplayName != "" }
+func (d PosNewData) Compact() bool  { return true }
+func (d PosNewData) Wide() bool     { return false }
+func (d PosNewData) HideBell() bool { return false }
+func (d PosNewData) Route() string  { return "home" }
 
 // ObligationRow is one open obligation involving this Pos. Direction is
 // "receivable" (this pos is creditor) or "payable" (this pos is debtor).
@@ -1000,6 +1019,45 @@ const posBody = `{{if .NotFound}}
 {{end}}
 {{end}}`
 
+const posNewBody = `<h1>New Pos</h1>
+<p class="subtitle">A Pos is a budget envelope. Money flows into it (income, transfers) and out of it (expenses).</p>
+{{if .Errors}}
+<div class="alert" role="alert">
+<strong>Couldn&rsquo;t save this Pos:</strong>
+<ul style="margin:8px 0 0 20px; padding:0;">
+{{range .Errors}}<li>{{.}}</li>{{end}}
+</ul>
+</div>
+{{end}}
+<form method="post" action="/pos">
+<div class="field">
+<label for="name">Name</label>
+<input id="name" name="name" type="text" value="{{.Name}}"
+  autocapitalize="words" autocorrect="off" spellcheck="false"
+  required maxlength="80"
+  placeholder="e.g. Mortgage, Anak Sekolah, Liburan">
+</div>
+<div class="field">
+<label for="currency">Currency</label>
+<input id="currency" name="currency" type="text" value="{{if .Currency}}{{.Currency}}{{else}}idr{{end}}"
+  autocapitalize="off" autocorrect="off" spellcheck="false"
+  required maxlength="16" pattern="[a-z0-9-]+"
+  placeholder="idr, usd, gold-g">
+<p class="hint">Lowercase letters, digits, hyphen. Example: idr · usd · gold-g.</p>
+</div>
+<div class="field">
+<label for="target">Target <span style="color:var(--text-tertiary); font-weight:400;">(optional)</span></label>
+<input id="target" name="target" type="text" inputmode="numeric"
+  value="{{.TargetRaw}}"
+  autocapitalize="off" autocorrect="off" spellcheck="false"
+  pattern="[0-9]*" maxlength="16"
+  placeholder="e.g. 12000000 for Rp 12.000.000">
+<p class="hint">Whole number in the smallest unit (rupiah for IDR, cents for USD). Leave blank for an open-ended Pos.</p>
+</div>
+<button type="submit">Create Pos</button>
+</form>
+<p class="aside"><a class="linkbtn" href="/">&larr; Cancel</a></p>`
+
 const transactionsBody = `<h1>Transactions</h1>
 <form method="get" action="/transactions" class="filter">
 <label>From <input type="date" name="from" value="{{.From}}"></label>
@@ -1056,7 +1114,8 @@ const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
 <circle cx="42" cy="25" r="2" fill="currentColor" opacity="0.4"/>
 </svg>
 <p class="empty-state-text">Nothing here yet.</p>
-<p class="empty-state-hint">Your accounts and budgets will show up once they&rsquo;re added.</p>
+<p class="empty-state-hint">Start by creating a Pos — your first budget envelope.</p>
+<p class="empty-state-action"><a class="linkbtn" href="/pos/new">+ New Pos</a></p>
 </div>
 {{end}}
 
@@ -1074,6 +1133,7 @@ const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
 </section>
 {{end}}
 
+{{if .PosByCurrency}}<p class="aside" style="text-align:right; margin: 0 0 -8px;"><a class="linkbtn" href="/pos/new">+ New Pos</a></p>{{end}}
 {{range $g := .PosByCurrency}}
 <section class="card">
 <h2>Pos &mdash; {{$g.Currency}}</h2>
