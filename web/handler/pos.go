@@ -85,32 +85,56 @@ func (h *Handlers) PosGet(c echo.Context) error {
 		data.LoadError = true
 	}
 
-	// Open obligations → receivables/payables.
-	obs, err := q.ListObligationsForPos(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	// Open obligations → receivables/payables. Inline JOIN so each row
+	// carries the counterparty Pos name (not just its UUID) for the
+	// rendered link text.
+	obRows, err := h.DB.Query(ctx, `
+		SELECT o.id, o.creditor_pos_id, o.debtor_pos_id, o.currency,
+		       o.amount_owed, o.amount_repaid, o.created_at,
+		       cred.name AS creditor_name, deb.name AS debtor_name
+		  FROM pos_obligation o
+		  JOIN pos cred ON cred.id = o.creditor_pos_id
+		  JOIN pos deb  ON deb.id  = o.debtor_pos_id
+		 WHERE o.cleared_at IS NULL
+		   AND (o.creditor_pos_id = $1 OR o.debtor_pos_id = $1)
+		 ORDER BY o.created_at DESC`, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		c.Logger().Errorf("ListObligationsForPos: %v", err)
+		c.Logger().Errorf("list obligations: %v", err)
 		data.LoadError = true
-	}
-	for _, o := range obs {
-		// "open" because the SQL filters cleared_at IS NULL — outstanding
-		// = owed - repaid.
-		outstanding := o.AmountOwed - o.AmountRepaid
-		row := template.ObligationRow{
-			ID:          uuid.UUID(o.ID.Bytes).String(),
-			Currency:    o.Currency,
-			Outstanding: outstanding,
-			CreatedAt:   o.CreatedAt.Time,
+	} else {
+		defer obRows.Close()
+		for obRows.Next() {
+			var (
+				obID, credID, debID         pgtype.UUID
+				currency, credName, debName string
+				amountOwed, amountRepaid    int64
+				createdAt                   pgtype.Timestamptz
+			)
+			if err := obRows.Scan(&obID, &credID, &debID, &currency, &amountOwed, &amountRepaid, &createdAt, &credName, &debName); err != nil {
+				c.Logger().Errorf("scan obligation: %v", err)
+				data.LoadError = true
+				continue
+			}
+			outstanding := amountOwed - amountRepaid
+			row := template.ObligationRow{
+				ID:          uuid.UUID(obID.Bytes).String(),
+				Currency:    currency,
+				Outstanding: outstanding,
+				CreatedAt:   createdAt.Time,
+			}
+			if credID.Valid && credID.Bytes == id {
+				row.Direction = "receivable"
+				row.OtherPosID = uuid.UUID(debID.Bytes).String()
+				row.OtherPosName = debName
+				data.Receivables += outstanding
+			} else {
+				row.Direction = "payable"
+				row.OtherPosID = uuid.UUID(credID.Bytes).String()
+				row.OtherPosName = credName
+				data.Payables += outstanding
+			}
+			data.Obligations = append(data.Obligations, row)
 		}
-		if o.CreditorPosID.Valid && o.CreditorPosID.Bytes == id {
-			row.Direction = "receivable"
-			row.OtherPosID = uuid.UUID(o.DebtorPosID.Bytes).String()
-			data.Receivables += outstanding
-		} else {
-			row.Direction = "payable"
-			row.OtherPosID = uuid.UUID(o.CreditorPosID.Bytes).String()
-			data.Payables += outstanding
-		}
-		data.Obligations = append(data.Obligations, row)
 	}
 
 	txns, err := q.ListTransactionsByPos(ctx, pgtype.UUID{Bytes: id, Valid: true})

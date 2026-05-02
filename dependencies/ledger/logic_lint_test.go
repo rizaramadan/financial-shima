@@ -51,6 +51,9 @@ func TestLint_LogicLayerDeterminism(t *testing.T) {
 		if err != nil {
 			return err
 		}
+		// Normalize path separators so the allow-list keys
+		// (forward-slash) match on Windows too.
+		rel = filepath.ToSlash(rel)
 
 		f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 		if err != nil {

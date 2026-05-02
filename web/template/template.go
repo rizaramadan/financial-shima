@@ -8,6 +8,7 @@ package template
 import (
 	"html/template"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -20,7 +21,13 @@ type Renderer struct {
 
 func New() *Renderer {
 	t := template.New("").Funcs(template.FuncMap{
-		"relTime": relativeTime,
+		"relTime":  relativeTime,
+		"money":    fmtMoney,
+		"txnLabel": txnLabel,
+		"txnChip":  txnChipClass,
+		"txnAmt":   txnAmountClass,
+		"txnSign":  txnAmountSign,
+		"pct":      pctOf,
 	})
 	template.Must(t.New("login").Parse(layoutOpen + loginBody + layoutClose))
 	template.Must(t.New("verify").Parse(layoutOpen + verifyBody + layoutClose))
@@ -75,6 +82,130 @@ func decimalString(n int64) string {
 	return string(buf[i:])
 }
 
+// fmtMoney formats an integer amount in the given currency for display.
+// IDR has no fractional unit (1 = 1 rupiah), grouped with dot thousands —
+// "Rp 1.500.000". USD/EUR are stored in cents, so we /100 and group with
+// commas — "$1,500.00". Other currencies fall back to grouped digits +
+// upper-case currency tag — "100 GOLD-G".
+func fmtMoney(amount int64, currency string) string {
+	if amount == 0 {
+		switch strings.ToUpper(currency) {
+		case "USD", "EUR":
+			return "$0.00"
+		case "IDR", "":
+			return "Rp 0"
+		}
+		return "0 " + strings.ToUpper(currency)
+	}
+	abs := amount
+	if abs < 0 {
+		abs = -abs
+	}
+	sign := ""
+	if amount < 0 {
+		sign = "-"
+	}
+	switch strings.ToUpper(currency) {
+	case "IDR", "":
+		return sign + "Rp " + groupThousands(abs, '.')
+	case "USD":
+		whole := abs / 100
+		cents := abs % 100
+		return sign + "$" + groupThousands(whole, ',') + "." + twoDigit(cents)
+	default:
+		return sign + groupThousands(abs, ',') + " " + strings.ToUpper(currency)
+	}
+}
+
+func groupThousands(n int64, sep byte) string {
+	s := decimalString(n)
+	if len(s) <= 3 {
+		return s
+	}
+	out := make([]byte, 0, len(s)+(len(s)-1)/3)
+	pre := len(s) % 3
+	if pre > 0 {
+		out = append(out, s[:pre]...)
+	}
+	for i := pre; i < len(s); i += 3 {
+		if len(out) > 0 {
+			out = append(out, sep)
+		}
+		out = append(out, s[i:i+3]...)
+	}
+	return string(out)
+}
+
+func twoDigit(n int64) string {
+	if n < 10 {
+		return "0" + decimalString(n)
+	}
+	return decimalString(n)
+}
+
+// Transaction type → human label + visual class. Spec stores types as
+// snake_case enum strings (money_in, money_out, inter_pos); the UI shows
+// them as colored chips with friendlier labels per spec §6.1.
+func txnLabel(t string) string {
+	switch t {
+	case "money_in":
+		return "Income"
+	case "money_out":
+		return "Expense"
+	case "inter_pos":
+		return "Transfer"
+	}
+	return t
+}
+
+func txnChipClass(t string) string {
+	switch t {
+	case "money_in":
+		return "chip-in"
+	case "money_out":
+		return "chip-out"
+	case "inter_pos":
+		return "chip-transfer"
+	}
+	return "chip-neutral"
+}
+
+func txnAmountClass(t string) string {
+	switch t {
+	case "money_in":
+		return "amt-in"
+	case "money_out":
+		return "amt-out"
+	}
+	return "amt-neutral"
+}
+
+func txnAmountSign(t string) string {
+	switch t {
+	case "money_in":
+		return "+"
+	case "money_out":
+		return "−"
+	}
+	return ""
+}
+
+// pctOf clamps to [0, 100] and rounds. Used for budget-progress rails on
+// Pos rows; zero or negative target returns 0.
+func pctOf(num, denom int64) int {
+	if denom <= 0 {
+		return 0
+	}
+	p := (num * 100) / denom
+	if p < 0 {
+		return 0
+	}
+	if p > 100 {
+		return 100
+	}
+	return int(p)
+}
+
 func (r *Renderer) Render(w io.Writer, name string, data interface{}, _ echo.Context) error {
 	return r.t.ExecuteTemplate(w, name, data)
 }
@@ -88,6 +219,7 @@ type LoginData struct {
 
 // Compact narrows the card for single-input forms (AntD form widths).
 func (d LoginData) Compact() bool { return true }
+func (d LoginData) Wide() bool     { return false }
 
 // HideBell — pre-auth pages have no bell anyway (SignedIn=false), but
 // satisfy the interface uniformly.
@@ -105,6 +237,7 @@ type VerifyData struct {
 }
 
 func (d VerifyData) Compact() bool  { return true }
+func (d VerifyData) Wide() bool     { return false }
 func (d VerifyData) HideBell() bool { return false }
 func (d VerifyData) Route() string  { return "" }
 
@@ -124,6 +257,7 @@ func (d NotificationsData) SignedIn() bool { return d.DisplayName != "" }
 
 // Compact — list-style pages keep the default card width.
 func (d NotificationsData) Compact() bool { return false }
+func (d NotificationsData) Wide() bool    { return false }
 
 // HideBell — the bell links to this very page; suppress it here so it
 // doesn't point at itself.
@@ -161,6 +295,7 @@ type HomeData struct {
 // reachable post-auth, so a populated DisplayName is the trigger.
 func (d HomeData) SignedIn() bool  { return d.DisplayName != "" }
 func (d HomeData) Compact() bool   { return false }
+func (d HomeData) Wide() bool      { return false }
 func (d HomeData) HideBell() bool  { return false }
 func (d HomeData) Route() string   { return "home" }
 
@@ -188,6 +323,7 @@ type SpendingData struct {
 // SignedIn — only authenticated users reach the spending view.
 func (d SpendingData) SignedIn() bool { return d.DisplayName != "" }
 func (d SpendingData) Compact() bool  { return false }
+func (d SpendingData) Wide() bool     { return true }
 func (d SpendingData) HideBell() bool { return false }
 func (d SpendingData) Route() string  { return "spending" }
 
@@ -231,18 +367,20 @@ type PosDetailData struct {
 // SignedIn — only authenticated users reach pos detail.
 func (d PosDetailData) SignedIn() bool { return d.DisplayName != "" }
 func (d PosDetailData) Compact() bool  { return false }
+func (d PosDetailData) Wide() bool     { return false }
 func (d PosDetailData) HideBell() bool { return false }
 func (d PosDetailData) Route() string  { return "pos" }
 
 // ObligationRow is one open obligation involving this Pos. Direction is
 // "receivable" (this pos is creditor) or "payable" (this pos is debtor).
 type ObligationRow struct {
-	ID          string
-	Direction   string // "receivable" | "payable"
-	OtherPosID  string
-	Currency    string
-	Outstanding int64
-	CreatedAt   time.Time
+	ID           string
+	Direction    string // "receivable" | "payable"
+	OtherPosID   string
+	OtherPosName string // empty when handler hasn't resolved the name yet
+	Currency     string
+	Outstanding  int64
+	CreatedAt    time.Time
 }
 
 // PosTransactionRow is one row of the scoped transaction list. Trimmer
@@ -274,6 +412,7 @@ type TransactionsData struct {
 // SignedIn for transactions list — only reachable post-auth.
 func (d TransactionsData) SignedIn() bool { return d.DisplayName != "" }
 func (d TransactionsData) Compact() bool  { return false }
+func (d TransactionsData) Wide() bool     { return true }
 func (d TransactionsData) HideBell() bool { return false }
 func (d TransactionsData) Route() string  { return "transactions" }
 
@@ -413,6 +552,7 @@ main {
   border: 1px solid var(--border-secondary);
 }
 main.compact { max-width: 420px; padding: 32px 28px; }
+main.wide    { max-width: 920px; }
 @media (max-width: 480px) { main { padding: 20px; border-radius: 0;
   border-left: 0; border-right: 0; } }
 h1 { font-size: var(--font-h2); font-weight: 600; line-height: 1.21;
@@ -568,6 +708,50 @@ tbody tr:hover { background: color-mix(in oklab, var(--primary) 4%, transparent)
   border: 1px solid var(--border-secondary);
 }
 
+/* AntD Tag — used for transaction type and obligation direction chips. */
+.chip {
+  display: inline-block; padding: 0 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-sm); font-weight: 500; line-height: 22px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.chip-in       { color: #389E0D; background: #F6FFED; border-color: #B7EB8F; }
+.chip-out      { color: #CF1322; background: #FFF1F0; border-color: #FFA39E; }
+.chip-transfer { color: #0958D9; background: #E6F4FF; border-color: #91CAFF; }
+.chip-neutral  { color: var(--text-secondary); background: var(--bg-fill); border-color: var(--border-secondary); }
+
+/* Colored amounts in transaction listings — fintech standard:
+ * income green (`+`), expense default (chip carries red), transfers muted. */
+.amt-in      { color: #389E0D; font-weight: 500; }
+.amt-out     { color: var(--text); font-weight: 500; }
+.amt-neutral { color: var(--text-secondary); }
+
+/* Wrap data-dense tables so the card width stays disciplined on narrow
+ * viewports without truncating cells. */
+.table-wrap { width: 100%; overflow-x: auto; margin: 0 0 8px; }
+
+/* Pos budget progress rail — slim, sits next to the target amount on
+ * /home rows. */
+.progress {
+  display: inline-block; vertical-align: middle;
+  width: 64px; height: 6px; margin-left: 8px;
+  background: var(--border-secondary);
+  border-radius: 999px; overflow: hidden;
+}
+.progress-fill {
+  display: block; height: 100%;
+  background: var(--primary); border-radius: 999px;
+}
+
+/* Negative-cash marker per spec §6.2: a Pos with cash<0 carries a small
+ * indicator. Non-decorative; the cell font color also flips to error. */
+.neg-cash { color: var(--error); font-weight: 500; }
+.neg-cash::before {
+  content: "▾ "; color: var(--error);
+  font-size: 11px; vertical-align: middle;
+}
+
 tr.totals { border-top: 1px solid var(--border); background: var(--bg-fill); }
 tr.totals td { font-weight: 600; }
 
@@ -594,7 +778,7 @@ tr.totals td { font-weight: 600; }
 </style>
 </head>
 <body>
-<main{{if .Compact}} class="compact"{{end}}>
+<main{{if .Compact}} class="compact"{{else if .Wide}} class="wide"{{end}}>
 {{if .SignedIn}}
 <nav class="nav" aria-label="Primary">
 <a href="/"{{if eq .Route "home"}} aria-current="page"{{end}}>Home</a>
@@ -718,7 +902,8 @@ const spendingBody = `<h1>Spending</h1>
 <p class="empty-state-hint">Adjust the filter or check back after the next sync.</p>
 </div>
 {{else}}
-<p class="subtitle">Top {{.TopN}} Pos by money_out volume in this range.</p>
+<p class="subtitle">Top {{.TopN}} Pos by spending in this range.</p>
+<div class="table-wrap">
 <table>
 <thead>
 <tr>
@@ -728,20 +913,21 @@ const spendingBody = `<h1>Spending</h1>
 </tr>
 </thead>
 <tbody>
-{{range .Rows}}
+{{range $row := .Rows}}
 <tr>
-<td>{{.Month}}</td>
-{{range .Cells}}<td class="num">{{if .}}{{.}}{{else}}&mdash;{{end}}</td>{{end}}
-<td class="num">{{if $.MixedCurrency}}&mdash;{{else}}<strong>{{.Total}}</strong>{{end}}</td>
+<td>{{$row.Month}}</td>
+{{range $i, $c := $row.Cells}}<td class="num">{{if $c}}{{money $c (index $.Columns $i).Currency}}{{else}}&mdash;{{end}}</td>{{end}}
+<td class="num">{{if $.MixedCurrency}}&mdash;{{else}}<strong>{{money $row.Total (index $.Columns 0).Currency}}</strong>{{end}}</td>
 </tr>
 {{end}}
 <tr class="totals">
 <td><strong>Pos total</strong></td>
-{{range .Columns}}<td class="num"><strong>{{.Total}}</strong></td>{{end}}
+{{range .Columns}}<td class="num"><strong>{{money .Total .Currency}}</strong></td>{{end}}
 <td class="num">&mdash;</td>
 </tr>
 </tbody>
 </table>
+</div>
 {{end}}`
 
 const posBody = `{{if .NotFound}}
@@ -749,7 +935,7 @@ const posBody = `{{if .NotFound}}
 <p class="subtitle">No Pos with that id, or it has been removed.</p>
 {{else}}
 <h1>{{.Name}}{{if .Archived}} <span class="badge-rev">archived</span>{{end}}</h1>
-<p class="subtitle">{{.Currency}}{{if .HasTarget}} &middot; target {{.Target}}{{end}}</p>
+<p class="subtitle">{{.Currency}}{{if .HasTarget}} &middot; target {{money .Target .Currency}}{{end}}</p>
 
 {{if .LoadError}}
 <p class="alert" role="alert">Some data could not be loaded. The view may be incomplete.</p>
@@ -761,9 +947,9 @@ const posBody = `{{if .NotFound}}
 <thead><tr><th>Cash</th><th class="num">Receivables</th><th class="num">Payables</th></tr></thead>
 <tbody>
 <tr>
-<td class="num">{{.Cash}}</td>
-<td class="num">{{.Receivables}}</td>
-<td class="num">{{.Payables}}</td>
+<td class="num{{if lt .Cash 0}} neg-cash{{end}}">{{money .Cash .Currency}}</td>
+<td class="num">{{money .Receivables .Currency}}</td>
+<td class="num">{{money .Payables .Currency}}</td>
 </tr>
 </tbody>
 </table>
@@ -777,9 +963,9 @@ const posBody = `{{if .NotFound}}
 <tbody>
 {{range .Obligations}}
 <tr>
-<td>{{.Direction}}</td>
-<td><a href="/pos/{{.OtherPosID}}">{{.OtherPosID}}</a></td>
-<td class="num">{{.Outstanding}} {{.Currency}}</td>
+<td><span class="chip {{if eq .Direction "receivable"}}chip-in{{else}}chip-out{{end}}">{{.Direction}}</span></td>
+<td><a href="/pos/{{.OtherPosID}}">{{if .OtherPosName}}{{.OtherPosName}}{{else}}{{.OtherPosID}}{{end}}</a></td>
+<td class="num">{{money .Outstanding .Currency}}</td>
 <td>{{relTime .CreatedAt}}</td>
 </tr>
 {{end}}
@@ -791,14 +977,15 @@ const posBody = `{{if .NotFound}}
 {{if .Transactions}}
 <section class="card">
 <h2>Transactions</h2>
+<div class="table-wrap">
 <table>
 <thead><tr><th>Date</th><th>Type</th><th class="num">Amount</th><th>Account</th><th>Counterparty</th><th>Note</th></tr></thead>
 <tbody>
 {{range .Transactions}}
 <tr{{if .IsReversal}} class="reversal"{{end}}>
 <td>{{.EffectiveDate}}</td>
-<td>{{.Type}}{{if .IsReversal}} <a class="badge-rev" href="/transactions/{{.ReversesID}}">reverses</a>{{end}}</td>
-<td class="num">{{.Amount}}</td>
+<td><span class="chip {{txnChip .Type}}">{{txnLabel .Type}}</span>{{if .IsReversal}} <a class="badge-rev" href="/transactions/{{.ReversesID}}">reverses</a>{{end}}</td>
+<td class="num {{txnAmt .Type}}">{{txnSign .Type}}{{money .Amount $.Currency}}</td>
 <td>{{if .AccountName}}{{.AccountName}}{{else}}&mdash;{{end}}</td>
 <td>{{if .CounterpartyName}}{{.CounterpartyName}}{{else}}&mdash;{{end}}</td>
 <td>{{.Note}}</td>
@@ -806,6 +993,7 @@ const posBody = `{{if .NotFound}}
 {{end}}
 </tbody>
 </table>
+</div>
 </section>
 {{else}}
 <p class="subtitle">No transactions for this Pos yet.</p>
@@ -833,6 +1021,7 @@ const transactionsBody = `<h1>Transactions</h1>
 <p class="empty-state-hint">Try widening the date filter, or wait for the next sync.</p>
 </div>
 {{else}}
+<div class="table-wrap">
 <table>
 <thead><tr>
 <th>Date</th><th>Type</th><th class="num">Amount</th>
@@ -842,8 +1031,8 @@ const transactionsBody = `<h1>Transactions</h1>
 {{range .Items}}
 <tr{{if .IsReversal}} class="reversal"{{end}}>
 <td>{{.EffectiveDate}}</td>
-<td>{{.Type}}{{if .IsReversal}} <a class="badge-rev" href="/transactions/{{.ReversesID}}">reverses</a>{{end}}</td>
-<td class="num">{{.Amount}}{{if .Currency}} {{.Currency}}{{end}}</td>
+<td><span class="chip {{txnChip .Type}}">{{txnLabel .Type}}</span>{{if .IsReversal}} <a class="badge-rev" href="/transactions/{{.ReversesID}}">reverses</a>{{end}}</td>
+<td class="num {{txnAmt .Type}}">{{txnSign .Type}}{{money .Amount .Currency}}</td>
 <td>{{if .AccountName}}{{.AccountName}}{{else}}&mdash;{{end}}</td>
 <td>{{if .PosName}}{{.PosName}}{{else}}&mdash;{{end}}</td>
 <td>{{if .CounterpartyName}}{{.CounterpartyName}}{{else}}&mdash;{{end}}</td>
@@ -852,6 +1041,7 @@ const transactionsBody = `<h1>Transactions</h1>
 {{end}}
 </tbody>
 </table>
+</div>
 {{end}}`
 
 const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
@@ -877,24 +1067,24 @@ const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
 <thead><tr><th>Name</th><th class="num">Balance</th></tr></thead>
 <tbody>
 {{range .Accounts}}
-<tr><td>{{.Name}}</td><td class="num">{{.BalanceIDR}}</td></tr>
+<tr><td>{{.Name}}</td><td class="num{{if lt .BalanceIDR 0}} neg-cash{{end}}">{{money .BalanceIDR "IDR"}}</td></tr>
 {{end}}
 </tbody>
 </table>
 </section>
 {{end}}
 
-{{range .PosByCurrency}}
+{{range $g := .PosByCurrency}}
 <section class="card">
-<h2>Pos &mdash; {{.Currency}}</h2>
+<h2>Pos &mdash; {{$g.Currency}}</h2>
 <table>
 <thead><tr><th>Name</th><th class="num">Cash</th><th class="num">Target</th></tr></thead>
 <tbody>
-{{range .Items}}
+{{range $g.Items}}
 <tr>
   <td>{{.Name}}</td>
-  <td class="num">{{.Cash}}</td>
-  <td class="num">{{if .HasTarget}}{{.Target}}{{else}}&mdash;{{end}}</td>
+  <td class="num{{if lt .Cash 0}} neg-cash{{end}}">{{money .Cash $g.Currency}}</td>
+  <td class="num">{{if .HasTarget}}{{money .Target $g.Currency}}<span class="progress" aria-label="{{pct .Cash .Target}}% of target"><span class="progress-fill" style="width: {{pct .Cash .Target}}%"></span></span>{{else}}&mdash;{{end}}</td>
 </tr>
 {{end}}
 </tbody>
