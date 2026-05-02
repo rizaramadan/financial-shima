@@ -178,7 +178,11 @@ type SpendingData struct {
 	TopN        int
 	Columns     []SpendingColumn // top-N pos, in rank order
 	Rows        []SpendingRow    // one per month in range, newest first
-	LoadError   bool
+	// MixedCurrency is true when the top-N columns span more than one
+	// currency. Per spec §10.5 currencies reconcile separately, so a
+	// cross-currency row total is meaningless — the template hides it.
+	MixedCurrency bool
+	LoadError     bool
 }
 
 // SignedIn — only authenticated users reach the spending view.
@@ -215,6 +219,7 @@ type PosDetailData struct {
 	Target       int64
 	HasTarget    bool
 	Archived     bool
+	Cash         int64
 	Receivables  int64
 	Payables     int64
 	Obligations  []ObligationRow
@@ -727,7 +732,7 @@ const spendingBody = `<h1>Spending</h1>
 <tr>
 <td>{{.Month}}</td>
 {{range .Cells}}<td class="num">{{if .}}{{.}}{{else}}&mdash;{{end}}</td>{{end}}
-<td class="num"><strong>{{.Total}}</strong></td>
+<td class="num">{{if $.MixedCurrency}}&mdash;{{else}}<strong>{{.Total}}</strong>{{end}}</td>
 </tr>
 {{end}}
 <tr class="totals">
@@ -756,7 +761,7 @@ const posBody = `{{if .NotFound}}
 <thead><tr><th>Cash</th><th class="num">Receivables</th><th class="num">Payables</th></tr></thead>
 <tbody>
 <tr>
-<td class="num">&mdash;</td>
+<td class="num">{{.Cash}}</td>
 <td class="num">{{.Receivables}}</td>
 <td class="num">{{.Payables}}</td>
 </tr>
@@ -872,7 +877,7 @@ const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
 <thead><tr><th>Name</th><th class="num">Balance</th></tr></thead>
 <tbody>
 {{range .Accounts}}
-<tr><td>{{.Name}}</td><td class="num">&mdash;</td></tr>
+<tr><td>{{.Name}}</td><td class="num">{{.BalanceIDR}}</td></tr>
 {{end}}
 </tbody>
 </table>
@@ -888,7 +893,7 @@ const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
 {{range .Items}}
 <tr>
   <td>{{.Name}}</td>
-  <td class="num">&mdash;</td>
+  <td class="num">{{.Cash}}</td>
   <td class="num">{{if .HasTarget}}{{.Target}}{{else}}&mdash;{{end}}</td>
 </tr>
 {{end}}

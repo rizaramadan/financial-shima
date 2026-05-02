@@ -133,6 +133,12 @@ func (h *Handlers) SpendingGet(c echo.Context) error {
 			Total:    allPos[i].Total,
 		})
 	}
+	for i := 1; i < len(data.Columns); i++ {
+		if data.Columns[i].Currency != data.Columns[0].Currency {
+			data.MixedCurrency = true
+			break
+		}
+	}
 
 	// Months in [from, to] inclusive — render even empty rows for
 	// visual rhythm continuity.

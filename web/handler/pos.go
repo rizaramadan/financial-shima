@@ -78,6 +78,13 @@ func (h *Handlers) PosGet(c echo.Context) error {
 		data.HasTarget = true
 	}
 
+	if cash, err := q.GetPosCashBalance(ctx, pgtype.UUID{Bytes: id, Valid: true}); err == nil {
+		data.Cash = cash
+	} else {
+		c.Logger().Errorf("GetPosCashBalance: %v", err)
+		data.LoadError = true
+	}
+
 	// Open obligations → receivables/payables.
 	obs, err := q.ListObligationsForPos(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {

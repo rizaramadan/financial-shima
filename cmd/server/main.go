@@ -14,9 +14,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 
+	"github.com/rizaramadan/financial-shima/db/dbq"
 	"github.com/rizaramadan/financial-shima/dependencies/assistant"
 	"github.com/rizaramadan/financial-shima/logic/auth"
 	"github.com/rizaramadan/financial-shima/logic/clock"
@@ -32,9 +34,30 @@ const defaultAddr = ":8080"
 
 const shutdownGraceDuration = setup.WriteTimeout + 1*time.Second
 
-// newAuth builds the auth coordinator from production wiring.
-func newAuth() *auth.Auth {
-	return auth.New(user.Seeded(), clock.System{}, rand.Reader, idgen.Crypto{})
+// resolveUserIDs replaces each seeded user's string ID with the matching
+// DB uuid (looked up by telegram_identifier) so handlers that key on
+// uuid.Parse(u.ID) — notifications feed, bell badge — actually fire their
+// queries instead of silently returning empty. When db is nil or a row is
+// missing, the seeded ID is preserved so the no-DB boot path still works.
+func resolveUserIDs(db *pgxpool.Pool, seeded []user.User) []user.User {
+	if db == nil {
+		return seeded
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	q := dbq.New(db)
+	out := make([]user.User, 0, len(seeded))
+	for _, u := range seeded {
+		row, err := q.GetUserByTelegramIdentifier(ctx, u.TelegramIdentifier)
+		if err != nil {
+			log.Printf("resolveUserIDs: lookup %s: %v", u.TelegramIdentifier, err)
+			out = append(out, u)
+			continue
+		}
+		u.ID = uuid.UUID(row.ID.Bytes).String()
+		out = append(out, u)
+	}
+	return out
 }
 
 // newAssistant returns the production HTTP-backed client when both env vars
@@ -52,9 +75,10 @@ func newAssistant() assistant.Client {
 }
 
 func newServer() *echo.Echo {
-	a := newAuth()
-	ac := newAssistant()
 	db := newDBPool() // may be nil when DATABASE_URL unset
+	users := resolveUserIDs(db, user.Seeded())
+	a := auth.New(users, clock.System{}, rand.Reader, idgen.Crypto{})
+	ac := newAssistant()
 	return newServerWithDeps(a, ac, db)
 }
 

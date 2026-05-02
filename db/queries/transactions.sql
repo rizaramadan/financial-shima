@@ -61,6 +61,51 @@ WHERE t.type = 'money_out'
 GROUP BY p.id, p.name, p.currency, month
 ORDER BY month DESC, spent DESC;
 
+-- name: SumAccountBalances :many
+-- Per-account balance: signed sum of money_in / money_out account_amount
+-- contributions per account_id, restricted to non-archived accounts. The
+-- LEFT JOIN keeps zero-balance accounts in the result so the home view's
+-- list of accounts matches ListAccounts row-for-row.
+SELECT
+    a.id,
+    COALESCE(SUM(CASE
+        WHEN t.type = 'money_in'  THEN t.account_amount
+        WHEN t.type = 'money_out' THEN -t.account_amount
+        ELSE 0
+    END), 0)::bigint AS balance
+FROM accounts a
+LEFT JOIN transactions t ON t.account_id = a.id
+WHERE NOT a.archived
+GROUP BY a.id;
+
+-- name: SumPosCashBalances :many
+-- Per-pos cash balance: signed sum of money_in / money_out pos_amount per
+-- (pos_id, currency). inter_pos lines are not yet wired (Phase 7+) so they
+-- contribute zero. Currency comes from pos.currency since money_in/_out
+-- always denominate pos_amount in the pos's currency (§4.3 / §5.1).
+SELECT
+    p.id,
+    p.currency,
+    COALESCE(SUM(CASE
+        WHEN t.type = 'money_in'  THEN t.pos_amount
+        WHEN t.type = 'money_out' THEN -t.pos_amount
+        ELSE 0
+    END), 0)::bigint AS balance
+FROM pos p
+LEFT JOIN transactions t ON t.pos_id = p.id
+WHERE NOT p.archived
+GROUP BY p.id, p.currency;
+
+-- name: GetPosCashBalance :one
+-- Single-pos variant of SumPosCashBalances for the §6.3 detail view.
+SELECT COALESCE(SUM(CASE
+    WHEN type = 'money_in'  THEN pos_amount
+    WHEN type = 'money_out' THEN -pos_amount
+    ELSE 0
+END), 0)::bigint AS balance
+FROM transactions
+WHERE pos_id = $1;
+
 -- name: ListObligationsForPos :many
 -- Open obligations where this pos is creditor (money it's owed) or
 -- debtor (money it owes). Counts toward Pos.receivables and

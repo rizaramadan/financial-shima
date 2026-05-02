@@ -59,12 +59,34 @@ func (h *Handlers) HomeGet(c echo.Context) error {
 func (h *Handlers) loadHomeData(ctx context.Context, data *template.HomeData) error {
 	q := dbq.New(h.DB)
 
+	// Per-account / per-pos balance maps. A failure here logs but does not
+	// abort the page render — accounts / pos still list with zeros.
+	accountBal := map[[16]byte]int64{}
+	if rows, err := q.SumAccountBalances(ctx); err == nil {
+		for _, r := range rows {
+			accountBal[r.ID.Bytes] = r.Balance
+		}
+	} else {
+		return err
+	}
+	posBal := map[[16]byte]int64{}
+	if rows, err := q.SumPosCashBalances(ctx); err == nil {
+		for _, r := range rows {
+			posBal[r.ID.Bytes] = r.Balance
+		}
+	} else {
+		return err
+	}
+
 	accounts, err := q.ListAccounts(ctx)
 	if err != nil {
 		return err
 	}
 	for _, a := range accounts {
-		data.Accounts = append(data.Accounts, template.AccountRow{Name: a.Name})
+		data.Accounts = append(data.Accounts, template.AccountRow{
+			Name:       a.Name,
+			BalanceIDR: accountBal[a.ID.Bytes],
+		})
 	}
 
 	pos, err := q.ListPos(ctx)
@@ -87,7 +109,8 @@ func (h *Handlers) loadHomeData(ctx context.Context, data *template.HomeData) er
 			hasTarget = true
 		}
 		groups[curIdx].Items = append(groups[curIdx].Items, template.PosRow{
-			Name: p.Name, Target: target, HasTarget: hasTarget,
+			Name: p.Name, Cash: posBal[p.ID.Bytes],
+			Target: target, HasTarget: hasTarget,
 		})
 	}
 	// Pin IDR first; alpha for the rest. (Stable so IDR's position is
