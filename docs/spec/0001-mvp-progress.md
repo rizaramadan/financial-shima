@@ -15,7 +15,7 @@ Tracks delivery against `0001-mvp.md`. Phases are minimal end-to-end slices, not
 | 7 | Pos balance computation (§4.2: cash, receivables, payables) | **implementation complete (cash only)** | logic/balance: pure State + Apply for MoneyIn / MoneyOut / InterPos events, overflow-safe addSafe/subSafe, IDR-Pos amount-equality enforced (§5.1), inter_pos lines self-reconcile per currency (§10.6) before mutating. Property test §10.5: 50 seeds × 200 random events asserts Σ(Account) = Σ(Pos.cash IDR) after EVERY event. Property test §10.6: 50 generated unreconciled inter_pos events all rejected. Receivables/payables (borrow obligations) deferred to Phase 8. Review loop deferred. |
 | 8 | Borrow obligation + repayment matching (§4.3 borrow mode, §10.7) | **implementation complete (same-currency)** | logic/obligation: pure GenerateForBorrow (M×N obligations, prorated by creditor share, last-creditor absorbs rounding so per-debtor sum is exact) + Match (FIFO by stable input order, partial/full clearing, overpayment spawns reverse obligation — the "kid's school cash short after gold drop" case from §4.3). Migration 0003 adds pos_obligation table with CHECK enforcing §10.7 (cleared_at iff repaid >= owed) at the storage layer. Property test asserts every Updates/NewObligations row passes Validate(). Cross-currency borrow returns ErrCrossCurrencyBorrow — needs FX rate input not yet specified. Review loop deferred. |
 | 9 | Web UI: views (§6.1–6.5) | **all stages done** | A: §6.2 Home + nav. B: §6.5 Notifications feed + bell badge. C: server-rendered bell. D: §6.1 Transactions list (date-range filter, reversal badge). E: §6.3 Pos detail (name/currency/target, receivables/payables from open pos_obligation, open obligations table, scoped txn list). F: §6.4 Spending — months × top-N Pos pivot via `SumMoneyOutByPosMonth` aggregation; default last 6 months × top 5 Pos by money_out volume; Pos column headers link to /pos/:id, row totals + Pos totals foot row, empty-state when no money_out in range. Home page nav links {Transactions, Spending, Notifications}. 4 unit tests pin: unauth, nil-pool empty-state, query-param round-trip, invalid-date fallback. |
-| 10 | LLM JSON API (§7.2) + initial seed flow (§9) | **in progress** (R1: Skeet 7.5 / Ive 8 / Beck 9 — apikey middleware) | Endpoints accept `x-api-key`; idempotency dedupes; reviewers pass |
+| 10 | LLM JSON API (§7.2) + initial seed flow (§9) | **in progress** (apikey middleware: R1 7.5/8/9 → R2 9/9/9.5 → R3 9.5/9.5/9.7; 2 consecutive ≥9 — new issues still surfacing, countdown not yet begun) | Endpoints accept `x-api-key`; idempotency dedupes; reviewers pass |
 
 ## Round Log
 
@@ -290,3 +290,35 @@ Pushing back, not addressed:
 - Skeet's case-insensitivity test (Echo+net/http canonicalize headers; the test would exercise stdlib, not this middleware).
 - Ive's `ExampleAPIKey` godoc and panic-string voice (style polish; defer until R3 unless still flagged).
 - Skeet's "retained string" doc note (low impact; one-line addition deferred).
+
+#### Round 2 — 2026-05-02 (commit `e25b6cd`)
+
+| Persona | Score | Headline |
+|---|---|---|
+| Skeet | 9.0/10 (↑ 1.5) | Redundant `Header.Get` after `Header.Values`; case-insensitivity test still missing (push-back from R1 not addressed); `strings.Contains` on encoded JSON in pass-through fragile; `expectedBytes` retention undocumented; minor: multi-headers message style. |
+| Ive | 9.0/10 (↑ 1.0) | `APIError.Error` field collides semantically with `error` interface — rename `Code`; private `reject` helper invites duplication, export shared `WriteAPIError`; no `ExampleAPIKey` runnable godoc; `authChallenge` unexported; `APIErrorCodeMultipleKeys` (constant) vs `multiple_api_key_headers` (wire) didn't track. |
+| Beck | 9.5/10 (↑ 0.5) | Multi-headers test didn't pin precedence — needed both-values-wrong subcase; panic test asserted recovery only, message string unpinned; pass-through `strings.Contains` over-coupled to encoder formatting. |
+
+#### Round 3 — 2026-05-02 (commit `d8c74b4`)
+
+R2 fixes shipped: `values[0]` reuse, three-casing test, decode-not-substring, `expectedBytes` lifetime doc, `APIError.Error` → `Code` (json:"error" preserved), `APIErrorCodeMultipleKeyHeaders` rename, `APIKeyAuthChallenge` exported, `WriteAPIError` exported, multi-headers precedence subtests, panic-message assertion, `ExampleAPIKey` godoc.
+
+| Persona | Score | Headline |
+|---|---|---|
+| Skeet | 9.5/10 (↑ 0.5) | `ExampleAPIKey` non-runnable (no `// Output:` line so `go test` skips it); panic prefix `middleware.APIKey:` not pinned (only the inner sentinel "expected key is empty" is); minor: header-write-ordering doc nit. |
+| Ive | 9.5/10 (↑ 0.5) | Package placement: `APIError` / `WriteAPIError` / `APIErrorCode*` are an `/api/v1` response contract, not middleware mechanics — should move to `web/apierr` (or similar); type-safety: `type APIErrorCode string` would type-check `ae.Code == APIErrorCodeMissingKey` instead of stringly-typed; `ExampleAPIKey` non-runnable (same as Skeet). |
+| Beck | 9.7/10 (↑ 0.2) | One unasserted branch: `apikey.go:60` `values[0] == ""` (header present but empty) routes to `APIErrorCodeMissingKey`; the missing-header test only exercises absent header, not present-but-empty. **Beck recommends stopping further test additions on this middleware** — further tests will be padding; move TDD discipline to the next `/api/v1` handler. |
+
+17 tests pass; full suite 293 pass (was 287 in R2).
+
+**Score trajectory:** R1 7.5/8/9 → R2 9/9/9.5 → R3 9.5/9.5/9.7. All three ≥9 for 2 consecutive rounds. New issues raised in R3, so the "5 consecutive ≥9 with zero new issues" countdown has NOT begun.
+
+**Changes for Round 4** (convergent / cheap):
+- Skeet + Ive: Make `ExampleAPIKey` runnable — add `fmt.Println` + matching `// Output:`. One line.
+- Beck: Add subcase to missing-header test exercising `req.Header.Set("x-api-key", "")` to pin the present-but-empty branch.
+- Skeet: Tighten panic test to assert the prefix `middleware.APIKey:` in addition to the sentinel.
+
+**Pushed back, not addressed:**
+- Ive: package placement (`web/apierr` move) — premature; defer until a second `/api/v1` handler exists and shares the type. Single-handler abstraction is YAGNI.
+- Ive: `type APIErrorCode string` — type-safety nit; defer with package-placement decision.
+- Skeet: header-write-ordering doc — Echo buffers headers until first body byte; the current order is safe; one-line nit deferred.
