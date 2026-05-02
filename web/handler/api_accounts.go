@@ -36,6 +36,12 @@ const includeArchivedQueryParam = "include_archived"
 
 // listTimeout caps every `/api/v1` list query. 5s is generous for a
 // small household-scale dataset; tighter than the default echo timeout.
+//
+// Future `/api/v1` list endpoints should reuse this constant rather
+// than redeclaring their own. When a second consumer lands, hoisting
+// this to a shared `web/handler/api_common.go` (or a new package) is
+// a one-line move; doing so before the second consumer would be a
+// premature abstraction.
 const listTimeout = 5 * time.Second
 
 // APIAccountsList implements `GET /api/v1/accounts` per spec §7.2.
@@ -73,6 +79,10 @@ func (h *Handlers) APIAccountsList(c echo.Context) error {
 	ctx, cancel := context.WithTimeout(c.Request().Context(), listTimeout)
 	defer cancel()
 
+	// strconv.ParseBool returns an error on garbage input (e.g. "?include_archived=foo");
+	// we swallow it intentionally and fall through to the default-omit behavior. Per
+	// Postel's law for read endpoints: be liberal in what you accept. If a future round
+	// wants strict 400-on-malformed, switch to APIErrorCodeValidation here.
 	includeArchived, _ := strconv.ParseBool(c.QueryParam(includeArchivedQueryParam))
 
 	q := dbq.New(h.DB)
@@ -92,6 +102,16 @@ func (h *Handlers) APIAccountsList(c echo.Context) error {
 
 	out := make([]APIAccount, 0, len(rows))
 	for _, r := range rows {
+		// accounts.id is `uuid PRIMARY KEY` in the schema (NOT NULL by
+		// definition), so r.ID.Valid is true for any row sqlc returns.
+		// The defensive guard here exists so a future migration that
+		// somehow surfaces an invalid uuid produces a logged warning
+		// rather than a "00000000-0000-..." that quietly corrupts the
+		// LLM caller's index.
+		if !r.ID.Valid {
+			c.Logger().Warnf("api list accounts: row with invalid uuid skipped (name=%q)", r.Name)
+			continue
+		}
 		out = append(out, APIAccount{
 			ID:        uuid.UUID(r.ID.Bytes).String(),
 			Name:      r.Name,

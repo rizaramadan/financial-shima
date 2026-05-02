@@ -49,7 +49,7 @@ func assertJSONResponse(t *testing.T, rec *httptest.ResponseRecorder) {
 	}
 }
 
-func TestAPIAccountsList_NoAPIKey_Returns401(t *testing.T) {
+func TestAPIAccountsList_Returns401_NoAPIKey(t *testing.T) {
 	t.Parallel()
 	e := apiTestServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts", nil)
@@ -67,7 +67,7 @@ func TestAPIAccountsList_NoAPIKey_Returns401(t *testing.T) {
 	}
 }
 
-func TestAPIAccountsList_NilDB_Returns503ServiceUnavailable(t *testing.T) {
+func TestAPIAccountsList_Returns503ServiceUnavailable_NilDB(t *testing.T) {
 	t.Parallel()
 	e := apiTestServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts", nil)
@@ -92,20 +92,22 @@ func TestAPIAccountsList_NilDB_Returns503ServiceUnavailable(t *testing.T) {
 	}
 }
 
-// TestAPIAccountsList_QueryParam_RoundTrips pins the query-string
-// surface for `include_archived`. The handler delegates to two
-// different SQL queries based on this flag; without the test, a typo
+// TestAPIAccountsList_QueryParam_DoesNotRejectTruthyForms pins that
+// the handler's `?include_archived=` parsing accepts every form
+// `strconv.ParseBool` recognizes as truthy without rejecting the
+// request. The handler delegates to two different SQL queries based
+// on this flag; without this test, a typo in the param name
 // (`includeArchived`, `archived`, `inactive`) would silently route
 // every request to the non-archived path with no symptom.
 //
-// On nil-DB the response is 503, which doesn't exercise the SQL
-// branching; what's pinned here is that the parameter is *consumed*
-// (no `bind variable not found` error from Echo) and that the bool
-// parser accepts the spec's truthy forms without crashing.
-func TestAPIAccountsList_QueryParam_AcceptsTruthyForms(t *testing.T) {
+// On nil-DB the response is 503 regardless, so this test does *not*
+// exercise the SQL branching itself — that's deferred to integration.
+// What's pinned: the parameter is consumed (no `bind variable not
+// found` from Echo) and no truthy form is rejected with a 4xx.
+func TestAPIAccountsList_QueryParam_DoesNotRejectTruthyForms(t *testing.T) {
 	t.Parallel()
-	cases := []string{"true", "1", "yes", "t", "TRUE", ""}
-	for _, raw := range cases {
+	truthy := []string{"true", "1", "yes", "t", "TRUE"}
+	for _, raw := range truthy {
 		raw := raw
 		t.Run("include_archived="+raw, func(t *testing.T) {
 			t.Parallel()
@@ -114,12 +116,29 @@ func TestAPIAccountsList_QueryParam_AcceptsTruthyForms(t *testing.T) {
 			req.Header.Set("x-api-key", apiTestKey)
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
-			// Nil-DB path → 503 regardless of query param. What we're
-			// pinning is that the handler doesn't reject malformed
-			// truthy variants with a 4xx.
+			// Nil-DB path → 503 regardless of query param.
 			if rec.Code != http.StatusServiceUnavailable {
 				t.Errorf("status = %d, want 503 (nil-DB path); body=%q", rec.Code, rec.Body.String())
 			}
 		})
+	}
+}
+
+// TestAPIAccountsList_QueryParam_EmptyDefaultsToFalse separates the
+// empty-string case from the truthy sweep above. `strconv.ParseBool("")`
+// returns an error which the handler swallows by design (Postel's law
+// for read endpoints). Result: `includeArchived` stays false; the
+// non-archived path is selected. On nil-DB this still observes 503,
+// but the test's intent — that absent param == archived hidden — is
+// distinct from the truthy-form sweep.
+func TestAPIAccountsList_QueryParam_EmptyDefaultsToFalse(t *testing.T) {
+	t.Parallel()
+	e := apiTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts?include_archived=", nil)
+	req.Header.Set("x-api-key", apiTestKey)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503 (nil-DB path); body=%q", rec.Code, rec.Body.String())
 	}
 }
