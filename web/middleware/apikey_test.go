@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -56,16 +57,39 @@ func assertReject(t *testing.T, rec *httptest.ResponseRecorder) APIError {
 	return ae
 }
 
+// TestAPIKey_MissingHeader_RejectsWithMissingKeyCode covers both halves
+// of the godoc's "missing or empty value" disjunction:
+//   - "absent": the request carries no x-api-key header at all.
+//   - "present_but_empty": the request carries `x-api-key:` with no value.
+//
+// Both must route to [APIErrorCodeMissingKey] per the godoc on [APIKey].
 func TestAPIKey_MissingHeader_RejectsWithMissingKeyCode(t *testing.T) {
 	t.Parallel()
-	e := newAPIKeyEchoApp(t)
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/ping", nil)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
+	cases := []struct {
+		name       string
+		setHeader  bool
+		headerVal  string
+	}{
+		{"absent", false, ""},
+		{"present_but_empty", true, ""},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			e := newAPIKeyEchoApp(t)
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/ping", nil)
+			if tc.setHeader {
+				req.Header.Set("x-api-key", tc.headerVal)
+			}
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
 
-	ae := assertReject(t, rec)
-	if ae.Code != APIErrorCodeMissingKey {
-		t.Errorf("APIError.Code = %q, want %q", ae.Code, APIErrorCodeMissingKey)
+			ae := assertReject(t, rec)
+			if ae.Code != APIErrorCodeMissingKey {
+				t.Errorf("APIError.Code = %q, want %q", ae.Code, APIErrorCodeMissingKey)
+			}
+		})
 	}
 }
 
@@ -181,16 +205,23 @@ func TestAPIKey_PanicsOnEmptyConfiguredKey(t *testing.T) {
 		if r == nil {
 			t.Fatal("expected panic when constructing APIKey(\"\"), got none")
 		}
-		// Pin the message: the panic is a deploy-time signal; if a future
-		// refactor swaps it for a generic "panic" or panic(nil) the operator
-		// loses the diagnostic.
+		// Pin two halves of the deploy-time signal: the package/function
+		// prefix (so a rename surfaces in this test) and the inner
+		// sentinel (so a generic panic message swap surfaces too). If a
+		// future refactor breaks either, the operator still gets a
+		// diagnostic that names the problem.
 		s, ok := r.(string)
 		if !ok {
 			t.Errorf("panic value type = %T, want string", r)
 			return
 		}
-		if !strings.Contains(s, "expected key is empty") {
-			t.Errorf("panic message = %q, want it to contain %q", s, "expected key is empty")
+		const wantPrefix = "middleware.APIKey:"
+		const wantInner = "expected key is empty"
+		if !strings.HasPrefix(s, wantPrefix) {
+			t.Errorf("panic message = %q, want prefix %q", s, wantPrefix)
+		}
+		if !strings.Contains(s, wantInner) {
+			t.Errorf("panic message = %q, want it to contain %q", s, wantInner)
 		}
 	}()
 	APIKey("")
@@ -237,6 +268,10 @@ func TestAPIKey_RejectsMismatch(t *testing.T) {
 
 // ExampleAPIKey shows the canonical wiring: read the secret from an
 // environment variable, then mount the middleware on the API route group.
+//
+// The trailing fmt.Println + // Output: lets `go test` execute this
+// example so the documented snippet stays in sync with the package's
+// real surface (echo.Group, APIKey, etc.).
 func ExampleAPIKey() {
 	e := echo.New()
 	apiKey := "your-shared-secret-from-env" // os.Getenv("LLM_API_KEY") in production
@@ -246,4 +281,6 @@ func ExampleAPIKey() {
 	})
 	// Run with: e.Start(":8080")
 	// Test with: curl -H "x-api-key: your-shared-secret-from-env" http://localhost:8080/api/v1/health
+	fmt.Println("middleware mounted")
+	// Output: middleware mounted
 }
