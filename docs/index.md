@@ -171,37 +171,55 @@ updates server-side on the next page load.
 
 ---
 
-## LLM API (S23–S26) — current state
+## LLM API (S23–S26) — operator seed flow
 
-`web/middleware/APIKey` enforces `x-api-key` per spec §7.2 with
+Per spec §7.2 / S23, the LLM (or any operator with the `LLM_API_KEY`)
+drives initial setup and ongoing transaction logging through these
+JSON endpoints. The agent never touches the DB directly.
+
+`web/middleware/APIKey` gates everything below `/api/v1/*` with
 constant-time comparison; missing or invalid keys return `401` with
 `{"error": "missing_api_key" | "invalid_api_key", "message": "…"}`.
-`GET /api/v1/accounts` is wired with `?include_archived=true`
-support.
 
-POST endpoints (`/accounts`, `/pos`, `/transactions`),
-`GET /api/v1/transactions`, and
-`POST /api/v1/transactions/:id/reverse` are not yet implemented; see
-`docs/spec/0001-mvp-progress.md` for Phase-10 status.
+| Endpoint | Spec | Behavior |
+|---|---|---|
+| `GET /api/v1/accounts[?include_archived=true]` | S23 | Bare JSON array, ordered by name. |
+| `POST /api/v1/accounts` | S23 | `{"name":"BCA Riza"}` → 201 `APIAccount`. Empty name → 400. |
+| `POST /api/v1/pos` | S23 | `{"name","currency","target?"}` → 201 `APIPos`. UNIQUE (name, currency) → **409 conflict** (not 500). |
+| `POST /api/v1/counterparties` | S23 / §4.4 | `{"name"}` → 201; **case-insensitive idempotent** — re-POSTing any casing of the same name returns the original row with original casing preserved. |
+| `POST /api/v1/transactions` | S24 | `money_in` / `money_out`. Resolves account, pos, counterparty (id or name); validates per §5.1; atomic insert + notifications via `dependencies/ledger`. **Idempotent on `idempotency_key`** — duplicate POSTs return `was_inserted: false` and don't fire duplicate notifications (§10.8). |
+
+**Not yet implemented:** `GET /api/v1/transactions` (list / filter),
+`POST /api/v1/transactions/:id/reverse`, and any inter_pos surface
+(Phase 7 schema work). See `docs/spec/0001-mvp-progress.md` for the
+Phase-10 trajectory.
+
+**Verification:** `scripts/e2e_api.go` walks all four POST endpoints
+end-to-end against real Postgres in 20 steps — auth gate, happy path
++ DB row verify, validation rejections, FK lookup failures,
+idempotency consistency, read/write coherence. Re-run any time:
+
+```bash
+DATABASE_URL=… LLM_API_KEY=… go run ./scripts/e2e_api.go
+```
 
 ---
 
 ## Open gaps
 
-These scenarios in `0002-mvp-user-scenarios.md` aren't yet shippable
-through the UI; their backing logic is in place but the entry surface
-is pending.
+These scenarios in `0002-mvp-user-scenarios.md` aren't yet shippable;
+their backing logic is in place but the entry surface is pending.
 
 | Scenarios | Missing surface |
 |---|---|
-| S5, S6 | New-transaction form (money_in / money_out) |
-| S7 | Counterparty autocomplete + inline create |
-| S8, S9, S10 | Inter-Pos transfer / borrow / repayment forms |
-| S11, S12 | Multi-currency variants of the above |
-| S13, S14, S15 | Edit / reverse-and-re-enter / delete affordances |
-| S16 | Multi-select filters (account / Pos / counterparty / type) — only date range works today |
-| S17 | Receivables / Payables per Pos row on `/home` (Pos detail has them) |
-| S23, S24, S25 | POST `/api/v1/{accounts,pos,transactions}` + GET list + reverse |
+| S5, S6 | New-transaction form (web). API path works via `POST /api/v1/transactions`. |
+| S7 | Counterparty autocomplete UI. API auto-creates by name. |
+| S8, S9, S10 | Inter-Pos transfer / borrow / repayment surface (web + API). Phase-7 schema work pending. |
+| S11, S12 | Multi-currency inter-Pos. |
+| S13, S14, S15 | Edit / reverse-and-re-enter / delete affordances. |
+| S16 | Multi-select filters (account / Pos / counterparty / type) — only date range works today. |
+| S17 | Receivables / Payables per Pos row on `/home` (Pos detail has them). |
+| S25 | `GET /api/v1/transactions` (list with filters), `POST /api/v1/transactions/:id/reverse`. |
 
 ## Reproducing locally
 
