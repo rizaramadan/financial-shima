@@ -65,11 +65,42 @@ func (q *Queries) GetPos(ctx context.Context, id pgtype.UUID) (Po, error) {
 }
 
 const listPos = `-- name: ListPos :many
-SELECT id, name, currency, target, archived, created_at FROM pos WHERE NOT archived ORDER BY currency, name
+SELECT id, name, currency, target, archived, created_at FROM pos WHERE NOT archived ORDER BY currency, name, id
 `
 
 func (q *Queries) ListPos(ctx context.Context) ([]Po, error) {
 	rows, err := q.db.Query(ctx, listPos)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Po
+	for rows.Next() {
+		var i Po
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Currency,
+			&i.Target,
+			&i.Archived,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPosIncludingArchived = `-- name: ListPosIncludingArchived :many
+SELECT id, name, currency, target, archived, created_at FROM pos ORDER BY currency, name, id
+`
+
+func (q *Queries) ListPosIncludingArchived(ctx context.Context) ([]Po, error) {
+	rows, err := q.db.Query(ctx, listPosIncludingArchived)
 	if err != nil {
 		return nil, err
 	}

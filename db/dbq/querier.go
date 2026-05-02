@@ -53,6 +53,7 @@ type Querier interface {
 	// Pos.payables on the detail view per spec §4.2.
 	ListObligationsForPos(ctx context.Context, creditorPosID pgtype.UUID) ([]PosObligation, error)
 	ListPos(ctx context.Context) ([]Po, error)
+	ListPosIncludingArchived(ctx context.Context) ([]Po, error)
 	ListTransactionsByAccount(ctx context.Context, accountID pgtype.UUID) ([]Transaction, error)
 	// Joined view for the §6.1 list: account.name, pos.name + currency,
 	// counterparty.name. LEFT JOINs because Phase 7+ inter_pos rows have
@@ -73,6 +74,13 @@ type Querier interface {
 	// LEFT JOIN keeps zero-balance accounts in the result so the home view's
 	// list of accounts matches ListAccounts row-for-row.
 	SumAccountBalances(ctx context.Context) ([]SumAccountBalancesRow, error)
+	// §10.5 reconciliation surface. Per pos currency C, sums the signed
+	// account_amount of every money_in/_out where pos.currency = C. The
+	// IDR row is the canonical "Σ(Account flows) == Σ(IDR Pos.cash)"
+	// invariant. Non-IDR rows expose the historical IDR cost of funding
+	// a non-IDR pos (account-side outlay) and are NOT directly comparable
+	// to the pos-side total.
+	SumAccountBalancesByPosCurrency(ctx context.Context) ([]SumAccountBalancesByPosCurrencyRow, error)
 	// Total of all lines on the template — used to validate that the
 	// incoming amount meets or exceeds the template's required allocation.
 	SumIncomeTemplateLines(ctx context.Context, templateID pgtype.UUID) (int64, error)

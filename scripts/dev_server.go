@@ -144,8 +144,31 @@ func main() {
 		return c.String(http.StatusNotFound, "no OTP recorded")
 	})
 
+	// /api/v1 group — same set as cmd/server. Test scripts hit these
+	// for the read endpoints. The middleware panics if the env key is
+	// empty, so we default to a non-empty test value when LLM_API_KEY
+	// is unset.
+	apiKey := os.Getenv("LLM_API_KEY")
+	if apiKey == "" {
+		apiKey = "test-api-key-for-e2e"
+	}
+	api := e.Group("/api/v1", mw.APIKey(apiKey))
+	api.GET("/accounts", h.APIAccountsList)
+	api.POST("/accounts", h.APIAccountsCreate)
+	api.GET("/pos", h.APIPosList)
+	api.POST("/pos", h.APIPosCreate)
+	api.GET("/counterparties", h.APICounterpartiesList)
+	api.POST("/counterparties", h.APICounterpartiesCreate)
+	api.GET("/transactions", h.APITransactionsList)
+	api.POST("/transactions", h.APITransactionsCreate)
+	api.GET("/balances", h.APIBalancesGet)
+	api.GET("/income-templates", h.APIIncomeTemplatesList)
+	api.POST("/income-templates", h.APIIncomeTemplatesCreate)
+	api.POST("/income-templates/:id/apply", h.APIIncomeTemplateApply)
+
 	fmt.Println("dev_server listening on", addr)
 	fmt.Println("  /dev/last-otp?identifier=@riza_ramadan  → bare 6-digit code")
+	fmt.Println("  /api/v1/* with x-api-key:", apiKey)
 	if err := e.Start(addr); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("listen: %v", err)
 	}
