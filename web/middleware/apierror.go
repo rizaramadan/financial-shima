@@ -25,6 +25,18 @@ const (
 	APIErrorCodeMultipleKeyHeaders = "multiple_api_key_headers"
 )
 
+// Generic error codes for `/api/v1` handler responses. Defined here so
+// every handler in the family pulls from one source — the alternative
+// (each handler inventing its own string at the call site) drifts the
+// contract within a few endpoints.
+const (
+	APIErrorCodeInternal           = "internal_error"
+	APIErrorCodeServiceUnavailable = "service_unavailable"
+	APIErrorCodeValidation         = "validation_failed"
+	APIErrorCodeNotFound           = "not_found"
+	APIErrorCodeConflict           = "conflict"
+)
+
 // WriteAPIError writes a JSON error response with the given status,
 // code, and message, using the [APIError] body shape. Future `/api/v1`
 // handlers should call this for every non-success response so the
