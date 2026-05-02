@@ -66,9 +66,9 @@ func assertReject(t *testing.T, rec *httptest.ResponseRecorder) APIError {
 func TestAPIKey_MissingHeader_RejectsWithMissingKeyCode(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name       string
-		setHeader  bool
-		headerVal  string
+		name      string
+		setHeader bool
+		headerVal string
 	}{
 		{"absent", false, ""},
 		{"present_but_empty", true, ""},
@@ -268,19 +268,20 @@ func TestAPIKey_RejectsMismatch(t *testing.T) {
 
 // ExampleAPIKey shows the canonical wiring: read the secret from an
 // environment variable, then mount the middleware on the API route group.
+// In production, set apiKey from os.Getenv("LLM_API_KEY").
 //
-// The trailing fmt.Println + // Output: lets `go test` execute this
-// example so the documented snippet stays in sync with the package's
-// real surface (echo.Group, APIKey, etc.).
+// The trailing fmt.Println + // Output: makes this example executable
+// under `go test`, so the documented snippet stays in sync with the
+// package's real surface (echo.Group, APIKey, etc.).
 func ExampleAPIKey() {
 	e := echo.New()
-	apiKey := "your-shared-secret-from-env" // os.Getenv("LLM_API_KEY") in production
+	apiKey := "your-shared-secret-from-env"
 	apiV1 := e.Group("/api/v1", APIKey(apiKey))
 	apiV1.GET("/health", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 	})
-	// Run with: e.Start(":8080")
-	// Test with: curl -H "x-api-key: your-shared-secret-from-env" http://localhost:8080/api/v1/health
+	// Start with: e.Start(":8080")
+	// Call with:  curl -H "x-api-key: your-shared-secret-from-env" http://localhost:8080/api/v1/health
 	fmt.Println("middleware mounted")
 	// Output: middleware mounted
 }
