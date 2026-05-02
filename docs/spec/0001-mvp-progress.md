@@ -15,7 +15,7 @@ Tracks delivery against `0001-mvp.md`. Phases are minimal end-to-end slices, not
 | 7 | Pos balance computation (§4.2: cash, receivables, payables) | **implementation complete (cash only)** | logic/balance: pure State + Apply for MoneyIn / MoneyOut / InterPos events, overflow-safe addSafe/subSafe, IDR-Pos amount-equality enforced (§5.1), inter_pos lines self-reconcile per currency (§10.6) before mutating. Property test §10.5: 50 seeds × 200 random events asserts Σ(Account) = Σ(Pos.cash IDR) after EVERY event. Property test §10.6: 50 generated unreconciled inter_pos events all rejected. Receivables/payables (borrow obligations) deferred to Phase 8. Review loop deferred. |
 | 8 | Borrow obligation + repayment matching (§4.3 borrow mode, §10.7) | **implementation complete (same-currency)** | logic/obligation: pure GenerateForBorrow (M×N obligations, prorated by creditor share, last-creditor absorbs rounding so per-debtor sum is exact) + Match (FIFO by stable input order, partial/full clearing, overpayment spawns reverse obligation — the "kid's school cash short after gold drop" case from §4.3). Migration 0003 adds pos_obligation table with CHECK enforcing §10.7 (cleared_at iff repaid >= owed) at the storage layer. Property test asserts every Updates/NewObligations row passes Validate(). Cross-currency borrow returns ErrCrossCurrencyBorrow — needs FX rate input not yet specified. Review loop deferred. |
 | 9 | Web UI: views (§6.1–6.5) | **all stages done** | A: §6.2 Home + nav. B: §6.5 Notifications feed + bell badge. C: server-rendered bell. D: §6.1 Transactions list (date-range filter, reversal badge). E: §6.3 Pos detail (name/currency/target, receivables/payables from open pos_obligation, open obligations table, scoped txn list). F: §6.4 Spending — months × top-N Pos pivot via `SumMoneyOutByPosMonth` aggregation; default last 6 months × top 5 Pos by money_out volume; Pos column headers link to /pos/:id, row totals + Pos totals foot row, empty-state when no money_out in range. Home page nav links {Transactions, Spending, Notifications}. 4 unit tests pin: unauth, nil-pool empty-state, query-param round-trip, invalid-date fallback. |
-| 10 | LLM JSON API (§7.2) + initial seed flow (§9) | **in progress** (apikey middleware: R1 7.5/8/9 → R2 9/9/9.5 → R3 9.5/9.5/9.7; 2 consecutive ≥9 — new issues still surfacing, countdown not yet begun) | Endpoints accept `x-api-key`; idempotency dedupes; reviewers pass |
+| 10 | LLM JSON API (§7.2) + initial seed flow (§9) | **in progress** (apikey middleware: R1 7.5/8/9 → R2 9/9/9.5 → R3 9.5/9.5/9.7 → R4 9.7/9.6/9.8; Beck declared zero-new at R4; R5 polish shipped, reviews pending. Then route registration + endpoint handlers.) | Endpoints accept `x-api-key`; idempotency dedupes; reviewers pass |
 
 ## Round Log
 
@@ -322,3 +322,25 @@ R2 fixes shipped: `values[0]` reuse, three-casing test, decode-not-substring, `e
 - Ive: package placement (`web/apierr` move) — premature; defer until a second `/api/v1` handler exists and shares the type. Single-handler abstraction is YAGNI.
 - Ive: `type APIErrorCode string` — type-safety nit; defer with package-placement decision.
 - Skeet: header-write-ordering doc — Echo buffers headers until first body byte; the current order is safe; one-line nit deferred.
+
+#### Round 4 — 2026-05-02 (commit `bf0f81f`)
+
+R3 fixes shipped: missing-header split into `absent` / `present_but_empty` subtests; panic test pins both `middleware.APIKey:` prefix and `expected key is empty` sentinel; `ExampleAPIKey` made runnable with `fmt.Println` + `// Output:`.
+
+| Persona | Score | Headline |
+|---|---|---|
+| Skeet | 9.7/10 (↑ 0.2) | Carried: header-write-ordering doc nit on `reject` (deferred). New: gofmt flagged column alignment in the new subtest struct literal. |
+| Ive | 9.6/10 (↑ 0.1) | Carried (deferred): package placement + `type APIErrorCode string`. New: trailing inline comment on the example's `apiKey` assignment reads cleaner as a doc-comment line. |
+| Beck | 9.8/10 (↑ 0.1) | **Zero new issues.** "This middleware is done — every observable behavior the godoc promises is asserted, and further additions would be padding." |
+
+20 tests pass; full suite 296 pass.
+
+#### Round 5 — 2026-05-02 (commit `570c4ca`, reviews pending next fire)
+
+R4 polish shipped:
+- Skeet: `gofmt -w` realigned the missing-header subtest struct literal.
+- Ive: lifted the `os.Getenv` hint out of an inline trailing comment into the `ExampleAPIKey` doc-comment; tightened the curl/start lines.
+
+20 tests still pass; full suite still 296. R5 reviews will run on the next fire.
+
+**Score trajectory:** R1 7.5/8/9 → R2 9/9/9.5 → R3 9.5/9.5/9.7 → R4 9.7/9.6/9.8. All ≥9 for 3 consecutive rounds. Beck declared zero-new at R4 — the first review at the asymptote. Skeet/Ive raised tiny new style nits at R4 (now addressed in R5). If R5 reviews come back ≥9 with zero new issues from all three, that's round 1 of the 5-consecutive countdown for early exit.
