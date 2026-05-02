@@ -27,11 +27,9 @@ const apiIntegrationKey = "integration-test-key-not-for-prod"
 
 // setupAPIIntegrationHandler builds a real-DB handler. Skips the test
 // if DATABASE_URL is unset (matches the home_integration_test.go
-// pattern). Returns the handler and the pool so the caller can both
-// run requests AND seed/inspect rows directly.
-//
-// The caller is responsible for `pool.Close()` (some tests want to
-// close it early to force errors).
+// pattern). Registers pool.Close via t.Cleanup — callers do not need
+// defer pool.Close(). Tests that force a DB error by closing the pool
+// early can still do so; the t.Cleanup close is a no-op on pgxpool.Pool.
 func setupAPIIntegrationHandler(t *testing.T) (*handler.Handlers, *pgxpool.Pool) {
 	t.Helper()
 	url := os.Getenv("DATABASE_URL")
@@ -44,6 +42,7 @@ func setupAPIIntegrationHandler(t *testing.T) (*handler.Handlers, *pgxpool.Pool)
 	if err != nil {
 		t.Fatalf("pool: %v", err)
 	}
+	t.Cleanup(pool.Close)
 	a := auth.New(user.Seeded(), clock.System{},
 		strings.NewReader("                "),
 		idgen.Fixed{Value: "x"})
@@ -59,24 +58,40 @@ func newAPIIntegrationEcho(t *testing.T, h *handler.Handlers) *echo.Echo {
 	return e
 }
 
+// assertAPIJSON pins the Content-Type on an API response. Defined here
+// because assertJSONResponse in api_accounts_test.go is in package
+// handler (internal test package), not accessible from package handler_test.
+func assertAPIJSON(t *testing.T, rec *httptest.ResponseRecorder) {
+	t.Helper()
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("Content-Type = %q, want application/json prefix", ct)
+	}
+}
+
 // TestIntegration_APIAccountsList_ReturnsRowFromDB exercises the happy
 // path against a real Postgres. Verifies:
 //   - The wired pool is actually read (vs. nil-DB or stub).
 //   - The seeded row is in the response.
-//   - Per-row JSON shape matches APIAccount: id is a parseable UUID,
-//     archived is bool, created_at is RFC3339 and recent.
+//   - Response body is a JSON array ([] not null) — guards against
+//     a var-declaration regression that would flip the wire format.
+//   - Per-row JSON shape: id parses as UUID, archived is bool,
+//     created_at is recent.
 func TestIntegration_APIAccountsList_ReturnsRowFromDB(t *testing.T) {
 	h, pool := setupAPIIntegrationHandler(t)
-	defer pool.Close()
 
-	// Insert a uniquely-named account so we can find it amid whatever
-	// the seed leaves around.
 	stamp := uuid.NewString()[:8]
 	acctName := "Integ-Test " + stamp
-	if _, err := pool.Exec(context.Background(),
+	insertCtx, insertCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer insertCancel()
+	if _, err := pool.Exec(insertCtx,
 		`INSERT INTO accounts (name) VALUES ($1)`, acctName); err != nil {
 		t.Fatalf("insert account: %v", err)
 	}
+	t.Cleanup(func() {
+		cleanCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = pool.Exec(cleanCtx, `DELETE FROM accounts WHERE name = $1`, acctName)
+	})
 
 	e := newAPIIntegrationEcho(t, h)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts", nil)
@@ -87,10 +102,22 @@ func TestIntegration_APIAccountsList_ReturnsRowFromDB(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%q", rec.Code, rec.Body.String())
 	}
+	assertAPIJSON(t, rec)
+
+	// Response must be a JSON array, never null — pins the make([]APIAccount, 0, ...)
+	// contract stated in the handler godoc.
+	body := rec.Body.Bytes()
+	if len(body) == 0 || body[0] != '[' {
+		prefix := body
+		if len(prefix) > 20 {
+			prefix = prefix[:20]
+		}
+		t.Errorf("response body is not a JSON array; got prefix %q", prefix)
+	}
 
 	var accounts []handler.APIAccount
-	if err := json.Unmarshal(rec.Body.Bytes(), &accounts); err != nil {
-		t.Fatalf("unmarshal: %v; body=%q", err, rec.Body.String())
+	if err := json.Unmarshal(body, &accounts); err != nil {
+		t.Fatalf("unmarshal: %v; body=%q", err, body)
 	}
 
 	var found *handler.APIAccount
@@ -123,14 +150,20 @@ func TestIntegration_APIAccountsList_ReturnsRowFromDB(t *testing.T) {
 //   - The row's Archived field is correctly serialized as true.
 func TestIntegration_APIAccountsList_ArchivedFilter(t *testing.T) {
 	h, pool := setupAPIIntegrationHandler(t)
-	defer pool.Close()
 
 	stamp := uuid.NewString()[:8]
 	archName := "Arch-Integ " + stamp
-	if _, err := pool.Exec(context.Background(),
+	insertCtx, insertCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer insertCancel()
+	if _, err := pool.Exec(insertCtx,
 		`INSERT INTO accounts (name, archived) VALUES ($1, true)`, archName); err != nil {
 		t.Fatalf("insert archived: %v", err)
 	}
+	t.Cleanup(func() {
+		cleanCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = pool.Exec(cleanCtx, `DELETE FROM accounts WHERE name = $1`, archName)
+	})
 
 	e := newAPIIntegrationEcho(t, h)
 
@@ -142,6 +175,7 @@ func TestIntegration_APIAccountsList_ArchivedFilter(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("default status = %d, want 200", rec.Code)
 	}
+	assertAPIJSON(t, rec)
 	var defaultRows []handler.APIAccount
 	if err := json.Unmarshal(rec.Body.Bytes(), &defaultRows); err != nil {
 		t.Fatalf("unmarshal default: %v", err)
@@ -160,6 +194,7 @@ func TestIntegration_APIAccountsList_ArchivedFilter(t *testing.T) {
 	if recArch.Code != http.StatusOK {
 		t.Fatalf("include_archived status = %d, want 200", recArch.Code)
 	}
+	assertAPIJSON(t, recArch)
 	var archRows []handler.APIAccount
 	if err := json.Unmarshal(recArch.Body.Bytes(), &archRows); err != nil {
 		t.Fatalf("unmarshal arch: %v", err)
@@ -180,35 +215,46 @@ func TestIntegration_APIAccountsList_ArchivedFilter(t *testing.T) {
 }
 
 // TestIntegration_APIAccountsList_DBError_Returns500 forces a DB error
-// by closing the pool before the request, then verifies the error path:
+// by closing the pool before the request, then verifies both query
+// branches (default and include_archived=true):
 //   - Status 500.
-//   - Body decodes to APIError.
-//   - Code is APIErrorCodeInternal.
-//   - Message does NOT leak internal detail (no "pool", "sql", "closed").
+//   - Body decodes to APIError with code APIErrorCodeInternal.
+//   - Message is exactly "failed to list accounts" — allowlist, not a
+//     denylist, so any leak or wording drift fails immediately.
 func TestIntegration_APIAccountsList_DBError_Returns500(t *testing.T) {
-	h, pool := setupAPIIntegrationHandler(t)
-	pool.Close() // close immediately — subsequent queries fail.
+	for _, tc := range []struct {
+		name string
+		url  string
+	}{
+		{"default_branch", "/api/v1/accounts"},
+		{"archived_branch", "/api/v1/accounts?include_archived=true"},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			h, pool := setupAPIIntegrationHandler(t)
+			pool.Close() // force error; t.Cleanup close is a no-op on pgxpool.Pool.
 
-	e := newAPIIntegrationEcho(t, h)
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts", nil)
-	req.Header.Set("x-api-key", apiIntegrationKey)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
+			e := newAPIIntegrationEcho(t, h)
+			req := httptest.NewRequest(http.MethodGet, tc.url, nil)
+			req.Header.Set("x-api-key", apiIntegrationKey)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500; body=%q", rec.Code, rec.Body.String())
-	}
-	var ae mw.APIError
-	if err := json.Unmarshal(rec.Body.Bytes(), &ae); err != nil {
-		t.Fatalf("unmarshal APIError: %v; body=%q", err, rec.Body.String())
-	}
-	if ae.Code != mw.APIErrorCodeInternal {
-		t.Errorf("APIError.Code = %q, want %q", ae.Code, mw.APIErrorCodeInternal)
-	}
-	// Message must not leak internals (pool state, SQL errors, etc.).
-	for _, leaked := range []string{"pool", "sql", "closed"} {
-		if strings.Contains(strings.ToLower(ae.Message), leaked) {
-			t.Errorf("APIError.Message leaks %q: %q", leaked, ae.Message)
-		}
+			if rec.Code != http.StatusInternalServerError {
+				t.Fatalf("status = %d, want 500; body=%q", rec.Code, rec.Body.String())
+			}
+			assertAPIJSON(t, rec)
+			var ae mw.APIError
+			if err := json.Unmarshal(rec.Body.Bytes(), &ae); err != nil {
+				t.Fatalf("unmarshal APIError: %v; body=%q", err, rec.Body.String())
+			}
+			if ae.Code != mw.APIErrorCodeInternal {
+				t.Errorf("APIError.Code = %q, want %q", ae.Code, mw.APIErrorCodeInternal)
+			}
+			const wantMsg = "failed to list accounts"
+			if ae.Message != wantMsg {
+				t.Errorf("APIError.Message = %q, want %q", ae.Message, wantMsg)
+			}
+		})
 	}
 }
