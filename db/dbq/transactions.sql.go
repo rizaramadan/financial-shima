@@ -526,6 +526,51 @@ func (q *Queries) SumAccountBalances(ctx context.Context) ([]SumAccountBalancesR
 	return items, nil
 }
 
+const sumAccountBalancesByPosCurrency = `-- name: SumAccountBalancesByPosCurrency :many
+SELECT
+    p.currency,
+    COALESCE(SUM(CASE
+        WHEN t.type = 'money_in'  THEN t.account_amount
+        WHEN t.type = 'money_out' THEN -t.account_amount
+        ELSE 0
+    END), 0)::bigint AS total
+FROM transactions t
+JOIN pos p ON p.id = t.pos_id
+WHERE t.type IN ('money_in', 'money_out')
+GROUP BY p.currency
+`
+
+type SumAccountBalancesByPosCurrencyRow struct {
+	Currency string
+	Total    int64
+}
+
+// §10.5 reconciliation surface. Per pos currency C, sums the signed
+// account_amount of every money_in/_out where pos.currency = C. The
+// IDR row is the canonical "Σ(Account flows) == Σ(IDR Pos.cash)"
+// invariant. Non-IDR rows expose the historical IDR cost of funding
+// a non-IDR pos (account-side outlay) and are NOT directly comparable
+// to the pos-side total.
+func (q *Queries) SumAccountBalancesByPosCurrency(ctx context.Context) ([]SumAccountBalancesByPosCurrencyRow, error) {
+	rows, err := q.db.Query(ctx, sumAccountBalancesByPosCurrency)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SumAccountBalancesByPosCurrencyRow
+	for rows.Next() {
+		var i SumAccountBalancesByPosCurrencyRow
+		if err := rows.Scan(&i.Currency, &i.Total); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const sumMoneyOutByPosMonth = `-- name: SumMoneyOutByPosMonth :many
 SELECT
     p.id        AS pos_id,

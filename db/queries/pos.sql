@@ -7,7 +7,10 @@ RETURNING *;
 SELECT * FROM pos WHERE id = $1;
 
 -- name: ListPos :many
-SELECT * FROM pos WHERE NOT archived ORDER BY currency, name;
+SELECT * FROM pos WHERE NOT archived ORDER BY currency, name, id;
+
+-- name: ListPosIncludingArchived :many
+SELECT * FROM pos ORDER BY currency, name, id;
 
 -- name: ArchivePos :exec
 UPDATE pos SET archived = true WHERE id = $1;

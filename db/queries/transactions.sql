@@ -78,6 +78,25 @@ LEFT JOIN transactions t ON t.account_id = a.id
 WHERE NOT a.archived
 GROUP BY a.id;
 
+-- name: SumAccountBalancesByPosCurrency :many
+-- §10.5 reconciliation surface. Per pos currency C, sums the signed
+-- account_amount of every money_in/_out where pos.currency = C. The
+-- IDR row is the canonical "Σ(Account flows) == Σ(IDR Pos.cash)"
+-- invariant. Non-IDR rows expose the historical IDR cost of funding
+-- a non-IDR pos (account-side outlay) and are NOT directly comparable
+-- to the pos-side total.
+SELECT
+    p.currency,
+    COALESCE(SUM(CASE
+        WHEN t.type = 'money_in'  THEN t.account_amount
+        WHEN t.type = 'money_out' THEN -t.account_amount
+        ELSE 0
+    END), 0)::bigint AS total
+FROM transactions t
+JOIN pos p ON p.id = t.pos_id
+WHERE t.type IN ('money_in', 'money_out')
+GROUP BY p.currency;
+
 -- name: SumPosCashBalances :many
 -- Per-pos cash balance: signed sum of money_in / money_out pos_amount per
 -- (pos_id, currency). inter_pos lines are not yet wired (Phase 7+) so they
