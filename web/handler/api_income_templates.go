@@ -72,7 +72,7 @@ type applyIncomeTemplateRequest struct {
 func (h *Handlers) APIIncomeTemplatesList(c echo.Context) error {
 	if h.DB == nil {
 		return mw.WriteAPIError(c, http.StatusServiceUnavailable,
-			mw.APIErrorCodeServiceUnavailable,
+			"FS-0100", mw.APIErrorCodeServiceUnavailable,
 			"data layer not configured (DATABASE_URL unset)")
 	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
@@ -80,9 +80,9 @@ func (h *Handlers) APIIncomeTemplatesList(c echo.Context) error {
 	q := dbq.New(h.DB)
 	rows, err := q.ListIncomeTemplates(ctx)
 	if err != nil {
-		c.Logger().Errorf("api list income-templates: %v", err)
+		mw.LogError(c, "FS-0101", "api list income-templates: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to list income templates")
+			"FS-0101", mw.APIErrorCodeInternal, "failed to list income templates")
 	}
 	out := make([]APIIncomeTemplate, 0, len(rows))
 	for _, r := range rows {
@@ -98,7 +98,7 @@ func (h *Handlers) APIIncomeTemplatesList(c echo.Context) error {
 		}
 		lineRows, err := q.ListIncomeTemplateLines(ctx, r.ID)
 		if err != nil {
-			c.Logger().Errorf("list lines for %s: %v", t.ID, err)
+			mw.LogError(c, "FS-0102", "list lines for %s: %v", t.ID, err)
 		} else {
 			for _, l := range lineRows {
 				t.Lines = append(t.Lines, APIIncomeTemplateLine{
@@ -124,34 +124,34 @@ func (h *Handlers) APIIncomeTemplatesList(c echo.Context) error {
 func (h *Handlers) APIIncomeTemplatesCreate(c echo.Context) error {
 	if h.DB == nil {
 		return mw.WriteAPIError(c, http.StatusServiceUnavailable,
-			mw.APIErrorCodeServiceUnavailable,
+			"FS-0110", mw.APIErrorCodeServiceUnavailable,
 			"data layer not configured (DATABASE_URL unset)")
 	}
 
 	var req createIncomeTemplateRequest
 	if err := decodeJSONStrict(c.Request().Body, &req); err != nil {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, "invalid JSON body: "+err.Error())
+			"FS-0111", mw.APIErrorCodeValidation, "invalid JSON body: "+err.Error())
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, "name is required")
+			"FS-0112", mw.APIErrorCodeValidation, "name is required")
 	}
 	if len(req.Lines) == 0 {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation,
+			"FS-0113", mw.APIErrorCodeValidation,
 			"at least one line is required")
 	}
 	for i, l := range req.Lines {
 		if l.Amount <= 0 {
 			return mw.WriteAPIError(c, http.StatusBadRequest,
-				mw.APIErrorCodeValidation,
+				"FS-0114", mw.APIErrorCodeValidation,
 				"line "+itoa(i+1)+": amount must be positive")
 		}
 		if _, err := uuid.Parse(l.PosID); err != nil {
 			return mw.WriteAPIError(c, http.StatusBadRequest,
-				mw.APIErrorCodeValidation,
+				"FS-0115", mw.APIErrorCodeValidation,
 				"line "+itoa(i+1)+": pos_id must be a valid UUID")
 		}
 	}
@@ -161,7 +161,7 @@ func (h *Handlers) APIIncomeTemplatesCreate(c echo.Context) error {
 		id, err := uuid.Parse(req.LeftoverPosID)
 		if err != nil {
 			return mw.WriteAPIError(c, http.StatusBadRequest,
-				mw.APIErrorCodeValidation, "leftover_pos_id must be a valid UUID")
+				"FS-0116", mw.APIErrorCodeValidation, "leftover_pos_id must be a valid UUID")
 		}
 		leftoverParam = pgtype.UUID{Bytes: id, Valid: true}
 	}
@@ -171,9 +171,9 @@ func (h *Handlers) APIIncomeTemplatesCreate(c echo.Context) error {
 
 	tx, err := h.DB.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
-		c.Logger().Errorf("begin tx: %v", err)
+		mw.LogError(c, "FS-0117", "begin tx: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "could not start transaction")
+			"FS-0117", mw.APIErrorCodeInternal, "could not start transaction")
 	}
 	committed := false
 	defer func() {
@@ -191,12 +191,12 @@ func (h *Handlers) APIIncomeTemplatesCreate(c echo.Context) error {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return mw.WriteAPIError(c, http.StatusConflict,
-				mw.APIErrorCodeConflict,
+				"FS-0118", mw.APIErrorCodeConflict,
 				"an income template with that name already exists")
 		}
-		c.Logger().Errorf("api create income-template: %v", err)
+		mw.LogError(c, "FS-0119", "api create income-template: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to create income template")
+			"FS-0119", mw.APIErrorCodeInternal, "failed to create income template")
 	}
 
 	out := APIIncomeTemplate{
@@ -222,12 +222,12 @@ func (h *Handlers) APIIncomeTemplatesCreate(c echo.Context) error {
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 				return mw.WriteAPIError(c, http.StatusConflict,
-					mw.APIErrorCodeConflict,
+					"FS-0120", mw.APIErrorCodeConflict,
 					"duplicate Pos in template lines")
 			}
-			c.Logger().Errorf("add line: %v", err)
+			mw.LogError(c, "FS-0121", "add line: %v", err)
 			return mw.WriteAPIError(c, http.StatusInternalServerError,
-				mw.APIErrorCodeInternal, "failed to add template line")
+				"FS-0121", mw.APIErrorCodeInternal, "failed to add template line")
 		}
 		out.Lines = append(out.Lines, APIIncomeTemplateLine{
 			ID:        uuid.UUID(row.ID.Bytes).String(),
@@ -239,9 +239,9 @@ func (h *Handlers) APIIncomeTemplatesCreate(c echo.Context) error {
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		c.Logger().Errorf("commit: %v", err)
+		mw.LogError(c, "FS-0122", "commit: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to commit template")
+			"FS-0122", mw.APIErrorCodeInternal, "failed to commit template")
 	}
 	committed = true
 	return c.JSON(http.StatusCreated, out)
@@ -257,35 +257,35 @@ func (h *Handlers) APIIncomeTemplatesCreate(c echo.Context) error {
 func (h *Handlers) APIIncomeTemplateApply(c echo.Context) error {
 	if h.DB == nil {
 		return mw.WriteAPIError(c, http.StatusServiceUnavailable,
-			mw.APIErrorCodeServiceUnavailable,
+			"FS-0130", mw.APIErrorCodeServiceUnavailable,
 			"data layer not configured (DATABASE_URL unset)")
 	}
 
 	templateID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, "id must be a valid UUID")
+			"FS-0131", mw.APIErrorCodeValidation, "id must be a valid UUID")
 	}
 
 	var req applyIncomeTemplateRequest
 	if err := decodeJSONStrict(c.Request().Body, &req); err != nil {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, "invalid JSON body: "+err.Error())
+			"FS-0132", mw.APIErrorCodeValidation, "invalid JSON body: "+err.Error())
 	}
 	if strings.TrimSpace(req.IdempotencyKey) == "" {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, "idempotency_key is required")
+			"FS-0133", mw.APIErrorCodeValidation, "idempotency_key is required")
 	}
 	effDate, err := time.Parse("2006-01-02", req.EffectiveDate)
 	if err != nil {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation,
+			"FS-0134", mw.APIErrorCodeValidation,
 			"effective_date must be YYYY-MM-DD: "+err.Error())
 	}
 	accountID, err := uuid.Parse(req.AccountID)
 	if err != nil {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, "account_id must be a valid UUID")
+			"FS-0135", mw.APIErrorCodeValidation, "account_id must be a valid UUID")
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
@@ -296,17 +296,17 @@ func (h *Handlers) APIIncomeTemplateApply(c echo.Context) error {
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return mw.WriteAPIError(c, http.StatusNotFound,
-				mw.APIErrorCodeNotFound, "income template not found")
+				"FS-0136", mw.APIErrorCodeNotFound, "income template not found")
 		}
-		c.Logger().Errorf("api apply: get template: %v", err)
+		mw.LogError(c, "FS-0137", "api apply: get template: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to load template")
+			"FS-0137", mw.APIErrorCodeInternal, "failed to load template")
 	}
 	lineRows, err := q.ListIncomeTemplateLines(ctx, tmpl.ID)
 	if err != nil {
-		c.Logger().Errorf("api apply: list lines: %v", err)
+		mw.LogError(c, "FS-0138", "api apply: list lines: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to load template lines")
+			"FS-0138", mw.APIErrorCodeInternal, "failed to load template lines")
 	}
 
 	logicTmpl := logictpl.Template{
@@ -333,22 +333,22 @@ func (h *Handlers) APIIncomeTemplateApply(c echo.Context) error {
 		switch {
 		case errors.Is(err, logictpl.ErrAmountBelowTemplate):
 			return mw.WriteAPIError(c, http.StatusBadRequest,
-				mw.APIErrorCodeValidation,
+				"FS-0139", mw.APIErrorCodeValidation,
 				"amount is less than the sum of template lines")
 		case errors.Is(err, logictpl.ErrAmountExceedsTemplate):
 			return mw.WriteAPIError(c, http.StatusBadRequest,
-				mw.APIErrorCodeValidation,
+				"FS-0140", mw.APIErrorCodeValidation,
 				"amount exceeds template total and template has no leftover Pos configured")
 		case errors.Is(err, logictpl.ErrEmptyTemplate):
 			return mw.WriteAPIError(c, http.StatusBadRequest,
-				mw.APIErrorCodeValidation, "template has no lines")
+				"FS-0141", mw.APIErrorCodeValidation, "template has no lines")
 		case errors.Is(err, logictpl.ErrNonPositiveAmount):
 			return mw.WriteAPIError(c, http.StatusBadRequest,
-				mw.APIErrorCodeValidation, "amount must be positive")
+				"FS-0142", mw.APIErrorCodeValidation, "amount must be positive")
 		default:
-			c.Logger().Errorf("apply: %v", err)
+			mw.LogError(c, "FS-0143", "apply: %v", err)
 			return mw.WriteAPIError(c, http.StatusInternalServerError,
-				mw.APIErrorCodeInternal, "apply failed")
+				"FS-0143", mw.APIErrorCodeInternal, "apply failed")
 		}
 	}
 
@@ -361,9 +361,9 @@ func (h *Handlers) APIIncomeTemplateApply(c echo.Context) error {
 		posID, _ := uuid.Parse(a.PosID)
 		pos, err := q.GetPos(ctx, pgtype.UUID{Bytes: posID, Valid: true})
 		if err != nil {
-			c.Logger().Errorf("apply: get pos %s: %v", a.PosID, err)
+			mw.LogError(c, "FS-0144", "apply: get pos %s: %v", a.PosID, err)
 			return mw.WriteAPIError(c, http.StatusInternalServerError,
-				mw.APIErrorCodeInternal, "failed to resolve Pos for allocation")
+				"FS-0144", mw.APIErrorCodeInternal, "failed to resolve Pos for allocation")
 		}
 		posCurrencies[a.PosID] = pos.Currency
 	}
@@ -373,11 +373,11 @@ func (h *Handlers) APIIncomeTemplateApply(c echo.Context) error {
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return mw.WriteAPIError(c, http.StatusNotFound,
-				mw.APIErrorCodeNotFound, "account not found")
+				"FS-0145", mw.APIErrorCodeNotFound, "account not found")
 		}
-		c.Logger().Errorf("apply: get account: %v", err)
+		mw.LogError(c, "FS-0146", "apply: get account: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to resolve account")
+			"FS-0146", mw.APIErrorCodeInternal, "failed to resolve account")
 	}
 
 	// Resolve counterparty (id or name).
@@ -388,7 +388,7 @@ func (h *Handlers) APIIncomeTemplateApply(c echo.Context) error {
 		cpID, err := uuid.Parse(req.CounterpartyID)
 		if err != nil {
 			return mw.WriteAPIError(c, http.StatusBadRequest,
-				mw.APIErrorCodeValidation, "counterparty_id must be a valid UUID")
+				"FS-0147", mw.APIErrorCodeValidation, "counterparty_id must be a valid UUID")
 		}
 		var name string
 		if err := h.DB.QueryRow(ctx,
@@ -397,26 +397,26 @@ func (h *Handlers) APIIncomeTemplateApply(c echo.Context) error {
 		).Scan(&name); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return mw.WriteAPIError(c, http.StatusNotFound,
-					mw.APIErrorCodeNotFound, "counterparty not found")
+					"FS-0148", mw.APIErrorCodeNotFound, "counterparty not found")
 			}
-			c.Logger().Errorf("apply: lookup cp: %v", err)
+			mw.LogError(c, "FS-0149", "apply: lookup cp: %v", err)
 			return mw.WriteAPIError(c, http.StatusInternalServerError,
-				mw.APIErrorCodeInternal, "failed to resolve counterparty")
+				"FS-0149", mw.APIErrorCodeInternal, "failed to resolve counterparty")
 		}
 		counterpartyID = cpID
 		counterpartyName = name
 	case strings.TrimSpace(req.CounterpartyName) != "":
 		row, err := q.GetOrCreateCounterparty(ctx, strings.TrimSpace(req.CounterpartyName))
 		if err != nil {
-			c.Logger().Errorf("apply: get-or-create cp: %v", err)
+			mw.LogError(c, "FS-0150", "apply: get-or-create cp: %v", err)
 			return mw.WriteAPIError(c, http.StatusInternalServerError,
-				mw.APIErrorCodeInternal, "failed to resolve counterparty")
+				"FS-0150", mw.APIErrorCodeInternal, "failed to resolve counterparty")
 		}
 		counterpartyID = uuid.UUID(row.ID.Bytes)
 		counterpartyName = row.Name
 	default:
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation,
+			"FS-0151", mw.APIErrorCodeValidation,
 			"either counterparty_id or counterparty_name is required")
 	}
 
@@ -431,7 +431,7 @@ func (h *Handlers) APIIncomeTemplateApply(c echo.Context) error {
 		ccy := posCurrencies[a.PosID]
 		if ccy != "idr" {
 			return mw.WriteAPIError(c, http.StatusBadRequest,
-				mw.APIErrorCodeValidation,
+				"FS-0152", mw.APIErrorCodeValidation,
 				"income templates currently support IDR Pos only; line for non-IDR Pos rejected")
 		}
 		// AccountID and PosID stable; AccountAmount == PosAmount for IDR.
@@ -448,7 +448,7 @@ func (h *Handlers) APIIncomeTemplateApply(c echo.Context) error {
 		}
 		if violations := logictxn.ValidateMoneyIn(in, time.Now()); len(violations) > 0 {
 			return mw.WriteAPIError(c, http.StatusBadRequest,
-				mw.APIErrorCodeValidation, violations[0])
+				"FS-0153", mw.APIErrorCodeValidation, violations[0])
 		}
 	}
 
@@ -477,9 +477,9 @@ func (h *Handlers) APIIncomeTemplateApply(c echo.Context) error {
 		}
 		txnID, err := svc.Insert(ctx, txnInput)
 		if err != nil {
-			c.Logger().Errorf("apply: ledger insert (line %s): %v", a.LineID, err)
+			mw.LogError(c, "FS-0154", "apply: ledger insert (line %s): %v", a.LineID, err)
 			return mw.WriteAPIError(c, http.StatusInternalServerError,
-				mw.APIErrorCodeInternal,
+				"FS-0154", mw.APIErrorCodeInternal,
 				"partial apply: line "+a.LineID+" failed; check idempotency_key to retry safely")
 		}
 		insertedIDs = append(insertedIDs, txnID.String())

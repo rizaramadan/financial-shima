@@ -42,14 +42,14 @@ type createPosRequest struct {
 func (h *Handlers) APIPosCreate(c echo.Context) error {
 	if h.DB == nil {
 		return mw.WriteAPIError(c, http.StatusServiceUnavailable,
-			mw.APIErrorCodeServiceUnavailable,
+			"FS-0023", mw.APIErrorCodeServiceUnavailable,
 			"data layer not configured (DATABASE_URL unset)")
 	}
 
 	var req createPosRequest
 	if err := decodeJSONStrict(c.Request().Body, &req); err != nil {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, "invalid JSON body: "+err.Error())
+			"FS-0024", mw.APIErrorCodeValidation, "invalid JSON body: "+err.Error())
 	}
 	in := logicpos.CreateInput{
 		Name:     req.Name,
@@ -62,7 +62,7 @@ func (h *Handlers) APIPosCreate(c echo.Context) error {
 	in = logicpos.Normalize(in)
 	if errs := logicpos.Validate(in); len(errs) > 0 {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, errs[0])
+			"FS-0025", mw.APIErrorCodeValidation, errs[0])
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
@@ -78,12 +78,12 @@ func (h *Handlers) APIPosCreate(c echo.Context) error {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return mw.WriteAPIError(c, http.StatusConflict,
-				mw.APIErrorCodeConflict,
+				"FS-0026", mw.APIErrorCodeConflict,
 				"a Pos with that name and currency already exists")
 		}
-		c.Logger().Errorf("api create pos: %v", err)
+		mw.LogError(c, "FS-0027", "api create pos: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to create pos")
+			"FS-0027", mw.APIErrorCodeInternal, "failed to create pos")
 	}
 	return c.JSON(http.StatusCreated, APIPos{
 		ID:        uuid.UUID(row.ID.Bytes).String(),

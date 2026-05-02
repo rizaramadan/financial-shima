@@ -41,19 +41,19 @@ type createAccountRequest struct {
 func (h *Handlers) APIAccountsCreate(c echo.Context) error {
 	if h.DB == nil {
 		return mw.WriteAPIError(c, http.StatusServiceUnavailable,
-			mw.APIErrorCodeServiceUnavailable,
+			"FS-0013", mw.APIErrorCodeServiceUnavailable,
 			"data layer not configured (DATABASE_URL unset)")
 	}
 
 	var req createAccountRequest
 	if err := decodeJSONStrict(c.Request().Body, &req); err != nil {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, "invalid JSON body: "+err.Error())
+			"FS-0014", mw.APIErrorCodeValidation, "invalid JSON body: "+err.Error())
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, "name is required")
+			"FS-0015", mw.APIErrorCodeValidation, "name is required")
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
@@ -61,9 +61,9 @@ func (h *Handlers) APIAccountsCreate(c echo.Context) error {
 	q := dbq.New(h.DB)
 	row, err := q.CreateAccount(ctx, name)
 	if err != nil {
-		c.Logger().Errorf("api create account: %v", err)
+		mw.LogError(c, "FS-0016", "api create account: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to create account")
+			"FS-0016", mw.APIErrorCodeInternal, "failed to create account")
 	}
 	return c.JSON(http.StatusCreated, APIAccount{
 		ID:        uuid.UUID(row.ID.Bytes).String(),

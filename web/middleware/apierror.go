@@ -6,11 +6,20 @@ import "github.com/labstack/echo/v4"
 // §7.2. Every rejection from `/api/v1` middleware and handlers must
 // serialize through this type so the LLM caller parses one contract.
 //
-// The Go field is named [APIError.Code] (not Error) so it doesn't shadow
-// the `error` interface at call sites — `ae.Code == APIErrorCodeMissingKey`
-// reads correctly; `ae.Error == ...` would read as a category error. The
-// JSON tag preserves the spec's `"error"` key on the wire.
+// Two identifiers travel with every error:
+//
+//   - [APIError.Site] is a stable per-call-site code in the form `FS-NNNN`,
+//     curated in `docs/errors.md`. When something fails, `FS-0042` is
+//     the precise pinpoint — operators grep the registry to find the
+//     exact emission site without parsing the message.
+//   - [APIError.Code] is the spec category (`validation_failed`,
+//     `internal_error`, …) — what the LLM caller programs against.
+//
+// The Go field name `Code` (not `Error`) keeps it from shadowing the
+// `error` interface at call sites — `ae.Code == APIErrorCodeMissingKey`
+// reads correctly. The JSON tag preserves the spec's `"error"` key.
 type APIError struct {
+	Site    string `json:"site"`
 	Code    string `json:"error"`
 	Message string `json:"message"`
 }
@@ -38,13 +47,28 @@ const (
 )
 
 // WriteAPIError writes a JSON error response with the given status,
-// code, and message, using the [APIError] body shape. Future `/api/v1`
-// handlers should call this for every non-success response so the
-// body shape stays uniform across the API.
+// site, code, and message, using the [APIError] body shape. Every
+// `/api/v1` non-success response should call this so the body shape
+// stays uniform across the API.
+//
+// `site` is a stable per-call-site identifier of the form `FS-NNNN`
+// curated in `docs/errors.md`. Two emission points must never share a
+// site code — the pinpoint guarantee depends on uniqueness.
 //
 // 401 responses from the [APIKey] middleware additionally set
 // `WWW-Authenticate: ApiKey` per RFC 7235; see the apikey.go reject
 // helper which composes [WriteAPIError] with the challenge header.
-func WriteAPIError(c echo.Context, status int, code, message string) error {
-	return c.JSON(status, APIError{Code: code, Message: message})
+func WriteAPIError(c echo.Context, status int, site, code, message string) error {
+	return c.JSON(status, APIError{Site: site, Code: code, Message: message})
+}
+
+// LogError logs an internal failure with the call-site code prefixed,
+// so server logs and the corresponding API response share one
+// pinpoint. Use this in front of every `WriteAPIError` whose `code` is
+// `APIErrorCodeInternal` or otherwise warrants log inspection (5xx,
+// transient DB failures, lock contention).
+//
+// Format mirrors echo's logger: a printf-style template plus args.
+func LogError(c echo.Context, site, format string, args ...interface{}) {
+	c.Logger().Errorf("["+site+"] "+format, args...)
 }

@@ -38,7 +38,7 @@ func (h *Handlers) HomeGet(c echo.Context) error {
 		ctx, cancel := context.WithTimeout(c.Request().Context(), 3*time.Second)
 		defer cancel()
 		if err := h.loadHomeData(ctx, &data); err != nil {
-			c.Logger().Errorf("home loadHomeData: %v", err)
+			c.Logger().Errorf("[FS-0200] home loadHomeData: %v", err)
 			data.LoadError = true
 		}
 		// Bell badge is server-rendered on every page nav (option 3 —

@@ -71,7 +71,7 @@ const listTimeout = 5 * time.Second
 func (h *Handlers) APIAccountsList(c echo.Context) error {
 	if h.DB == nil {
 		return mw.WriteAPIError(c, http.StatusServiceUnavailable,
-			mw.APIErrorCodeServiceUnavailable,
+			"FS-0010", mw.APIErrorCodeServiceUnavailable,
 			"data layer not configured (DATABASE_URL unset)")
 	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), listTimeout)
@@ -92,9 +92,9 @@ func (h *Handlers) APIAccountsList(c echo.Context) error {
 		rows, err = q.ListAccounts(ctx)
 	}
 	if err != nil {
-		c.Logger().Errorf("api list accounts: %v", err)
+		mw.LogError(c, "FS-0011", "api list accounts: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal,
+			"FS-0011", mw.APIErrorCodeInternal,
 			"failed to list accounts")
 	}
 
@@ -107,7 +107,7 @@ func (h *Handlers) APIAccountsList(c echo.Context) error {
 		// rather than a "00000000-0000-..." that quietly corrupts the
 		// LLM caller's index.
 		if !r.ID.Valid {
-			c.Logger().Warnf("api list accounts: row with invalid uuid skipped (name=%q)", r.Name)
+			c.Logger().Warnf("[FS-0012] api list accounts: row with invalid uuid skipped (name=%q)", r.Name)
 			continue
 		}
 		out = append(out, APIAccount{

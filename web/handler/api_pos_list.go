@@ -27,7 +27,7 @@ import (
 func (h *Handlers) APIPosList(c echo.Context) error {
 	if h.DB == nil {
 		return mw.WriteAPIError(c, http.StatusServiceUnavailable,
-			mw.APIErrorCodeServiceUnavailable,
+			"FS-0020", mw.APIErrorCodeServiceUnavailable,
 			"data layer not configured (DATABASE_URL unset)")
 	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), listTimeout)
@@ -44,15 +44,15 @@ func (h *Handlers) APIPosList(c echo.Context) error {
 		rows, err = q.ListPos(ctx)
 	}
 	if err != nil {
-		c.Logger().Errorf("api list pos: %v", err)
+		mw.LogError(c, "FS-0021", "api list pos: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to list pos")
+			"FS-0021", mw.APIErrorCodeInternal, "failed to list pos")
 	}
 
 	out := make([]APIPos, 0, len(rows))
 	for _, r := range rows {
 		if !r.ID.Valid {
-			c.Logger().Warnf("api list pos: row with invalid uuid skipped (name=%q)", r.Name)
+			c.Logger().Warnf("[FS-0022] api list pos: row with invalid uuid skipped (name=%q)", r.Name)
 			continue
 		}
 		out = append(out, APIPos{

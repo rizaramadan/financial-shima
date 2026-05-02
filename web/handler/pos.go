@@ -60,7 +60,7 @@ func (h *Handlers) PosGet(c echo.Context) error {
 			data.NotFound = true
 			return c.Render(http.StatusOK, "pos", data)
 		}
-		c.Logger().Errorf("GetPos: %v", err)
+		c.Logger().Errorf("[FS-0210] GetPos: %v", err)
 		data.LoadError = true
 		return c.Render(http.StatusOK, "pos", data)
 	}
@@ -81,7 +81,7 @@ func (h *Handlers) PosGet(c echo.Context) error {
 	if cash, err := q.GetPosCashBalance(ctx, pgtype.UUID{Bytes: id, Valid: true}); err == nil {
 		data.Cash = cash
 	} else {
-		c.Logger().Errorf("GetPosCashBalance: %v", err)
+		c.Logger().Errorf("[FS-0211] GetPosCashBalance: %v", err)
 		data.LoadError = true
 	}
 
@@ -99,7 +99,7 @@ func (h *Handlers) PosGet(c echo.Context) error {
 		   AND (o.creditor_pos_id = $1 OR o.debtor_pos_id = $1)
 		 ORDER BY o.created_at DESC`, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		c.Logger().Errorf("list obligations: %v", err)
+		c.Logger().Errorf("[FS-0212] list obligations: %v", err)
 		data.LoadError = true
 	} else {
 		defer obRows.Close()
@@ -111,7 +111,7 @@ func (h *Handlers) PosGet(c echo.Context) error {
 				createdAt                   pgtype.Timestamptz
 			)
 			if err := obRows.Scan(&obID, &credID, &debID, &currency, &amountOwed, &amountRepaid, &createdAt, &credName, &debName); err != nil {
-				c.Logger().Errorf("scan obligation: %v", err)
+				c.Logger().Errorf("[FS-0213] scan obligation: %v", err)
 				data.LoadError = true
 				continue
 			}
@@ -139,7 +139,7 @@ func (h *Handlers) PosGet(c echo.Context) error {
 
 	txns, err := q.ListTransactionsByPos(ctx, pgtype.UUID{Bytes: id, Valid: true})
 	if err != nil {
-		c.Logger().Errorf("ListTransactionsByPos: %v", err)
+		c.Logger().Errorf("[FS-0214] ListTransactionsByPos: %v", err)
 		data.LoadError = true
 	}
 	for _, r := range txns {
