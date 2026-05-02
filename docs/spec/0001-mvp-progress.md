@@ -450,3 +450,20 @@ R4 reviews pending the next fire.
 **Asymptote reached on the unit-test surface.** Following the precedent set with the apikey middleware sub-phase: rather than 4 fires of redundant reviews on unchanged code (which last time the user explicitly cancelled), the next fire moves to the next sub-phase per Beck's verdict: integration test scaffold (`api_accounts_integration_test.go`) covering the deferred list — DB-error 500 path, archived-filter branching, per-row JSON shape, ordering. That work will surface real new behavior to review.
 
 **`/api/v1/accounts` handler unit-test sub-phase: complete at asymptote** (commit `094f0dc`). Final scores Skeet 9.7 / Ive 9.3 / Beck 9.5, all carried items deferred with rationale (sqlc regen blocked by parallel work; ETag/Last-Modified non-load-bearing for LLM caller; JSON-example godoc optional polish). 9 unit tests pin every behavior the handler can exercise without a DB.
+
+### Phase 10 — `/api/v1/accounts` integration tests (sub-sub-phase)
+
+#### Round 1 — 2026-05-02 (commit `4d424b1`)
+
+Implementation: `web/handler/api_accounts_integration_test.go` — three tests, all skip when `DATABASE_URL` is unset (matches the home_integration_test.go pattern).
+
+| Test | Behavior pinned (was deferred from unit suite) |
+|---|---|
+| `_ReturnsRowFromDB` | Real-DB read; per-row JSON shape (uuid parse, Archived bool, CreatedAt within ±1min). |
+| `_ArchivedFilter` | Default response excludes archived rows; `?include_archived=true` includes them with `Archived=true`. |
+| `_DBError_Returns500` | Pool-closed → 500 + `APIErrorCodeInternal` + message does NOT leak "pool" / "sql" / "closed" — locks the no-leak contract. |
+
+Still deferred:
+- Ordering tiebreaker test — gated on the sqlc regen for `ORDER BY name, id`. The handler godoc TODO breadcrumb points at the same blocker.
+
+Tests skip cleanly without `DATABASE_URL`; full suite still 305 (3 added but they're skipping). When run with DB, they'll exercise three new code paths. R1 reviews pending the next fire.
