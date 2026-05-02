@@ -34,14 +34,8 @@ type APIAccount struct {
 // archived rows (`pos`, `counterparties` once it grows the column).
 const includeArchivedQueryParam = "include_archived"
 
-// listTimeout caps every `/api/v1` list query. 5s is generous for a
-// small household-scale dataset; tighter than the default echo timeout.
-//
-// Future `/api/v1` list endpoints should reuse this constant rather
-// than redeclaring their own. When a second consumer lands, hoisting
-// this to a shared `web/handler/api_common.go` (or a new package) is
-// a one-line move; doing so before the second consumer would be a
-// premature abstraction.
+// listTimeout caps every `/api/v1` list query. Future list endpoints
+// should reuse this constant.
 const listTimeout = 5 * time.Second
 
 // APIAccountsList implements `GET /api/v1/accounts` per spec §7.2.
@@ -49,6 +43,10 @@ const listTimeout = 5 * time.Second
 // Returns a JSON array of accounts ordered by name. Empty result is
 // `[]`, never `null`. Auth is gated by [middleware.APIKey] upstream;
 // this handler assumes a valid key.
+//
+// TODO(sqlc-regen): the underlying SQL orders by `name` only, so order
+// is unstable on duplicate names. Tiebreaker `ORDER BY name, id`
+// pending sqlc regen alongside parallel in-flight changes.
 //
 // Query parameters:
 //   - `include_archived=true` — include archived accounts in the list.
