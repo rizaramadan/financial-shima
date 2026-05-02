@@ -15,7 +15,7 @@ Tracks delivery against `0001-mvp.md`. Phases are minimal end-to-end slices, not
 | 7 | Pos balance computation (§4.2: cash, receivables, payables) | **implementation complete (cash only)** | logic/balance: pure State + Apply for MoneyIn / MoneyOut / InterPos events, overflow-safe addSafe/subSafe, IDR-Pos amount-equality enforced (§5.1), inter_pos lines self-reconcile per currency (§10.6) before mutating. Property test §10.5: 50 seeds × 200 random events asserts Σ(Account) = Σ(Pos.cash IDR) after EVERY event. Property test §10.6: 50 generated unreconciled inter_pos events all rejected. Receivables/payables (borrow obligations) deferred to Phase 8. Review loop deferred. |
 | 8 | Borrow obligation + repayment matching (§4.3 borrow mode, §10.7) | **implementation complete (same-currency)** | logic/obligation: pure GenerateForBorrow (M×N obligations, prorated by creditor share, last-creditor absorbs rounding so per-debtor sum is exact) + Match (FIFO by stable input order, partial/full clearing, overpayment spawns reverse obligation — the "kid's school cash short after gold drop" case from §4.3). Migration 0003 adds pos_obligation table with CHECK enforcing §10.7 (cleared_at iff repaid >= owed) at the storage layer. Property test asserts every Updates/NewObligations row passes Validate(). Cross-currency borrow returns ErrCrossCurrencyBorrow — needs FX rate input not yet specified. Review loop deferred. |
 | 9 | Web UI: views (§6.1–6.5) | **all stages done** | A: §6.2 Home + nav. B: §6.5 Notifications feed + bell badge. C: server-rendered bell. D: §6.1 Transactions list (date-range filter, reversal badge). E: §6.3 Pos detail (name/currency/target, receivables/payables from open pos_obligation, open obligations table, scoped txn list). F: §6.4 Spending — months × top-N Pos pivot via `SumMoneyOutByPosMonth` aggregation; default last 6 months × top 5 Pos by money_out volume; Pos column headers link to /pos/:id, row totals + Pos totals foot row, empty-state when no money_out in range. Home page nav links {Transactions, Spending, Notifications}. 4 unit tests pin: unauth, nil-pool empty-state, query-param round-trip, invalid-date fallback. |
-| 10 | LLM JSON API (§7.2) + initial seed flow (§9) | pending | Endpoints accept `x-api-key`; idempotency dedupes; reviewers pass |
+| 10 | LLM JSON API (§7.2) + initial seed flow (§9) | **in progress** (R1: Skeet 7.5 / Ive 8 / Beck 9 — apikey middleware) | Endpoints accept `x-api-key`; idempotency dedupes; reviewers pass |
 
 ## Round Log
 
@@ -257,3 +257,36 @@ Final phase 1 deliverables:
 - `cmd/server/main_test.go` — 6 server tests incl. `TestRun_StopsCleanlyOnContextCancel` real-listener lifecycle test + security-headers across `/login` and 404.
 - `scripts/dump_login.go` — render helper for visual review (build-tag ignored from `go test`).
 
+
+### Phase 10
+
+#### Round 1 — 2026-05-02
+
+Implementation: `web/middleware/apikey.go` + `apikey_test.go` — single-file middleware enforcing `x-api-key` per spec §7.2. Constant-time compare via `crypto/subtle.ConstantTimeCompare`; panic-on-empty configured key (deploy-time fail-loud); JSON 401 body `{"error","message"}`. Six tests (parallel): missing/wrong/correct/empty header, panic-on-empty, plus a length+content sweep pinning the constant-time guarantee. TDD discipline: test file first → `go test` returned `undefined: APIKey` → implementation added → tests green. One commit `7366d9b`. Full suite: 282 passed in 18 packages (was 276; +6).
+
+| Persona | Score | Headline |
+|---|---|---|
+| Skeet | 7.5/10 | Missing `WWW-Authenticate` header on 401 (RFC 7235); no rejection of multi-valued `x-api-key`; `TestAPIKey_EmptyHeaderTreatedAsMissing` is identical to the missing-header test (Go's `Header.Set("","")` then `Get` returns `""` either way); `TestAPIKey_DifferingLengthsAlwaysReject`'s `""` case skips header-set and degenerates into the missing test; no header-name case-insensitivity test; pass-through doesn't assert downstream body (only status). |
+| Ive | 8/10 | Inline `map[string]string` error body will be copy-pasted by every future `/api/v1` handler — extract typed `apiError` helper or `APIError` struct now while it's one site; `error: "unauthorized"` restates the HTTP status — codes earn their keep when more specific (`missing_api_key` / `invalid_api_key`); panic prefix `middleware.APIKey:` doesn't match `session.go`'s voice; no `ExampleAPIKey` and no test-mode affordance comparable to `session.CurrentUser`. |
+| Beck | 9/10 | Missing-header test asserts only that `error`/`message` are non-empty — should pin the spec-cited literal strings; `TestAPIKey_CorrectKey_PassesThrough` asserts status only — bug where middleware returns 200 itself without calling `next` would slip through; `TestAPIKey_DifferingLengthsAlwaysReject` bundles 6 cases under one name without `t.Run` subtests, so a CI failure can't isolate which input regressed. No retrofit smell. |
+
+**Changes for Round 2** (highest-impact convergent issues, in priority order: safety > clarity > convention):
+
+Skeet:
+- Add `WWW-Authenticate: ApiKey` header on 401 (RFC 7235 compliance, non-negotiable).
+- Reject requests with multiple `x-api-key` headers via `len(c.Request().Header.Values(APIKeyHeader)) > 1`.
+
+Beck:
+- Pin literal `error`/`message` strings in missing-header test (the spec-cited values, not just non-empty).
+- Strengthen `TestAPIKey_CorrectKey_PassesThrough` to assert downstream JSON body (`{"ok":"true"}`), proving `next(c)` actually ran.
+- Convert `TestAPIKey_DifferingLengthsAlwaysReject` to `t.Run` subtests; drop the dead `""` element from the table (`TestAPIKey_EmptyHeaderTreatedAsMissing` already covers that, and the `if k != ""` skip in the loop made the case vacuous anyway).
+- Delete `TestAPIKey_EmptyHeaderTreatedAsMissing` — Skeet's right that it's a duplicate of the missing-header test in observable behavior.
+
+Ive (the load-bearing one — ergonomics for the family of `/api/v1` endpoints to come):
+- Extract a typed `apiError` helper (or shared `APIError` struct) so all `/api/v1` handlers emit the same shape from one source.
+- Split error codes into `missing_api_key` / `invalid_api_key` so the LLM caller can distinguish "send a key" from "rotate this key."
+
+Pushing back, not addressed:
+- Skeet's case-insensitivity test (Echo+net/http canonicalize headers; the test would exercise stdlib, not this middleware).
+- Ive's `ExampleAPIKey` godoc and panic-string voice (style polish; defer until R3 unless still flagged).
+- Skeet's "retained string" doc note (low impact; one-line addition deferred).
