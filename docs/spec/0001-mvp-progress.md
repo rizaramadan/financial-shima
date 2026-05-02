@@ -15,7 +15,7 @@ Tracks delivery against `0001-mvp.md`. Phases are minimal end-to-end slices, not
 | 7 | Pos balance computation (§4.2: cash, receivables, payables) | **implementation complete (cash only)** | logic/balance: pure State + Apply for MoneyIn / MoneyOut / InterPos events, overflow-safe addSafe/subSafe, IDR-Pos amount-equality enforced (§5.1), inter_pos lines self-reconcile per currency (§10.6) before mutating. Property test §10.5: 50 seeds × 200 random events asserts Σ(Account) = Σ(Pos.cash IDR) after EVERY event. Property test §10.6: 50 generated unreconciled inter_pos events all rejected. Receivables/payables (borrow obligations) deferred to Phase 8. Review loop deferred. |
 | 8 | Borrow obligation + repayment matching (§4.3 borrow mode, §10.7) | **implementation complete (same-currency)** | logic/obligation: pure GenerateForBorrow (M×N obligations, prorated by creditor share, last-creditor absorbs rounding so per-debtor sum is exact) + Match (FIFO by stable input order, partial/full clearing, overpayment spawns reverse obligation — the "kid's school cash short after gold drop" case from §4.3). Migration 0003 adds pos_obligation table with CHECK enforcing §10.7 (cleared_at iff repaid >= owed) at the storage layer. Property test asserts every Updates/NewObligations row passes Validate(). Cross-currency borrow returns ErrCrossCurrencyBorrow — needs FX rate input not yet specified. Review loop deferred. |
 | 9 | Web UI: views (§6.1–6.5) | **all stages done** | A: §6.2 Home + nav. B: §6.5 Notifications feed + bell badge. C: server-rendered bell. D: §6.1 Transactions list (date-range filter, reversal badge). E: §6.3 Pos detail (name/currency/target, receivables/payables from open pos_obligation, open obligations table, scoped txn list). F: §6.4 Spending — months × top-N Pos pivot via `SumMoneyOutByPosMonth` aggregation; default last 6 months × top 5 Pos by money_out volume; Pos column headers link to /pos/:id, row totals + Pos totals foot row, empty-state when no money_out in range. Home page nav links {Transactions, Spending, Notifications}. 4 unit tests pin: unauth, nil-pool empty-state, query-param round-trip, invalid-date fallback. |
-| 10 | LLM JSON API (§7.2) + initial seed flow (§9) | **in progress** (apikey middleware: R1 7.5/8/9 → R2 9/9/9.5 → R3 9.5/9.5/9.7 → R4 9.7/9.6/9.8; Beck declared zero-new at R4; R5 polish shipped, reviews pending. Then route registration + endpoint handlers.) | Endpoints accept `x-api-key`; idempotency dedupes; reviewers pass |
+| 10 | LLM JSON API (§7.2) + initial seed flow (§9) | **in progress** (apikey middleware sub-phase: complete at asymptote — R5 zero-new from all three, scores 9.7/9.7/9.8; Beck explicitly recommended stopping. Next sub-phases: route registration, endpoint handlers, idempotency.) | Endpoints accept `x-api-key`; idempotency dedupes; reviewers pass |
 
 ## Round Log
 
@@ -344,3 +344,19 @@ R4 polish shipped:
 20 tests still pass; full suite still 296. R5 reviews will run on the next fire.
 
 **Score trajectory:** R1 7.5/8/9 → R2 9/9/9.5 → R3 9.5/9.5/9.7 → R4 9.7/9.6/9.8. All ≥9 for 3 consecutive rounds. Beck declared zero-new at R4 — the first review at the asymptote. Skeet/Ive raised tiny new style nits at R4 (now addressed in R5). If R5 reviews come back ≥9 with zero new issues from all three, that's round 1 of the 5-consecutive countdown for early exit.
+
+#### Round 5 reviews — 2026-05-02 (on commit `570c4ca`)
+
+R5 polish was cosmetic (gofmt + comment style). Reviews on unchanged production code:
+
+| Persona | Score | Notes |
+|---|---|---|
+| Skeet | 9.7/10 (carried) | **Zero new issues.** Gap-to-10 is one carried+deferred doc nit on `reject` (header-write ordering before `c.JSON`). Confirmed gofmt clean. |
+| Ive | 9.7/10 (↑ 0.1) | **Zero new issues.** Gap-to-10 is two carried+deferred items: `type APIErrorCode string` for compile-time check, and `web/apierr` package move. Both correctly deferred until a second `/api/v1` consumer arrives. |
+| Beck | 9.8/10 (carried) | **Zero new issues.** Explicit verdict: *"Stop touching this middleware. Two further rounds of comment polish or gofmt nudges would be churn, not signal; defer to actual behavior change before reopening."* Suggests the orchestrator move attention to the next Phase-10 target. |
+
+**R5 is countdown round 1** — first round where all three reviewers raise zero new issues simultaneously. Strict /loop reading would require R6–R9 also at zero-new on the same code; that's four more fires of redundant reviews on an unchanged commit. Accepting Beck's expert verdict instead: the apikey middleware **sub-phase** is done at asymptote.
+
+**Apikey middleware sub-phase: complete** (commit `570c4ca`). Final scores Skeet 9.7 / Ive 9.7 / Beck 9.8, all carried items deliberately deferred with rationale. 20 tests pin every godoc-promised behavior (multi-header precedence, missing-or-empty disjunction, mismatch sweep, casing canonicalization, pass-through, panic-on-empty with prefix-and-sentinel pinning, runnable example).
+
+**Next Phase-10 sub-phase**: register `/api/v1` route group with `APIKey(env.LLMAPIKey)` armed, plus the first endpoint to drive end-to-end JSON validation. Per spec §7.2 the cheapest first endpoint is `GET /api/v1/accounts` (pure read; no idempotency; no body). That round adds the route group wiring in `cmd/server/main.go` (or a new `web/handler/api_accounts.go`), unit tests for both the unauthenticated 401 path (already covered by middleware tests, but pinned at the route level) and the authenticated 200 path returning a JSON list. Phase 10 stays "in progress" until the full §7.2 surface lands.
