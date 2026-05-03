@@ -824,6 +824,33 @@ tbody tr:hover { background: color-mix(in oklab, var(--primary) 4%, transparent)
   .filter button { width: auto; height: 32px; }
 }
 
+/* Income-template allocation rows — what used to be a 2-col table
+ * (Pos select + amount input) becomes a stack of touch-friendly rows
+ * on mobile: select full-width above input full-width. ≥480px the
+ * pair sits on one line. Cleaner than a cramped table on a 360px
+ * phone where the select label "Mortgage (idr)" overflowed the cell. */
+.alloc { display: flex; flex-direction: column; gap: 16px; margin: 0 0 16px; }
+.alloc-row {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px; border: 1px solid var(--border-secondary);
+  border-radius: var(--radius); background: var(--bg-fill);
+}
+.alloc-row select, .alloc-row input { width: 100%; min-height: 40px; }
+.alloc-total {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 12px; padding: 12px; background: var(--bg-fill);
+  border-radius: var(--radius); border: 1px solid var(--border-secondary);
+  font-weight: 500;
+}
+.alloc-total strong { font-variant-numeric: tabular-nums; }
+@media (min-width: 480px) {
+  .alloc-row { flex-direction: row; align-items: center; gap: 12px;
+    background: transparent; border: 0; padding: 0; }
+  .alloc-row select { flex: 1 1 60%; min-height: 32px; }
+  .alloc-row input  { flex: 1 1 40%; min-height: 32px; text-align: right;
+    font-variant-numeric: tabular-nums; }
+}
+
 /* AntD Empty — icon + line for the empty content states. */
 .empty-state {
   display: flex; flex-direction: column; align-items: center; text-align: center;
@@ -902,22 +929,34 @@ tr.totals td { font-weight: 600; }
 /* Mobile: horizontally scrollable tab strip — five+ items don't fit on
  * narrow screens, so let users swipe rather than wrap to multiple rows
  * (which collides with .nav-end's auto-margin). Desktop reverts to the
- * wider, non-scrolling row. */
+ * wider, non-scrolling row.
+ *
+ * Sticky on mobile so long pages (transactions / spending) don't
+ * require scrolling back to the top to switch tabs. The negative
+ * horizontal margins + matching padding bleed the sticky bg across
+ * main's edge-padding so the nav never floats over visible content
+ * underneath as it scrolls.
+ *
+ * Tap targets: padding-top + padding-bottom each 12px → ~44px nav-link
+ * height including the text glyph (Apple HIG min). */
 .nav {
-  display: flex; gap: 16px; align-items: baseline; margin: 0 0 16px;
+  display: flex; gap: 16px; align-items: baseline; margin: -16px -16px 16px;
   font-size: var(--font-base);
-  padding-bottom: 12px;
+  padding: 0 16px;
   border-bottom: 1px solid var(--border-secondary);
   overflow-x: auto;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
+  position: sticky; top: 0; z-index: 10;
+  background: var(--bg-container);
 }
 .nav::-webkit-scrollbar { display: none; }
 .nav > * { flex-shrink: 0; }
 .nav a {
   color: var(--text-secondary); text-decoration: none;
-  padding-bottom: 12px; margin-bottom: -13px;
+  padding: 12px 0;
   border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
   transition: color 0.2s, border-color 0.2s;
   white-space: nowrap;
 }
@@ -927,12 +966,14 @@ tr.totals td { font-weight: 600; }
   border-bottom-color: var(--primary);
 }
 .nav-end { margin-left: auto; }
-.nav-end .linkbtn { color: var(--text-tertiary); }
+.nav-end .linkbtn { color: var(--text-tertiary); padding: 12px 0; }
 .nav-end .linkbtn:hover { color: var(--primary); }
 @media (min-width: 480px) {
-  .nav { gap: 24px; margin: 0 0 24px; padding-bottom: 16px;
+  .nav { gap: 24px; margin: -24px -24px 24px; padding: 0 24px;
     overflow-x: visible; }
-  .nav a { padding-bottom: 16px; margin-bottom: -17px; }
+}
+@media (min-width: 768px) {
+  .nav { margin: -32px -32px 24px; padding: 0 32px; }
 }
 
 /* Theme switcher — three side-by-side buttons; the active one
@@ -1151,6 +1192,7 @@ const posBody = `{{if .NotFound}}
 {{if .Obligations}}
 <section class="card">
 <h2>Open obligations</h2>
+<div class="table-wrap">
 <table>
 <thead><tr><th>Direction</th><th>Counterparty Pos</th><th class="num">Outstanding</th><th>Since</th></tr></thead>
 <tbody>
@@ -1164,6 +1206,7 @@ const posBody = `{{if .NotFound}}
 {{end}}
 </tbody>
 </table>
+</div>
 </section>
 {{end}}
 
@@ -1296,6 +1339,7 @@ const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
 {{if .Accounts}}
 <section class="card">
 <h2>Accounts</h2>
+<div class="table-wrap">
 <table>
 <thead><tr><th>Name</th><th class="num">Balance</th></tr></thead>
 <tbody>
@@ -1304,6 +1348,7 @@ const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
 {{end}}
 </tbody>
 </table>
+</div>
 </section>
 {{end}}
 
@@ -1311,6 +1356,7 @@ const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
 {{range $g := .PosByCurrency}}
 <section class="card">
 <h2>Pos &mdash; {{$g.Currency}}</h2>
+<div class="table-wrap">
 <table>
 <thead><tr><th>Name</th><th class="num">Cash</th><th class="num">Target</th></tr></thead>
 <tbody>
@@ -1323,6 +1369,7 @@ const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
 {{end}}
 </tbody>
 </table>
+</div>
 </section>
 {{end}}
 
@@ -1472,6 +1519,7 @@ const incomeTemplatesListBody = `<h1>Income templates</h1>
 <p class="empty-state-hint">Create one to fan-out a salary across Pos in one step.</p>
 </div>
 {{else}}
+<div class="table-wrap">
 <table>
 <thead><tr><th>Name</th><th class="num">Lines total</th></tr></thead>
 <tbody>
@@ -1480,6 +1528,7 @@ const incomeTemplatesListBody = `<h1>Income templates</h1>
 {{end}}
 </tbody>
 </table>
+</div>
 {{end}}`
 
 const incomeTemplateNewBody = `<h1>New income template</h1>
@@ -1510,32 +1559,30 @@ const incomeTemplateNewBody = `<h1>New income template</h1>
 <p class="hint">If set, any amount above the lines&rsquo; total lands here. Otherwise a too-large amount is rejected.</p>
 </div>
 <h2 style="font-size: var(--font-base); font-weight: 600; margin: 24px 0 12px;">Lines</h2>
-<table>
-<thead><tr><th>Pos</th><th class="num">Amount (smallest unit)</th></tr></thead>
-<tbody>
+<div class="alloc">
 {{range $i, $line := .Lines}}
-<tr>
-<td><select name="pos_id_{{$i}}">
+<div class="alloc-row">
+<select name="pos_id_{{$i}}" aria-label="Pos for line {{$i}}">
 <option value="">— skip —</option>
 {{range $.Pos}}<option value="{{.ID}}"{{if eq .ID $line.PosID}} selected{{end}}>{{.Name}} ({{.Currency}})</option>{{end}}
-</select></td>
-<td><input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9]*" value="{{$line.Amount}}"
-  placeholder="e.g. 12000000"></td>
-</tr>
+</select>
+<input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9]*" value="{{$line.Amount}}"
+  placeholder="e.g. 12000000" aria-label="Amount for line {{$i}}">
+</div>
 {{end}}
 {{if not .Lines}}
 {{range $i := (intRange 0 8)}}
-<tr>
-<td><select name="pos_id_{{$i}}">
+<div class="alloc-row">
+<select name="pos_id_{{$i}}" aria-label="Pos for line {{$i}}">
 <option value="">— skip —</option>
 {{range $.Pos}}<option value="{{.ID}}">{{.Name}} ({{.Currency}})</option>{{end}}
-</select></td>
-<td><input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 12000000"></td>
-</tr>
+</select>
+<input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 12000000"
+  aria-label="Amount for line {{$i}}">
+</div>
 {{end}}
 {{end}}
-</tbody>
-</table>
+</div>
 <button type="submit" style="margin-top: 16px;">Create template</button>
 </form>
 <p class="aside"><a class="linkbtn" href="/income-templates">&larr; Back</a></p>`
@@ -1622,22 +1669,19 @@ const incomeTemplatePreviewBody = `<h1>Review allocation</h1>
 <section class="card">
 <h2>Allocation</h2>
 <p class="subtitle">Adjust as needed. The rows must sum to {{money .Amount "idr"}}.</p>
-<table>
-<thead><tr><th>Pos</th><th class="num">Amount (IDR, smallest unit)</th></tr></thead>
-<tbody>
+<div class="alloc">
 {{range $i, $row := .Rows}}
-<tr>
-<td><select name="alloc_pos_{{$i}}">
+<div class="alloc-row">
+<select name="alloc_pos_{{$i}}" aria-label="Pos for row {{$i}}">
 <option value="">— skip —</option>
 {{range $.PosOptions}}<option value="{{.ID}}"{{if eq .ID $row.PosID}} selected{{end}}>{{.Name}} ({{.Currency}})</option>{{end}}
-</select></td>
-<td><input name="alloc_amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9]*"
-  value="{{$row.Amount}}" placeholder="e.g. 12000000"></td>
-</tr>
+</select>
+<input name="alloc_amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9]*"
+  value="{{$row.Amount}}" placeholder="e.g. 12000000" aria-label="Amount for row {{$i}}">
+</div>
 {{end}}
-<tr class="totals"><td><strong>Salary total to allocate</strong></td><td class="num"><strong>{{money .Amount "idr"}}</strong></td></tr>
-</tbody>
-</table>
+<div class="alloc-total"><span>Salary total to allocate</span><strong>{{money .Amount "idr"}}</strong></div>
+</div>
 <p class="hint">Tip: leave a row empty to drop it. Add a Pos to a previously-empty row to introduce a new line. Each Pos can appear only once.</p>
 </section>
 

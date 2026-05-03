@@ -72,6 +72,13 @@ func main() {
 	rec := &assistant.Recorder{}
 	a := auth.New(users, clock.System{}, rand.Reader, idgen.Crypto{})
 	h := handler.New(a, rec, pool)
+	// Mirror cmd/server: shared password from env. Dev defaults to a
+	// known value so browser-driven scripts (mobile_check.js, uat.js)
+	// don't have to wire LOGIN_PASSWORD themselves.
+	h.LoginPassword = os.Getenv("LOGIN_PASSWORD")
+	if h.LoginPassword == "" {
+		h.LoginPassword = "dev-password"
+	}
 
 	e := echo.New()
 	e.Renderer = template.New()
