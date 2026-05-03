@@ -644,6 +644,8 @@ const layoutOpen = `<!doctype html>
 ::selection { background: color-mix(in oklab, var(--primary) 25%, transparent); }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
+/* Mobile-first: base rules target narrow viewports; min-width queries
+ * scale up for tablets (≥480px) and desktop (≥768px). */
 body {
   background: var(--bg-page);
   color: var(--text);
@@ -653,24 +655,36 @@ body {
   font-size: var(--font-base); line-height: 1.5714;
   min-height: 100vh; display: grid;
   align-items: start; justify-items: center;
-  padding: 24px;
+  padding: 0;
 }
-@media (max-width: 360px) { body { padding: 16px; } }
 main {
   position: relative; /* anchor for the bell */
   width: 100%; max-width: 720px;
   background: var(--bg-container);
-  border-radius: var(--radius-lg);
-  padding: 32px;
+  border-radius: 0;
+  padding: 16px;
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--border-secondary);
+  border-left: 0; border-right: 0;
 }
-main.compact { max-width: 420px; padding: 32px 28px; }
+main.compact { max-width: 420px; }
 main.wide    { max-width: 920px; }
-@media (max-width: 480px) { main { padding: 20px; border-radius: 0;
-  border-left: 0; border-right: 0; } }
-h1 { font-size: var(--font-h2); font-weight: 600; line-height: 1.21;
+@media (min-width: 480px) {
+  body { padding: 16px; }
+  main { padding: 24px; border-radius: var(--radius-lg);
+    border-left: 1px solid var(--border-secondary);
+    border-right: 1px solid var(--border-secondary); }
+}
+@media (min-width: 768px) {
+  body { padding: 24px; }
+  main { padding: 32px; }
+  main.compact { padding: 32px 28px; }
+}
+h1 { font-size: var(--font-h3); font-weight: 600; line-height: 1.27;
   margin: 0 0 16px; color: var(--text); }
+@media (min-width: 480px) {
+  h1 { font-size: var(--font-h2); line-height: 1.21; }
+}
 h2 { font-size: var(--font-h5); font-weight: 600; margin: 0 0 8px; color: var(--text); }
 
 form { margin: 0; }
@@ -742,19 +756,23 @@ button:disabled {
 .card h2 { font-size: var(--font-base); font-weight: 600; margin: 0 0 12px;
   color: var(--text-tertiary); text-transform: none; letter-spacing: 0; }
 
-/* AntD Table */
+/* AntD Table — tighter cell padding on mobile to fit more columns
+ * before .table-wrap kicks in horizontal scroll. */
 table {
   width: 100%; border-collapse: collapse;
   font-size: var(--font-base); color: var(--text);
 }
 thead th {
   background: var(--bg-fill); color: var(--text);
-  font-weight: 500; padding: 12px 16px;
+  font-weight: 500; padding: 10px 8px;
   border-bottom: 1px solid var(--border-secondary); text-align: left;
 }
 tbody td {
-  padding: 12px 16px;
+  padding: 10px 8px;
   border-bottom: 1px solid var(--border-secondary);
+}
+@media (min-width: 480px) {
+  thead th, tbody td { padding: 12px 16px; }
 }
 tbody tr:hover { background: color-mix(in oklab, var(--primary) 4%, transparent); }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -773,10 +791,11 @@ tbody tr:hover { background: color-mix(in oklab, var(--primary) 4%, transparent)
 }
 .badge:empty { display: none; }
 
-/* Notifications feed */
+/* Notifications feed — on mobile, stack action below the body so the
+ * "Mark read" tap target sits on its own line; ≥480px goes inline. */
 .notifs { list-style: none; margin: 0; padding: 0; }
 .notif {
-  display: flex; gap: 12px; padding: 12px 0;
+  display: flex; flex-direction: column; gap: 8px; padding: 12px 0;
   border-bottom: 1px solid var(--border-secondary);
 }
 .notif:last-child { border-bottom: 0; }
@@ -785,14 +804,25 @@ tbody tr:hover { background: color-mix(in oklab, var(--primary) 4%, transparent)
 .notif-link { flex: 1; display: block; text-decoration: none; color: inherit; }
 .notif-body { display: block; font-size: var(--font-base); color: var(--text-secondary); margin-top: 4px; }
 .notif-time { display: block; font-size: var(--font-sm); color: var(--text-tertiary); margin-top: 4px; }
-.notif-actions { flex-shrink: 0; }
+.notif-actions { flex-shrink: 0; align-self: flex-start; }
+@media (min-width: 480px) {
+  .notif { flex-direction: row; gap: 12px; }
+}
 
-/* Filter row — input + button both AntD middle-size (32px tall). */
+/* Filter row — mobile stacks each control to a comfortable touch target
+ * (40px); ≥480px collapses to AntD middle size (32px) on a single row. */
 .filter { display: flex; gap: 12px; align-items: end; margin: 0 0 24px; flex-wrap: wrap; }
 .filter label { display: flex; flex-direction: column; gap: 4px;
-  font-size: var(--font-sm); color: var(--text-tertiary); }
-.filter input { width: auto; min-width: 144px; height: 32px; padding: 4px 11px; }
-.filter button { width: auto; height: 32px; padding: 0 16px; box-shadow: 0 2px 0 rgba(35, 120, 4, 0.12); }
+  font-size: var(--font-sm); color: var(--text-tertiary);
+  flex: 1 1 140px; }
+.filter input { width: 100%; height: 40px; padding: 8px 12px; }
+.filter button { width: 100%; height: 40px; padding: 0 16px;
+  box-shadow: 0 2px 0 rgba(35, 120, 4, 0.12); }
+@media (min-width: 480px) {
+  .filter label { flex: 0 0 auto; }
+  .filter input { width: auto; min-width: 144px; height: 32px; padding: 4px 11px; }
+  .filter button { width: auto; height: 32px; }
+}
 
 /* AntD Empty — icon + line for the empty content states. */
 .empty-state {
@@ -869,17 +899,27 @@ tbody tr:hover { background: color-mix(in oklab, var(--primary) 4%, transparent)
 tr.totals { border-top: 1px solid var(--border); background: var(--bg-fill); }
 tr.totals td { font-weight: 600; }
 
+/* Mobile: horizontally scrollable tab strip — five+ items don't fit on
+ * narrow screens, so let users swipe rather than wrap to multiple rows
+ * (which collides with .nav-end's auto-margin). Desktop reverts to the
+ * wider, non-scrolling row. */
 .nav {
-  display: flex; gap: 24px; align-items: baseline; margin: 0 0 24px;
+  display: flex; gap: 16px; align-items: baseline; margin: 0 0 16px;
   font-size: var(--font-base);
-  padding-bottom: 16px;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--border-secondary);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
 }
+.nav::-webkit-scrollbar { display: none; }
+.nav > * { flex-shrink: 0; }
 .nav a {
   color: var(--text-secondary); text-decoration: none;
-  padding-bottom: 16px; margin-bottom: -17px;
+  padding-bottom: 12px; margin-bottom: -13px;
   border-bottom: 2px solid transparent;
   transition: color 0.2s, border-color 0.2s;
+  white-space: nowrap;
 }
 .nav a:hover { color: var(--primary); }
 .nav a[aria-current="page"] {
@@ -889,18 +929,28 @@ tr.totals td { font-weight: 600; }
 .nav-end { margin-left: auto; }
 .nav-end .linkbtn { color: var(--text-tertiary); }
 .nav-end .linkbtn:hover { color: var(--primary); }
+@media (min-width: 480px) {
+  .nav { gap: 24px; margin: 0 0 24px; padding-bottom: 16px;
+    overflow-x: visible; }
+  .nav a { padding-bottom: 16px; margin-bottom: -17px; }
+}
 
 /* Theme switcher — three side-by-side buttons; the active one
- * adopts the primary fill so the user sees their current pick. */
+ * adopts the primary fill so the user sees their current pick.
+ * Mobile stacks them full-width so each has a comfortable tap target. */
 .theme-switch {
-  display: flex; gap: 12px; margin: 0 0 12px; flex-wrap: wrap;
+  display: flex; flex-direction: column; gap: 8px; margin: 0 0 12px;
 }
 .theme-switch button {
-  width: auto; padding: 6px 14px;
+  width: 100%; padding: 10px 14px;
   background: var(--bg-container); color: var(--text);
   border: 1px solid var(--border);
   box-shadow: none;
   font-weight: 400;
+}
+@media (min-width: 480px) {
+  .theme-switch { flex-direction: row; flex-wrap: wrap; gap: 12px; }
+  .theme-switch button { width: auto; padding: 6px 14px; }
 }
 .theme-switch button:hover:not(.active):not(:disabled) {
   border-color: var(--primary); color: var(--primary); background: var(--bg-container);
