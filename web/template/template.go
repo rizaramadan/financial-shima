@@ -660,6 +660,14 @@ body {
 main {
   position: relative; /* anchor for the bell */
   width: 100%; max-width: 720px;
+  /* Body is display:grid, so main as a grid item defaults to
+   * min-width: auto (= min-content). Without this override, the
+   * sticky .nav with its overflow-x:auto child cannot shrink — main
+   * grows to fit the nav's full unbroken width (~486px), pushes past
+   * the 375px viewport, and the browser auto-zooms-out the whole
+   * page. min-width:0 lets main collapse so the nav scrolls
+   * internally as designed. */
+  min-width: 0;
   background: var(--bg-container);
   border-radius: 0;
   padding: 16px;
