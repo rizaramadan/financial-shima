@@ -10,12 +10,24 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/rizaramadan/financial-shima/logic/auth"
 	"github.com/rizaramadan/financial-shima/logic/clock"
 	"github.com/rizaramadan/financial-shima/logic/otp"
 )
 
 // otpExpiryPlusOne is a small helper so tests don't import otp inline.
 func otpExpiryPlusOne() time.Duration { return otp.ExpiryDuration + time.Second }
+
+// issueOTP drives auth.Issue directly so verify tests don't depend on the
+// /login handler (which is now password-based and doesn't mint OTPs).
+func issueOTP(t *testing.T, a *auth.Auth, identifier string) string {
+	t.Helper()
+	out := a.Issue(identifier)
+	if out.Result != auth.Issued {
+		t.Fatalf("auth.Issue(%q) = %v, want Issued", identifier, out.Result)
+	}
+	return out.Code.String()
+}
 
 func TestVerifyGet_RendersFormWithHiddenIdentifier(t *testing.T) {
 	t.Parallel()
@@ -58,22 +70,13 @@ func TestVerifyGet_NoIdentifier_RedirectsToLogin(t *testing.T) {
 
 func TestVerifyPost_CorrectCode_SetsSessionCookieAndRedirects(t *testing.T) {
 	t.Parallel()
-	e, _, rec := testServer(t)
+	e, a, _ := testServer(t)
 
-	// Drive Issue first so a code exists.
-	loginForm := url.Values{"identifier": {"@shima"}}
-	loginReq := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(loginForm.Encode()))
-	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	e.ServeHTTP(httptest.NewRecorder(), loginReq)
-
-	last, ok := rec.Last()
-	if !ok {
-		t.Fatal("no OTP recorded")
-	}
+	code := issueOTP(t, a, "@shima")
 
 	verifyForm := url.Values{
 		"identifier": {"@shima"},
-		"code":       {last.Code},
+		"code":       {code},
 	}
 	verifyReq := httptest.NewRequest(http.MethodPost, "/verify", strings.NewReader(verifyForm.Encode()))
 	verifyReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -115,16 +118,11 @@ func TestVerifyPost_CorrectCode_SetsSessionCookieAndRedirects(t *testing.T) {
 
 func TestVerifyPost_WrongCode_RendersRejection(t *testing.T) {
 	t.Parallel()
-	e, _, rec := testServer(t)
+	e, a, _ := testServer(t)
 
-	loginForm := url.Values{"identifier": {"@shima"}}
-	loginReq := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(loginForm.Encode()))
-	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	e.ServeHTTP(httptest.NewRecorder(), loginReq)
-	last, _ := rec.Last()
-
+	code := issueOTP(t, a, "@shima")
 	wrong := "000000"
-	if last.Code == wrong {
+	if code == wrong {
 		wrong = "000001"
 	}
 	verifyForm := url.Values{"identifier": {"@shima"}, "code": {wrong}}
@@ -197,12 +195,11 @@ func formPost(t *testing.T, e *echo.Echo, path string, vals url.Values) *httptes
 // the production code path produces but the prior suite never observed.
 func TestVerifyPost_LockedAfterMaxAttempts(t *testing.T) {
 	t.Parallel()
-	e, _, rec := testServer(t)
+	e, a, _ := testServer(t)
 
-	formPost(t, e, "/login", url.Values{"identifier": {"@shima"}})
-	last, _ := rec.Last()
+	code := issueOTP(t, a, "@shima")
 	wrong := "000000"
-	if last.Code == wrong {
+	if code == wrong {
 		wrong = "000001"
 	}
 
@@ -219,7 +216,7 @@ func TestVerifyPost_LockedAfterMaxAttempts(t *testing.T) {
 	}
 	// Even the correct code now is rejected with Locked.
 	w = formPost(t, e, "/verify", url.Values{
-		"identifier": {"@shima"}, "code": {last.Code},
+		"identifier": {"@shima"}, "code": {code},
 	})
 	if !strings.Contains(w.Body.String(), "Too many attempts") {
 		t.Errorf("expected Locked render on correct code post-lock; body:\n%s", w.Body.String())
@@ -228,17 +225,16 @@ func TestVerifyPost_LockedAfterMaxAttempts(t *testing.T) {
 
 func TestVerifyPost_ExpiredCode(t *testing.T) {
 	t.Parallel()
-	e, a, rec := testServer(t)
+	e, a, _ := testServer(t)
 
-	formPost(t, e, "/login", url.Values{"identifier": {"@shima"}})
-	last, _ := rec.Last()
+	code := issueOTP(t, a, "@shima")
 
 	// Advance clock past expiry. testServer wires Auth with a Fixed clock
 	// we can rebind in the test (production uses System).
 	a.Clock = clock.Fixed{T: t0.Add(otpExpiryPlusOne())}
 
 	w := formPost(t, e, "/verify", url.Values{
-		"identifier": {"@shima"}, "code": {last.Code},
+		"identifier": {"@shima"}, "code": {code},
 	})
 	if !strings.Contains(w.Body.String(), "expired") {
 		t.Errorf("expected Expired render; body:\n%s", w.Body.String())
@@ -247,17 +243,16 @@ func TestVerifyPost_ExpiredCode(t *testing.T) {
 
 func TestVerifyPost_ReplayReturnsAlreadyUsed(t *testing.T) {
 	t.Parallel()
-	e, _, rec := testServer(t)
+	e, a, _ := testServer(t)
 
-	formPost(t, e, "/login", url.Values{"identifier": {"@shima"}})
-	last, _ := rec.Last()
+	code := issueOTP(t, a, "@shima")
 	// First Verify accepts.
 	formPost(t, e, "/verify", url.Values{
-		"identifier": {"@shima"}, "code": {last.Code},
+		"identifier": {"@shima"}, "code": {code},
 	})
 	// Replay.
 	w := formPost(t, e, "/verify", url.Values{
-		"identifier": {"@shima"}, "code": {last.Code},
+		"identifier": {"@shima"}, "code": {code},
 	})
 	if !strings.Contains(w.Body.String(), "already used") {
 		t.Errorf("expected Spent render; body:\n%s", w.Body.String())
@@ -267,17 +262,6 @@ func TestVerifyPost_ReplayReturnsAlreadyUsed(t *testing.T) {
 		if c.Name == SessionCookieName {
 			t.Error("session cookie set on replay")
 		}
-	}
-}
-
-func TestLoginPost_CooldownActive(t *testing.T) {
-	t.Parallel()
-	e, _, _ := testServer(t)
-
-	formPost(t, e, "/login", url.Values{"identifier": {"@shima"}})
-	w := formPost(t, e, "/login", url.Values{"identifier": {"@shima"}})
-	if !strings.Contains(w.Body.String(), "wait a moment") {
-		t.Errorf("expected CooldownActive render; body:\n%s", w.Body.String())
 	}
 }
 
