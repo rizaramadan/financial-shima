@@ -1,0 +1,47 @@
+name: Deploy
+
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build binary
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o server ./cmd/server/
+
+      - name: Deploy to server
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan po.mvp.my.id >> ~/.ssh/known_hosts 2>/dev/null
+
+          SERVER="rezan@po.mvp.my.id"
+
+          echo "Uploading binary..."
+          scp server "${SERVER}:/tmp/duit-server"
+
+          echo "Stopping service..."
+          ssh "${SERVER}" "sudo systemctl stop duit"
+
+          echo "Swapping binary..."
+          ssh "${SERVER}" "mv /tmp/duit-server /opt/duit/server && chmod +x /opt/duit/server"
+
+          echo "Starting service..."
+          ssh "${SERVER}" "sudo systemctl start duit"
+
+          echo "Checking service status..."
+          ssh "${SERVER}" "sudo systemctl status duit"
