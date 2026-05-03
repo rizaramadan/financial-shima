@@ -702,8 +702,8 @@ button {
   cursor: pointer; transition: background 0.2s, border-color 0.2s;
   box-shadow: 0 2px 0 rgba(35, 120, 4, 0.12);
 }
-button:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
-button:active:not(:disabled) { background: var(--primary-active); border-color: var(--primary-active); }
+button:not(.linkbtn):hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
+button:not(.linkbtn):active:not(:disabled) { background: var(--primary-active); border-color: var(--primary-active); }
 button:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 25%, transparent); }
 button:disabled {
   background: var(--bg-fill); color: var(--text-tertiary);
@@ -893,7 +893,7 @@ tr.totals td { font-weight: 600; }
 /* Theme switcher — three side-by-side buttons; the active one
  * adopts the primary fill so the user sees their current pick. */
 .theme-switch {
-  display: flex; gap: 8px; margin: 0 0 12px; flex-wrap: wrap;
+  display: flex; gap: 12px; margin: 0 0 12px; flex-wrap: wrap;
 }
 .theme-switch button {
   width: auto; padding: 6px 14px;
