@@ -110,6 +110,10 @@ func newServerWithDeps(a *auth.Auth, ac assistant.Client, db *pgxpool.Pool) *ech
 	e.Use(mw.Theme())
 
 	h := handler.New(a, ac, db)
+	h.LoginPassword = os.Getenv("LOGIN_PASSWORD")
+	if h.LoginPassword == "" {
+		log.Print("LOGIN_PASSWORD not set; /login will reject all attempts")
+	}
 	e.GET("/", h.HomeGet)
 	e.GET("/login", h.LoginGet)
 	e.POST("/login", h.LoginPost)

@@ -945,7 +945,13 @@ const loginBody = `<h1>Sign in</h1>
   required aria-describedby="identifier-hint">
 <p id="identifier-hint" class="hint">@username or numeric ID</p>
 </div>
-<button type="submit">Continue with Telegram</button>
+<div class="field">
+<label for="password">Password</label>
+<input id="password" name="password" type="password"
+  autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false"
+  required>
+</div>
+<button type="submit">Sign in</button>
 </form>`
 
 const verifyBody = `<h1>Enter your code</h1>
