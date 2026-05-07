@@ -526,10 +526,9 @@ func (h *Handlers) IncomeTemplateApplyPost(c echo.Context) error {
 	if err != nil {
 		return flashTo(c, tmplID, "Effective date is required (YYYY-MM-DD).")
 	}
-	accountID, err := uuid.Parse(strings.TrimSpace(c.FormValue("account_id")))
-	if err != nil {
-		return flashTo(c, tmplID, "Account is required.")
-	}
+	// Account is no longer accepted on the income-template apply form;
+	// each generated row credits the Pos's *current* account_id
+	// (spec §4.2/§5.6). The form will drop the account picker too.
 	cpName := strings.TrimSpace(c.FormValue("counterparty_name"))
 	if cpName == "" {
 		return flashTo(c, tmplID, "Counterparty is required.")
@@ -596,7 +595,6 @@ func (h *Handlers) IncomeTemplateApplyPost(c echo.Context) error {
 		_, err := svc.Insert(ctx, ledger.MoneyTxnInput{
 			Type:           "money_in",
 			EffectiveDate:  pgtype.Date{Time: effDate, Valid: true},
-			AccountID:      accountID,
 			AccountAmount:  r.Amount,
 			PosID:          r.PosID,
 			PosAmount:      r.Amount,

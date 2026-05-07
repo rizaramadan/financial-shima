@@ -5,15 +5,18 @@
 -- (was_inserted=false), so the application can skip the notification
 -- loop on idempotent re-submission per spec §10.8. Duplicate POSTs
 -- silently return the original record per spec §7.2.
+--
+-- Account is implicit via pos.account_id (§4.2/§5.6); the transaction
+-- itself doesn't carry account_id.
 INSERT INTO transactions (
     type, effective_date,
-    account_id, account_amount,
+    account_amount,
     pos_id, pos_amount,
     counterparty_id, note,
     source, created_by, idempotency_key,
     reverses_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (idempotency_key)
 DO UPDATE SET idempotency_key = transactions.idempotency_key  -- no-op so RETURNING fires
 RETURNING transactions.*, (xmax = 0) AS was_inserted;
@@ -22,14 +25,19 @@ RETURNING transactions.*, (xmax = 0) AS was_inserted;
 SELECT * FROM transactions WHERE id = $1;
 
 -- name: ListTransactionsByAccount :many
-SELECT * FROM transactions
-WHERE account_id = $1
-ORDER BY effective_date DESC, created_at DESC;
+-- Account-side feed via pos.account_id (§5.6 snapshot semantics).
+-- A Pos reassigned to this account brings its history along; a Pos
+-- moved away takes its history with it.
+SELECT t.* FROM transactions t
+JOIN pos p ON p.id = t.pos_id
+WHERE p.account_id = $1
+ORDER BY t.effective_date DESC, t.created_at DESC;
 
 -- name: ListTransactionsByPos :many
 -- Chronological transactions touching this pos. Phase-7+ inter_pos lines
 -- live in inter_pos_lines and are not yet wired; this query covers the
--- money_in / money_out path that Phase 6 ships.
+-- money_in / money_out path that Phase 6 ships. Account name is the
+-- Pos's *current* account (§5.6 snapshot view).
 SELECT
     t.id, t.type, t.effective_date,
     t.account_amount, t.pos_amount, t.note,
@@ -37,7 +45,8 @@ SELECT
     a.name  AS account_name,
     cp.name AS counterparty_name
 FROM transactions t
-LEFT JOIN accounts       a  ON a.id  = t.account_id
+JOIN pos p ON p.id = t.pos_id
+LEFT JOIN accounts       a  ON a.id  = p.account_id
 LEFT JOIN counterparties cp ON cp.id = t.counterparty_id
 WHERE t.pos_id = $1
 ORDER BY t.effective_date DESC, t.created_at DESC, t.id DESC
@@ -63,9 +72,9 @@ ORDER BY month DESC, spent DESC;
 
 -- name: SumAccountBalances :many
 -- Per-account balance: signed sum of money_in / money_out account_amount
--- contributions per account_id, restricted to non-archived accounts. The
--- LEFT JOIN keeps zero-balance accounts in the result so the home view's
--- list of accounts matches ListAccounts row-for-row.
+-- contributions, attributed via the Pos's current account_id (§5.6
+-- snapshot view). LEFT JOINs keep zero-balance accounts in the result
+-- so the home view's list of accounts matches ListAccounts row-for-row.
 SELECT
     a.id,
     COALESCE(SUM(CASE
@@ -74,7 +83,8 @@ SELECT
         ELSE 0
     END), 0)::bigint AS balance
 FROM accounts a
-LEFT JOIN transactions t ON t.account_id = a.id
+LEFT JOIN pos p          ON p.account_id = a.id
+LEFT JOIN transactions t ON t.pos_id     = p.id
 WHERE NOT a.archived
 GROUP BY a.id;
 
@@ -140,24 +150,26 @@ WHERE (creditor_pos_id = $1 OR debtor_pos_id = $1)
 ORDER BY created_at DESC;
 
 -- name: ListTransactionsByDateRange :many
--- Joined view for the §6.1 list: account.name, pos.name + currency,
--- counterparty.name. LEFT JOINs because Phase 7+ inter_pos rows have
--- NULL account_id / pos_id / counterparty_id (line items live in
--- inter_pos_lines — to be rendered when that phase ships).
+-- Joined view for the §6.1 list: pos.name + currency,
+-- counterparty.name, plus the Pos's *current* account (§5.6 snapshot).
+-- LEFT JOINs because Phase 7+ inter_pos rows have NULL pos_id /
+-- counterparty_id (line items live in inter_pos_lines — to be
+-- rendered when that phase ships).
 SELECT
     t.id, t.type, t.effective_date,
-    t.account_id, t.account_amount,
+    t.account_amount,
     t.pos_id, t.pos_amount,
     t.counterparty_id, t.note,
     t.source, t.created_by, t.idempotency_key,
     t.created_at, t.reverses_id,
+    p.account_id AS account_id,
     a.name  AS account_name,
     p.name  AS pos_name,
     p.currency AS pos_currency,
     cp.name AS counterparty_name
 FROM transactions t
-LEFT JOIN accounts       a  ON a.id  = t.account_id
 LEFT JOIN pos            p  ON p.id  = t.pos_id
+LEFT JOIN accounts       a  ON a.id  = p.account_id
 LEFT JOIN counterparties cp ON cp.id = t.counterparty_id
 WHERE t.effective_date >= $1 AND t.effective_date <= $2
 ORDER BY t.effective_date DESC, t.created_at DESC, t.id DESC

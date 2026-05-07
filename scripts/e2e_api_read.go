@@ -3,14 +3,17 @@
 // e2e_api_read drives the four /api/v1 read endpoints end-to-end
 // against the real handler tree + real Postgres. The walk:
 //
-//   1. Seed an account, two Pos (idr + gold-g), a counterparty.
-//   2. Seed two transactions to drive non-zero balances.
-//   3. GET each read endpoint with the api key and assert content.
-//   4. Reconciliation: assert IDR account_total == idr pos_total.
+//  1. Seed an account, two Pos (idr + gold-g), a counterparty.
 //
-//   export DATABASE_URL=…
-//   export LLM_API_KEY=test-api-key-for-e2e
-//   go run ./scripts/e2e_api_read.go
+//  2. Seed two transactions to drive non-zero balances.
+//
+//  3. GET each read endpoint with the api key and assert content.
+//
+//  4. Reconciliation: assert IDR account_total == idr pos_total.
+//
+//     export DATABASE_URL=…
+//     export LLM_API_KEY=test-api-key-for-e2e
+//     go run ./scripts/e2e_api_read.go
 package main
 
 import (
@@ -103,7 +106,10 @@ func main() {
 	} {
 		var p map[string]any
 		postJSON(srv.URL+"/api/v1/pos",
-			mustJSON(map[string]any{"name": spec.name, "currency": spec.currency}),
+			mustJSON(map[string]any{
+				"name": spec.name, "currency": spec.currency,
+				"account_id": accID,
+			}),
 			201, &p)
 		posIDs[spec.currency] = p["id"].(string)
 	}
@@ -114,12 +120,11 @@ func main() {
 		201, &cp)
 	cpID := cp["id"].(string)
 
-	// 1.5M IDR money_in
+	// 1.5M IDR money_in (account is implicit via pos.account_id).
 	postJSON(srv.URL+"/api/v1/transactions",
 		mustJSON(map[string]any{
 			"type":            "money_in",
 			"effective_date":  time.Now().Format("2006-01-02"),
-			"account_id":      accID,
 			"account_amount":  1_500_000,
 			"pos_id":          posIDs["idr"],
 			"pos_amount":      1_500_000,
@@ -131,7 +136,6 @@ func main() {
 		mustJSON(map[string]any{
 			"type":            "money_out",
 			"effective_date":  time.Now().Format("2006-01-02"),
-			"account_id":      accID,
 			"account_amount":  250_000,
 			"pos_id":          posIDs["idr"],
 			"pos_amount":      250_000,

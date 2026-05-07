@@ -19,9 +19,15 @@ var currencyRegex = regexp.MustCompile(`^[a-z0-9-]+$`)
 // Target is nil when the user did not enter one (an "open" Pos with no
 // budget target). HasTarget is redundant with Target!=nil but keeps the
 // caller explicit.
+//
+// AccountID is the funding Account (spec §4.2). It's required for every
+// Pos, IDR or otherwise — non-IDR Pos still trace their IDR cost
+// through an Account. The handler resolves and parses the UUID before
+// calling Validate; this layer only checks non-empty.
 type CreateInput struct {
 	Name      string
 	Currency  string
+	AccountID string
 	Target    int64
 	HasTarget bool
 }
@@ -45,6 +51,10 @@ func Validate(in CreateInput) []string {
 		errs = append(errs, "Currency must be lowercase letters, digits, or hyphens (e.g. idr, usd, gold-g).")
 	}
 
+	if strings.TrimSpace(in.AccountID) == "" {
+		errs = append(errs, "Account is required.")
+	}
+
 	if in.HasTarget && in.Target < 0 {
 		errs = append(errs, "Target must be zero or positive.")
 	}
@@ -58,5 +68,6 @@ func Validate(in CreateInput) []string {
 func Normalize(in CreateInput) CreateInput {
 	in.Name = strings.TrimSpace(in.Name)
 	in.Currency = strings.ToLower(strings.TrimSpace(in.Currency))
+	in.AccountID = strings.TrimSpace(in.AccountID)
 	return in
 }

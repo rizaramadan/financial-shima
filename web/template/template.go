@@ -271,7 +271,7 @@ type LoginData struct {
 
 // Compact narrows the card for single-input forms (AntD form widths).
 func (d LoginData) Compact() bool { return true }
-func (d LoginData) Wide() bool     { return false }
+func (d LoginData) Wide() bool    { return false }
 
 // HideBell — pre-auth pages have no bell anyway (SignedIn=false), but
 // satisfy the interface uniformly.
@@ -345,11 +345,11 @@ type HomeData struct {
 
 // SignedIn for HomeData mirrors NotificationsData — the home page is only
 // reachable post-auth, so a populated DisplayName is the trigger.
-func (d HomeData) SignedIn() bool  { return d.DisplayName != "" }
-func (d HomeData) Compact() bool   { return false }
-func (d HomeData) Wide() bool      { return false }
-func (d HomeData) HideBell() bool  { return false }
-func (d HomeData) Route() string   { return "home" }
+func (d HomeData) SignedIn() bool { return d.DisplayName != "" }
+func (d HomeData) Compact() bool  { return false }
+func (d HomeData) Wide() bool     { return false }
+func (d HomeData) HideBell() bool { return false }
+func (d HomeData) Route() string  { return "home" }
 
 // LoginData and VerifyData are pre-auth; SignedIn always false.
 func (d LoginData) SignedIn() bool  { return false }
@@ -404,6 +404,10 @@ type PosDetailData struct {
 	ID           string
 	Name         string
 	Currency     string
+	AccountID    string          // current funding account
+	AccountName  string          // for display next to the change form
+	Accounts     []AccountOption // for the change-account <select>
+	AccountFlash string          // success flash after a successful PATCH
 	Target       int64
 	HasTarget    bool
 	Archived     bool
@@ -423,7 +427,7 @@ func (d PosDetailData) Wide() bool     { return false }
 func (d PosDetailData) HideBell() bool { return false }
 func (d PosDetailData) Route() string  { return "pos" }
 
-// PosNewData drives the "create Pos" form. Name/Currency/TargetRaw
+// PosNewData drives the "create Pos" form. Name/Currency/TargetRaw/AccountID
 // round-trip on validation failure so the user doesn't retype.
 type PosNewData struct {
 	Title       string
@@ -431,8 +435,10 @@ type PosNewData struct {
 	UnreadCount int
 	Name        string
 	Currency    string
-	TargetRaw   string   // string form so empty stays empty across re-renders
-	Errors      []string // list of validation messages, all rendered together
+	AccountID   string          // chosen account; required per spec §4.2
+	Accounts    []AccountOption // all non-archived accounts
+	TargetRaw   string          // string form so empty stays empty across re-renders
+	Errors      []string        // list of validation messages, all rendered together
 }
 
 func (d PosNewData) SignedIn() bool { return d.DisplayName != "" }
@@ -533,8 +539,8 @@ type TransactionRow struct {
 // AccountRow is one row in the Accounts table on /. Balance is derived
 // from transactions; until that path is wired, render zero.
 type AccountRow struct {
-	Name        string
-	BalanceIDR  int64 // smallest unit (rupiah cents); 0 when balance computation isn't wired
+	Name       string
+	BalanceIDR int64 // smallest unit (rupiah cents); 0 when balance computation isn't wired
 }
 
 // PosCurrencyGroup groups Pos rows by their currency for §6.2 rendering.
@@ -931,7 +937,7 @@ tbody tr:hover { background: color-mix(in oklab, var(--primary) 4%, transparent)
 .chip-neutral  { color: var(--text-secondary); background: var(--bg-fill); border-color: var(--border-secondary); }
 
 /* Colored amounts in transaction listings — fintech standard:
- * income green (`+`), expense default (chip carries red), transfers muted. */
+ * income green (` + `), expense default (chip carries red), transfers muted. */
 .amt-in      { color: #389E0D; font-weight: 500; }
 .amt-out     { color: var(--text); font-weight: 500; }
 .amt-neutral { color: var(--text-secondary); }
@@ -1227,6 +1233,21 @@ const posBody = `{{if .NotFound}}
 </table>
 </section>
 
+<section class="card">
+<h2>Funding account</h2>
+{{if .AccountFlash}}<p class="success" role="status">{{.AccountFlash}}</p>{{end}}
+<p class="subtitle">Currently held in <strong>{{.AccountName}}</strong>. Reassigning has snapshot semantics: per-account balances update retroactively, but this Pos's history is preserved.</p>
+<form method="post" action="/pos/{{.ID}}/account">
+<div class="field">
+<label for="change_account_id">Move to</label>
+<select id="change_account_id" name="account_id" required>
+{{range .Accounts}}<option value="{{.ID}}" {{if eq $.AccountID .ID}}selected{{end}}>{{.Name}}</option>
+{{end}}</select>
+</div>
+<button type="submit">Save</button>
+</form>
+</section>
+
 {{if .Obligations}}
 <section class="card">
 <h2>Open obligations</h2>
@@ -1299,6 +1320,14 @@ const posNewBody = `<h1>New Pos</h1>
   required maxlength="16" pattern="[a-z0-9-]+"
   placeholder="idr, usd, gold-g">
 <p class="hint">Lowercase letters, digits, hyphen. Example: idr · usd · gold-g.</p>
+</div>
+<div class="field">
+<label for="pos_account_id">Funding account</label>
+<select id="pos_account_id" name="account_id" required>
+<option value="" {{if not .AccountID}}selected{{end}} disabled>Choose an account…</option>
+{{range .Accounts}}<option value="{{.ID}}" {{if eq $.AccountID .ID}}selected{{end}}>{{.Name}}</option>
+{{end}}</select>
+<p class="hint">The IDR account that funds this Pos. Required for every Pos, including non-IDR (gold-g, USD) — it's the IDR backing. You can move the Pos later (the per-account view updates retroactively).</p>
 </div>
 <div class="field">
 <label for="target">Target <span style="color:var(--text-tertiary); font-weight:400;">(optional)</span></label>
@@ -1727,13 +1756,6 @@ const incomeTemplateDetailBody = `<h1>{{.Name}}</h1>
 <input id="effective_date" name="effective_date" type="date" required>
 </div>
 <div class="field">
-<label for="account_id">Receiving account</label>
-<select id="account_id" name="account_id" required>
-<option value="">— select —</option>
-{{range .Accounts}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
-</select>
-</div>
-<div class="field">
 <label for="counterparty_name">Counterparty</label>
 <input id="counterparty_name" name="counterparty_name" type="text" required maxlength="80"
   placeholder="e.g. PT Telkom">
@@ -1753,7 +1775,6 @@ const incomeTemplatePreviewBody = `<h1>Review allocation</h1>
 <tbody>
 <tr><td>Amount</td><td class="num"><strong>{{money .Amount "idr"}}</strong></td></tr>
 <tr><td>Date</td><td class="num">{{.EffectiveDate}}</td></tr>
-<tr><td>Account</td><td class="num">{{.AccountName}}</td></tr>
 <tr><td>Counterparty</td><td class="num">{{.CounterpartyName}}</td></tr>
 </tbody>
 </table>
@@ -1766,7 +1787,6 @@ const incomeTemplatePreviewBody = `<h1>Review allocation</h1>
 <form method="post" action="/income-templates/{{.ID}}/apply">
 <input type="hidden" name="amount" value="{{.AmountRaw}}">
 <input type="hidden" name="effective_date" value="{{.EffectiveDate}}">
-<input type="hidden" name="account_id" value="{{.AccountID}}">
 <input type="hidden" name="counterparty_name" value="{{.CounterpartyName}}">
 <input type="hidden" name="idempotency_key" value="{{.IdempotencyKey}}">
 

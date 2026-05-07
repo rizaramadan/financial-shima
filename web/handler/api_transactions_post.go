@@ -23,19 +23,23 @@ import (
 // APITransaction is the JSON shape for one transaction in /api/v1
 // responses. money_in / money_out only — inter_pos ships when the
 // Phase-7 line-items table lands.
+//
+// AccountID echoes the Pos's *current* account (§5.6 snapshot view) —
+// the field is read-only on the wire; transactions don't carry
+// account_id of their own (§4.2).
 type APITransaction struct {
-	ID              string    `json:"id"`
-	Type            string    `json:"type"`
-	EffectiveDate   string    `json:"effective_date"`
-	AccountID       string    `json:"account_id"`
-	AccountAmount   int64     `json:"account_amount"`
-	PosID           string    `json:"pos_id"`
-	PosAmount       int64     `json:"pos_amount"`
-	CounterpartyID  string    `json:"counterparty_id"`
-	Note            string    `json:"note,omitempty"`
-	IdempotencyKey  string    `json:"idempotency_key"`
-	CreatedAt       time.Time `json:"created_at"`
-	WasInserted     bool      `json:"was_inserted"`
+	ID             string    `json:"id"`
+	Type           string    `json:"type"`
+	EffectiveDate  string    `json:"effective_date"`
+	AccountID      string    `json:"account_id"`
+	AccountAmount  int64     `json:"account_amount"`
+	PosID          string    `json:"pos_id"`
+	PosAmount      int64     `json:"pos_amount"`
+	CounterpartyID string    `json:"counterparty_id"`
+	Note           string    `json:"note,omitempty"`
+	IdempotencyKey string    `json:"idempotency_key"`
+	CreatedAt      time.Time `json:"created_at"`
+	WasInserted    bool      `json:"was_inserted"`
 }
 
 // createTransactionRequest is the JSON body shape for POST.
@@ -44,10 +48,13 @@ type APITransaction struct {
 // route is the LLM seed flow (S23): caller doesn't track UUIDs, just
 // posts "Salary" or "Indomaret" and lets the server resolve case-
 // insensitively, creating the row inline if needed (spec §4.4).
+//
+// account_id is no longer accepted — the funding account is the Pos's
+// current account_id (spec §4.2). Sending one is rejected as an unknown
+// field by decodeJSONStrict.
 type createTransactionRequest struct {
 	Type             string `json:"type"`
 	EffectiveDate    string `json:"effective_date"` // YYYY-MM-DD
-	AccountID        string `json:"account_id"`
 	AccountAmount    int64  `json:"account_amount"`
 	PosID            string `json:"pos_id"`
 	PosAmount        int64  `json:"pos_amount"`
@@ -101,11 +108,6 @@ func (h *Handlers) APITransactionsCreate(c echo.Context) error {
 			mw.APIErrorCodeValidation,
 			"effective_date must be YYYY-MM-DD: "+err.Error())
 	}
-	accountID, err := uuid.Parse(req.AccountID)
-	if err != nil {
-		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, "account_id must be a valid UUID")
-	}
 	posID, err := uuid.Parse(req.PosID)
 	if err != nil {
 		return mw.WriteAPIError(c, http.StatusBadRequest,
@@ -116,19 +118,9 @@ func (h *Handlers) APITransactionsCreate(c echo.Context) error {
 	defer cancel()
 	q := dbq.New(h.DB)
 
-	// Resolve account.
-	account, err := q.GetAccount(ctx, pgtype.UUID{Bytes: accountID, Valid: true})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return mw.WriteAPIError(c, http.StatusNotFound,
-				mw.APIErrorCodeNotFound, "account not found")
-		}
-		c.Logger().Errorf("api txn: GetAccount: %v", err)
-		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to resolve account")
-	}
-
-	// Resolve pos.
+	// Resolve pos. Account is reached via pos.account_id (§4.2/§5.6);
+	// we then load that account to know if it's archived (validation
+	// surface from spec §5.1).
 	pos, err := q.GetPos(ctx, pgtype.UUID{Bytes: posID, Valid: true})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -138,6 +130,16 @@ func (h *Handlers) APITransactionsCreate(c echo.Context) error {
 		c.Logger().Errorf("api txn: GetPos: %v", err)
 		return mw.WriteAPIError(c, http.StatusInternalServerError,
 			mw.APIErrorCodeInternal, "failed to resolve pos")
+	}
+	account, err := q.GetAccount(ctx, pos.AccountID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return mw.WriteAPIError(c, http.StatusNotFound,
+				mw.APIErrorCodeNotFound, "pos's account not found")
+		}
+		c.Logger().Errorf("api txn: GetAccount via pos: %v", err)
+		return mw.WriteAPIError(c, http.StatusInternalServerError,
+			mw.APIErrorCodeInternal, "failed to resolve pos's account")
 	}
 
 	// Resolve counterparty: prefer id, fall back to get-or-create by name.
@@ -183,18 +185,18 @@ func (h *Handlers) APITransactionsCreate(c echo.Context) error {
 			"either counterparty_id or counterparty_name is required")
 	}
 
-	// Spec §5.1 validation via the pure logic package.
+	// Spec §5.1 validation via the pure logic package. Account-archived
+	// state rides on PosRef now (§4.2/§5.6: account is reached through
+	// pos.account_id).
 	in := logictxn.MoneyInput{
 		EffectiveDate: effDate,
-		Account: logictxn.AccountRef{
-			ID:       uuid.UUID(account.ID.Bytes).String(),
-			Archived: account.Archived,
-		},
 		AccountAmount: money.New(req.AccountAmount, "idr"),
 		Pos: logictxn.PosRef{
-			ID:       uuid.UUID(pos.ID.Bytes).String(),
-			Currency: pos.Currency,
-			Archived: pos.Archived,
+			ID:              uuid.UUID(pos.ID.Bytes).String(),
+			Currency:        pos.Currency,
+			Archived:        pos.Archived,
+			AccountID:       uuid.UUID(account.ID.Bytes).String(),
+			AccountArchived: account.Archived,
 		},
 		PosAmount:        money.New(req.PosAmount, pos.Currency),
 		CounterpartyName: counterpartyName,
@@ -234,7 +236,6 @@ func (h *Handlers) APITransactionsCreate(c echo.Context) error {
 	txnInput := ledger.MoneyTxnInput{
 		Type:           req.Type,
 		EffectiveDate:  pgtype.Date{Time: effDate, Valid: true},
-		AccountID:      accountID,
 		AccountAmount:  req.AccountAmount,
 		PosID:          posID,
 		PosAmount:      req.PosAmount,
@@ -277,7 +278,7 @@ func (h *Handlers) APITransactionsCreate(c echo.Context) error {
 		ID:             txnID.String(),
 		Type:           req.Type,
 		EffectiveDate:  req.EffectiveDate,
-		AccountID:      accountID.String(),
+		AccountID:      uuid.UUID(account.ID.Bytes).String(),
 		AccountAmount:  req.AccountAmount,
 		PosID:          posID.String(),
 		PosAmount:      req.PosAmount,

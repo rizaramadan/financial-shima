@@ -118,7 +118,6 @@ func TestIntegration_Insert_AtomicWithNotifications(t *testing.T) {
 	txnID, err := svc.Insert(ctx, ledger.MoneyTxnInput{
 		Type:           "money_in",
 		EffectiveDate:  today(),
-		AccountID:      f.AccountID,
 		AccountAmount:  500_000,
 		PosID:          f.PosID,
 		PosAmount:      500_000,
@@ -185,7 +184,6 @@ func TestIntegration_Insert_NotificationFailureRollsBack(t *testing.T) {
 	_, err := svc.Insert(ctx, ledger.MoneyTxnInput{
 		Type:           "money_in",
 		EffectiveDate:  today(),
-		AccountID:      f.AccountID,
 		AccountAmount:  100_000,
 		PosID:          f.PosID,
 		PosAmount:      100_000,
@@ -254,7 +252,6 @@ func TestIntegration_NotifyHookReturningNil_DoesNotBypassNotificationWrite(t *te
 	txnID, err := svc.Insert(ctx, ledger.MoneyTxnInput{
 		Type:           "money_in",
 		EffectiveDate:  today(),
-		AccountID:      f.AccountID,
 		AccountAmount:  100_000,
 		PosID:          f.PosID,
 		PosAmount:      100_000,
@@ -302,7 +299,6 @@ func TestIntegration_Insert_IdempotentReturnsSameRow(t *testing.T) {
 	in := ledger.MoneyTxnInput{
 		Type:           "money_in",
 		EffectiveDate:  today(),
-		AccountID:      f.AccountID,
 		AccountAmount:  250_000,
 		PosID:          f.PosID,
 		PosAmount:      250_000,
@@ -356,7 +352,6 @@ func TestIntegration_Insert_Idempotent_NoDuplicateNotifications(t *testing.T) {
 	in := ledger.MoneyTxnInput{
 		Type:           "money_in",
 		EffectiveDate:  today(),
-		AccountID:      f.AccountID,
 		AccountAmount:  100_000,
 		PosID:          f.PosID,
 		PosAmount:      100_000,
@@ -408,7 +403,6 @@ func TestIntegration_Insert_SeedSource_NoNotifications(t *testing.T) {
 	txnID, err := svc.Insert(ctx, ledger.MoneyTxnInput{
 		Type:           "money_in",
 		EffectiveDate:  today(),
-		AccountID:      f.AccountID,
 		AccountAmount:  100_000,
 		PosID:          f.PosID,
 		PosAmount:      100_000,
@@ -462,7 +456,6 @@ func TestIntegration_Insert_NonUUIDUserID_FailsFast(t *testing.T) {
 	_, err := svc.Insert(ctx, ledger.MoneyTxnInput{
 		Type:           "money_in",
 		EffectiveDate:  today(),
-		AccountID:      f.AccountID,
 		AccountAmount:  1,
 		PosID:          f.PosID,
 		PosAmount:      1,

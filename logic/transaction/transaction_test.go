@@ -13,9 +13,8 @@ var today = time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 func validIDRMoneyIn() MoneyInput {
 	return MoneyInput{
 		EffectiveDate:    today,
-		Account:          AccountRef{ID: "acc-1"},
 		AccountAmount:    money.New(100_000, "IDR"),
-		Pos:              PosRef{ID: "pos-1", Currency: "idr"},
+		Pos:              PosRef{ID: "pos-1", Currency: "idr", AccountID: "acc-1"},
 		PosAmount:        money.New(100_000, "IDR"),
 		CounterpartyName: "Salary",
 	}
@@ -61,8 +60,11 @@ func TestValidateMoneyIn_ZeroDate_Required(t *testing.T) {
 
 func TestValidateMoneyIn_ArchivedAccount_Rejected(t *testing.T) {
 	t.Parallel()
+	// Account-archived state now lives on PosRef (§4.2/§5.6: account is
+	// reached through pos.account_id; the handler hydrates this flag
+	// from the join before calling Validate).
 	in := validIDRMoneyIn()
-	in.Account.Archived = true
+	in.Pos.AccountArchived = true
 	errs := ValidateMoneyIn(in, today)
 	if !containsContaining(errs, "account is archived") {
 		t.Errorf("expected archived account error, got %v", errs)
@@ -128,9 +130,8 @@ func TestValidateMoneyIn_NonIDRPos_AmountsMayDiffer(t *testing.T) {
 	t.Parallel()
 	in := MoneyInput{
 		EffectiveDate:    today,
-		Account:          AccountRef{ID: "acc-1"},
 		AccountAmount:    money.New(6_000_000, "idr"), // Rp 6M
-		Pos:              PosRef{ID: "pos-1", Currency: "gold-g"},
+		Pos:              PosRef{ID: "pos-1", Currency: "gold-g", AccountID: "acc-1"},
 		PosAmount:        money.New(5, "gold-g"), // 5 grams
 		CounterpartyName: "Bullion Store",
 	}
