@@ -146,6 +146,10 @@ func TestPosNewPost_NilDB_RendersDBNotConfigured(t *testing.T) {
 
 	form := url.Values{
 		"name": {"Mortgage"}, "currency": {"idr"}, "target": {"12000000"},
+		// account_id is required by validation now (spec §4.2). The
+		// uuid is just a syntactically valid placeholder — the test's
+		// premise is that DB-nil short-circuits before any FK lookup.
+		"account_id": {"11111111-1111-1111-1111-111111111111"},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/pos", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

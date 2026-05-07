@@ -58,10 +58,14 @@ type createIncomeTemplateLineInput struct {
 
 // applyIncomeTemplateRequest is the body for POST /apply. The
 // "incoming" event the template will fan out into N money_in rows.
+//
+// account_id is no longer accepted — each generated row credits the
+// Pos's *current* account_id (spec §4.2/§5.6). If the operator wants
+// "this salary into BCA", they ensure each line's Pos points at BCA
+// via PATCH /api/v1/pos/:id beforehand.
 type applyIncomeTemplateRequest struct {
 	Amount           int64  `json:"amount"`
 	EffectiveDate    string `json:"effective_date"` // YYYY-MM-DD
-	AccountID        string `json:"account_id"`
 	CounterpartyID   string `json:"counterparty_id,omitempty"`
 	CounterpartyName string `json:"counterparty_name,omitempty"`
 	Note             string `json:"note,omitempty"`
@@ -282,11 +286,6 @@ func (h *Handlers) APIIncomeTemplateApply(c echo.Context) error {
 			mw.APIErrorCodeValidation,
 			"effective_date must be YYYY-MM-DD: "+err.Error())
 	}
-	accountID, err := uuid.Parse(req.AccountID)
-	if err != nil {
-		return mw.WriteAPIError(c, http.StatusBadRequest,
-			mw.APIErrorCodeValidation, "account_id must be a valid UUID")
-	}
 
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
 	defer cancel()
@@ -352,8 +351,14 @@ func (h *Handlers) APIIncomeTemplateApply(c echo.Context) error {
 		}
 	}
 
-	// Resolve every Pos so we know its currency for §5.1 validation
-	// per line. (Bulk-fetch to keep round-trips bounded.)
+	// Resolve every Pos so we know its currency AND its current funding
+	// account (§4.2: each Pos has its own account_id). Each generated
+	// money_in row credits the Pos's account, not a single shared
+	// account — accounts may differ across the template's lines.
+	posAccountID := map[string]pgtype.UUID{}
+	posAccountArchived := map[string]bool{}
+	posAccountUUID := map[string]uuid.UUID{}
+	accountCache := map[pgtype.UUID]dbq.Account{}
 	for _, a := range allocations {
 		if _, ok := posCurrencies[a.PosID]; ok {
 			continue
@@ -366,18 +371,23 @@ func (h *Handlers) APIIncomeTemplateApply(c echo.Context) error {
 				mw.APIErrorCodeInternal, "failed to resolve Pos for allocation")
 		}
 		posCurrencies[a.PosID] = pos.Currency
-	}
-
-	// Resolve account.
-	account, err := q.GetAccount(ctx, pgtype.UUID{Bytes: accountID, Valid: true})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return mw.WriteAPIError(c, http.StatusNotFound,
-				mw.APIErrorCodeNotFound, "account not found")
+		posAccountID[a.PosID] = pos.AccountID
+		acc, ok := accountCache[pos.AccountID]
+		if !ok {
+			acc, err = q.GetAccount(ctx, pos.AccountID)
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return mw.WriteAPIError(c, http.StatusNotFound,
+						mw.APIErrorCodeNotFound, "pos's account not found")
+				}
+				c.Logger().Errorf("apply: get pos account: %v", err)
+				return mw.WriteAPIError(c, http.StatusInternalServerError,
+					mw.APIErrorCodeInternal, "failed to resolve pos's account")
+			}
+			accountCache[pos.AccountID] = acc
 		}
-		c.Logger().Errorf("apply: get account: %v", err)
-		return mw.WriteAPIError(c, http.StatusInternalServerError,
-			mw.APIErrorCodeInternal, "failed to resolve account")
+		posAccountArchived[a.PosID] = acc.Archived
+		posAccountUUID[a.PosID] = uuid.UUID(acc.ID.Bytes)
 	}
 
 	// Resolve counterparty (id or name).
@@ -434,15 +444,17 @@ func (h *Handlers) APIIncomeTemplateApply(c echo.Context) error {
 				mw.APIErrorCodeValidation,
 				"income templates currently support IDR Pos only; line for non-IDR Pos rejected")
 		}
-		// AccountID and PosID stable; AccountAmount == PosAmount for IDR.
+		// AccountAmount == PosAmount for IDR. Account flows through
+		// the Pos's account_id (§4.2/§5.6).
 		in := logictxn.MoneyInput{
 			EffectiveDate: effDate,
-			Account: logictxn.AccountRef{
-				ID:       uuid.UUID(account.ID.Bytes).String(),
-				Archived: account.Archived,
+			AccountAmount: money.New(a.Amount, "idr"),
+			Pos: logictxn.PosRef{
+				ID:              a.PosID,
+				Currency:        "idr",
+				AccountID:       posAccountUUID[a.PosID].String(),
+				AccountArchived: posAccountArchived[a.PosID],
 			},
-			AccountAmount:    money.New(a.Amount, "idr"),
-			Pos:              logictxn.PosRef{ID: a.PosID, Currency: "idr"},
 			PosAmount:        money.New(a.Amount, "idr"),
 			CounterpartyName: counterpartyName,
 		}
@@ -465,7 +477,6 @@ func (h *Handlers) APIIncomeTemplateApply(c echo.Context) error {
 		txnInput := ledger.MoneyTxnInput{
 			Type:           "money_in",
 			EffectiveDate:  pgtype.Date{Time: effDate, Valid: true},
-			AccountID:      accountID,
 			AccountAmount:  a.Amount,
 			PosID:          posID,
 			PosAmount:      a.Amount,

@@ -25,18 +25,20 @@ import (
 // MoneyTxnInput is the validated, hydrated shape the Service accepts.
 // All FKs are present and the caller has already run logic/transaction.Validate*
 // on the user-facing input — Service does not re-validate spec §5.1 rules.
+//
+// AccountID is no longer carried on transactions (spec §4.2/§5.6); the
+// account is reached via pos.account_id. This struct also drops it.
 type MoneyTxnInput struct {
-	Type            string // "money_in" or "money_out"
-	EffectiveDate   pgtype.Date
-	AccountID       uuid.UUID
-	AccountAmount   int64
-	PosID           uuid.UUID
-	PosAmount       int64
-	CounterpartyID  uuid.UUID
-	Note            string // empty allowed
-	Source          notification.Source
-	CreatedBy       *uuid.UUID // nil for seed/api
-	IdempotencyKey  string
+	Type           string // "money_in" or "money_out"
+	EffectiveDate  pgtype.Date
+	AccountAmount  int64
+	PosID          uuid.UUID
+	PosAmount      int64
+	CounterpartyID uuid.UUID
+	Note           string // empty allowed
+	Source         notification.Source
+	CreatedBy      *uuid.UUID // nil for seed/api
+	IdempotencyKey string
 }
 
 // Pool is the subset of pgxpool.Pool the Service needs. Tests inject a
@@ -93,7 +95,6 @@ func (s *Service) Insert(ctx context.Context, in MoneyTxnInput) (uuid.UUID, erro
 	row, err := q.InsertMoneyTransaction(ctx, dbq.InsertMoneyTransactionParams{
 		Type:           dbq.TransactionType(in.Type),
 		EffectiveDate:  in.EffectiveDate,
-		AccountID:      pgtype.UUID{Bytes: in.AccountID, Valid: true},
 		AccountAmount:  ptr(in.AccountAmount),
 		PosID:          pgtype.UUID{Bytes: in.PosID, Valid: true},
 		PosAmount:      ptr(in.PosAmount),
@@ -164,7 +165,7 @@ func notificationTitle(txnType, displayName string) string {
 	return displayName + " logged a " + txnType
 }
 
-func ptr[T any](v T) *T   { return &v }
+func ptr[T any](v T) *T { return &v }
 func ptrStr(s string) *string {
 	if s == "" {
 		return nil

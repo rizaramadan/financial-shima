@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -71,11 +72,31 @@ func (h *Handlers) PosGet(c echo.Context) error {
 		ID:          uuid.UUID(pos.ID.Bytes).String(),
 		Name:        pos.Name,
 		Currency:    pos.Currency,
+		AccountID:   uuid.UUID(pos.AccountID.Bytes).String(),
 		Archived:    pos.Archived,
 	}
 	if pos.Target != nil {
 		data.Target = *pos.Target
 		data.HasTarget = true
+	}
+	if flash, _ := c.Cookie("pos_account_flash"); flash != nil && flash.Value != "" {
+		data.AccountFlash = flash.Value
+		// Clear the cookie so the flash shows once.
+		c.SetCookie(&http.Cookie{Name: "pos_account_flash", Value: "", Path: "/", MaxAge: -1})
+	}
+	if accRows, err := q.ListAccounts(ctx); err == nil {
+		for _, a := range accRows {
+			data.Accounts = append(data.Accounts, template.AccountOption{
+				ID:   uuid.UUID(a.ID.Bytes).String(),
+				Name: a.Name,
+			})
+			if a.ID == pos.AccountID {
+				data.AccountName = a.Name
+			}
+		}
+	} else {
+		c.Logger().Errorf("ListAccounts: %v", err)
+		data.LoadError = true
 	}
 
 	if cash, err := q.GetPosCashBalance(ctx, pgtype.UUID{Bytes: id, Valid: true}); err == nil {
@@ -179,4 +200,39 @@ func (h *Handlers) PosGet(c echo.Context) error {
 
 	data.UnreadCount = h.loadBellCount(ctx, c, u.ID)
 	return c.Render(http.StatusOK, "pos", data)
+}
+
+// PosUpdateAccountPost handles POST /pos/:id/account from the detail
+// page's "Funding account" form. Per spec §5.6, this is the snapshot-
+// semantic reassignment: pos.account_id changes, past balances re-
+// attribute on next read.
+func (h *Handlers) PosUpdateAccountPost(c echo.Context) error {
+	if _, ok := mw.CurrentUser(c); !ok {
+		return c.Redirect(http.StatusSeeOther, "/login")
+	}
+	posID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return c.Redirect(http.StatusSeeOther, "/")
+	}
+	if h.DB == nil {
+		return c.Redirect(http.StatusSeeOther, "/pos/"+c.Param("id"))
+	}
+	accountID, err := uuid.Parse(strings.TrimSpace(c.FormValue("account_id")))
+	if err != nil {
+		c.SetCookie(&http.Cookie{Name: "pos_account_flash", Value: "Invalid account.", Path: "/", MaxAge: 30})
+		return c.Redirect(http.StatusSeeOther, "/pos/"+posID.String())
+	}
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 3*time.Second)
+	defer cancel()
+	q := dbq.New(h.DB)
+	if _, err := q.UpdatePosAccount(ctx, dbq.UpdatePosAccountParams{
+		ID:        pgtype.UUID{Bytes: posID, Valid: true},
+		AccountID: pgtype.UUID{Bytes: accountID, Valid: true},
+	}); err != nil {
+		c.Logger().Errorf("UpdatePosAccount: %v", err)
+		c.SetCookie(&http.Cookie{Name: "pos_account_flash", Value: "Couldn’t move the Pos. Try again.", Path: "/", MaxAge: 30})
+		return c.Redirect(http.StatusSeeOther, "/pos/"+posID.String())
+	}
+	c.SetCookie(&http.Cookie{Name: "pos_account_flash", Value: "Funding account updated. Per-account balances now reflect the change.", Path: "/", MaxAge: 30})
+	return c.Redirect(http.StatusSeeOther, "/pos/"+posID.String())
 }

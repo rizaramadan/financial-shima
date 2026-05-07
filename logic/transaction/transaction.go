@@ -41,23 +41,30 @@ const (
 )
 
 // AccountRef is the validation-relevant slice of an Account record.
+// Per spec §4.2/§5.6 the Account is reached *through* the Pos
+// (`pos.account_id`); the handler hydrates AccountArchived from that
+// join before calling Validate.
 type AccountRef struct {
 	ID       string
 	Archived bool
 }
 
 // PosRef is the validation-relevant slice of a Pos record. Currency is
-// always lowercased per logic/money's convention.
+// always lowercased per logic/money's convention. AccountArchived is
+// the archived state of the Pos's *current* funding Account (§4.2).
 type PosRef struct {
-	ID       string
-	Currency string
-	Archived bool
+	ID              string
+	Currency        string
+	Archived        bool
+	AccountID       string
+	AccountArchived bool
 }
 
-// MoneyInput drives ValidateMoneyIn and ValidateMoneyOut.
+// MoneyInput drives ValidateMoneyIn and ValidateMoneyOut. The Account
+// (now reached via Pos) doesn't appear standalone — its only validation
+// surface is "is the funding account archived?", carried on PosRef.
 type MoneyInput struct {
 	EffectiveDate    time.Time
-	Account          AccountRef
 	AccountAmount    money.Money // IDR per spec §4.1
 	Pos              PosRef
 	PosAmount        money.Money
@@ -97,7 +104,7 @@ func validateMoneyDirected(in MoneyInput, today time.Time, _ Type) []string {
 
 	errs = append(errs, validateEffectiveDate(in.EffectiveDate, today)...)
 
-	if in.Account.Archived {
+	if in.Pos.AccountArchived {
 		errs = append(errs, "account is archived")
 	}
 	if in.Pos.Archived {

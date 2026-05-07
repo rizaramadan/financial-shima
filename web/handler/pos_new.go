@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/labstack/echo/v4"
 
 	"github.com/rizaramadan/financial-shima/db/dbq"
@@ -29,7 +30,32 @@ func (h *Handlers) PosNewGet(c echo.Context) error {
 	return c.Render(http.StatusOK, "pos_new", template.PosNewData{
 		Title:       "New Pos",
 		DisplayName: u.DisplayName,
+		Accounts:    loadAccountOptions(c, h),
 	})
+}
+
+// loadAccountOptions returns non-archived accounts for the form's
+// dropdown. Returns nil on DB-not-configured or query error so the form
+// still renders (the validation error path will surface the problem).
+func loadAccountOptions(c echo.Context, h *Handlers) []template.AccountOption {
+	if h.DB == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 3*time.Second)
+	defer cancel()
+	rows, err := dbq.New(h.DB).ListAccounts(ctx)
+	if err != nil {
+		c.Logger().Errorf("ListAccounts: %v", err)
+		return nil
+	}
+	out := make([]template.AccountOption, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, template.AccountOption{
+			ID:   uuid.UUID(r.ID.Bytes).String(),
+			Name: r.Name,
+		})
+	}
+	return out
 }
 
 // PosNewPost handles form submission. Validates via logic/pos.Validate,
@@ -47,20 +73,26 @@ func (h *Handlers) PosNewPost(c echo.Context) error {
 	}
 
 	in := pos.CreateInput{
-		Name:     c.FormValue("name"),
-		Currency: c.FormValue("currency"),
+		Name:      c.FormValue("name"),
+		Currency:  c.FormValue("currency"),
+		AccountID: c.FormValue("account_id"),
+	}
+	rerender := func(errs []string) error {
+		return c.Render(http.StatusOK, "pos_new", template.PosNewData{
+			Title:       "New Pos",
+			DisplayName: u.DisplayName,
+			Name:        in.Name,
+			Currency:    in.Currency,
+			AccountID:   in.AccountID,
+			Accounts:    loadAccountOptions(c, h),
+			TargetRaw:   c.FormValue("target"),
+			Errors:      errs,
+		})
 	}
 	if rawTarget := strings.TrimSpace(c.FormValue("target")); rawTarget != "" {
 		t, err := strconv.ParseInt(rawTarget, 10, 64)
 		if err != nil {
-			return c.Render(http.StatusOK, "pos_new", template.PosNewData{
-				Title:       "New Pos",
-				DisplayName: u.DisplayName,
-				Name:        in.Name,
-				Currency:    in.Currency,
-				TargetRaw:   rawTarget,
-				Errors:      []string{"Target must be a whole number (no decimals)."},
-			})
+			return rerender([]string{"Target must be a whole number (no decimals)."})
 		}
 		in.Target = t
 		in.HasTarget = true
@@ -68,33 +100,27 @@ func (h *Handlers) PosNewPost(c echo.Context) error {
 
 	in = pos.Normalize(in)
 	if errs := pos.Validate(in); len(errs) > 0 {
-		return c.Render(http.StatusOK, "pos_new", template.PosNewData{
-			Title:       "New Pos",
-			DisplayName: u.DisplayName,
-			Name:        in.Name,
-			Currency:    in.Currency,
-			TargetRaw:   c.FormValue("target"),
-			Errors:      errs,
-		})
+		return rerender(errs)
+	}
+	accountUUID, err := uuid.Parse(in.AccountID)
+	if err != nil {
+		return rerender([]string{"Account is invalid."})
 	}
 
 	if h.DB == nil {
 		// No data layer wired — render the form with a friendly message
 		// rather than 500. (This path is exercised by handler unit tests.)
-		return c.Render(http.StatusOK, "pos_new", template.PosNewData{
-			Title:       "New Pos",
-			DisplayName: u.DisplayName,
-			Name:        in.Name,
-			Currency:    in.Currency,
-			TargetRaw:   c.FormValue("target"),
-			Errors:      []string{"Database is not configured. Set DATABASE_URL and restart."},
-		})
+		return rerender([]string{"Database is not configured. Set DATABASE_URL and restart."})
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 3*time.Second)
 	defer cancel()
 
-	params := dbq.CreatePosParams{Name: in.Name, Currency: in.Currency}
+	params := dbq.CreatePosParams{
+		Name:      in.Name,
+		Currency:  in.Currency,
+		AccountID: pgtype.UUID{Bytes: accountUUID, Valid: true},
+	}
 	if in.HasTarget {
 		t := in.Target
 		params.Target = &t
@@ -106,24 +132,13 @@ func (h *Handlers) PosNewPost(c echo.Context) error {
 		// duplicate. Surface it as a form error.
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return c.Render(http.StatusOK, "pos_new", template.PosNewData{
-				Title:       "New Pos",
-				DisplayName: u.DisplayName,
-				Name:        in.Name,
-				Currency:    in.Currency,
-				TargetRaw:   c.FormValue("target"),
-				Errors:      []string{"A Pos with that name and currency already exists."},
-			})
+			return rerender([]string{"A Pos with that name and currency already exists."})
+		}
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return rerender([]string{"Selected account no longer exists."})
 		}
 		c.Logger().Errorf("CreatePos: %v", err)
-		return c.Render(http.StatusOK, "pos_new", template.PosNewData{
-			Title:       "New Pos",
-			DisplayName: u.DisplayName,
-			Name:        in.Name,
-			Currency:    in.Currency,
-			TargetRaw:   c.FormValue("target"),
-			Errors:      []string{"Couldn’t create the Pos right now. Try again in a moment."},
-		})
+		return rerender([]string{"Couldn’t create the Pos right now. Try again in a moment."})
 	}
 
 	id := uuid.UUID(row.ID.Bytes).String()
