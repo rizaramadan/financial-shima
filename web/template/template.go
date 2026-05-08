@@ -52,6 +52,8 @@ func New() *Renderer {
 	template.Must(t.New("income_template_detail").Parse(layoutOpen + incomeTemplateDetailBody + layoutClose))
 	template.Must(t.New("income_template_preview").Parse(layoutOpen + incomeTemplatePreviewBody + layoutClose))
 	template.Must(t.New("settings").Parse(layoutOpen + settingsBody + layoutClose))
+	template.Must(t.New("accounts").Parse(layoutOpen + accountsBody + layoutClose))
+	template.Must(t.New("account_new").Parse(layoutOpen + accountNewBody + layoutClose))
 	return &Renderer{t: t}
 }
 
@@ -926,6 +928,7 @@ tr.totals td { font-weight: 600; }
 <a href="/transactions"{{if eq .Route "transactions"}} aria-current="page"{{end}}>Transactions</a>
 <a href="/spending"{{if eq .Route "spending"}} aria-current="page"{{end}}>Spending</a>
 <a href="/income-templates"{{if eq .Route "income"}} aria-current="page"{{end}}>Income</a>
+<a href="/accounts"{{if eq .Route "accounts"}} aria-current="page"{{end}}>Accounts</a>
 <a href="/notifications"{{if eq .Route "notifications"}} aria-current="page"{{end}}>Notifications<span class="badge" aria-label="{{.UnreadCount}} unread">{{if .UnreadCount}}{{.UnreadCount}}{{end}}</span></a>
 <a href="/settings" class="nav-end"{{if eq .Route "settings"}} aria-current="page"{{end}} aria-label="Settings">⚙</a>
 <form method="post" action="/logout">
@@ -1112,6 +1115,32 @@ const posBody = `{{if .NotFound}}
 <button type="submit">Save</button>
 </form>
 </section>
+
+{{if not .Archived}}
+<section class="card">
+<h2>Edit</h2>
+<form method="post" action="/pos/{{.ID}}/rename">
+<div class="field">
+<label for="rename_name">Name</label>
+<input id="rename_name" name="name" type="text" value="{{.Name}}" required maxlength="80">
+</div>
+<div class="field">
+<label for="rename_target">Target <span style="color:var(--text-tertiary); font-weight:400;">(optional, smallest unit; leave blank to clear)</span></label>
+<input id="rename_target" name="target" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="16" value="{{if .HasTarget}}{{.Target}}{{end}}">
+</div>
+<p class="hint">Currency ({{.Currency}}) is fixed; archive and recreate this Pos to change it.</p>
+<button type="submit">Save changes</button>
+</form>
+</section>
+
+<section class="card">
+<h2>Archive</h2>
+<p class="subtitle">Archived Pos disappear from the home view but their history is preserved. Re-create or unarchive via SQL if needed.</p>
+<form method="post" action="/pos/{{.ID}}/archive" onsubmit="return confirm('Archive this Pos? It will hide from default views but past transactions stay.');">
+<button type="submit">Archive this Pos</button>
+</form>
+</section>
+{{end}}
 
 {{if .Obligations}}
 <section class="card">
@@ -1622,6 +1651,100 @@ func (d SettingsData) Compact() bool  { return false }
 func (d SettingsData) Wide() bool     { return false }
 func (d SettingsData) HideBell() bool { return false }
 func (d SettingsData) Route() string  { return "settings" }
+
+// AccountManageRow is a row on /accounts. Drives the rename + archive
+// forms inline; archived rows render with the action area suppressed.
+type AccountManageRow struct {
+	ID       string
+	Name     string
+	Archived bool
+}
+
+// AccountsData drives /accounts (manage list view).
+type AccountsData struct {
+	Title       string
+	DisplayName string
+	UnreadCount int
+	Accounts    []AccountManageRow
+	Flash       string
+	Error       string
+}
+
+func (d AccountsData) SignedIn() bool { return d.DisplayName != "" }
+func (d AccountsData) Compact() bool  { return false }
+func (d AccountsData) Wide() bool     { return false }
+func (d AccountsData) HideBell() bool { return false }
+func (d AccountsData) Route() string  { return "accounts" }
+
+// AccountNewData drives /accounts/new — name round-trips on validation.
+type AccountNewData struct {
+	Title       string
+	DisplayName string
+	UnreadCount int
+	Name        string
+	Errors      []string
+}
+
+func (d AccountNewData) SignedIn() bool { return d.DisplayName != "" }
+func (d AccountNewData) Compact() bool  { return true }
+func (d AccountNewData) Wide() bool     { return false }
+func (d AccountNewData) HideBell() bool { return false }
+func (d AccountNewData) Route() string  { return "accounts" }
+
+const accountsBody = `<h1>Accounts</h1>
+<p class="subtitle">An Account is an IDR purse — a real bank account, cash on hand, etc. Pos point at exactly one Account; reassigning a Pos has snapshot semantics (§5.6).</p>
+{{if .Flash}}<p class="success" role="status">{{.Flash}}</p>{{end}}
+{{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
+<p class="aside"><a class="linkbtn" href="/accounts/new">+ New Account</a></p>
+{{if not .Accounts}}
+<p class="subtitle">No accounts yet. Create one above.</p>
+{{else}}
+<div class="table-wrap">
+<table>
+<thead><tr><th>Name</th><th>Status</th><th>Actions</th></tr></thead>
+<tbody>
+{{range .Accounts}}
+<tr>
+<td>
+  <form method="post" action="/accounts/{{.ID}}/rename" style="display:flex; gap:8px; align-items:center; min-width:280px;">
+    <input type="text" name="name" value="{{.Name}}" required maxlength="80" style="flex:1 1 auto; min-width:0; width:100%;">
+    <button type="submit" style="white-space:nowrap;">Rename</button>
+  </form>
+</td>
+<td>{{if .Archived}}<span class="chip">archived</span>{{else}}<span class="chip chip-in">active</span>{{end}}</td>
+<td>{{if not .Archived}}
+  <form method="post" action="/accounts/{{.ID}}/archive" onsubmit="return confirm('Archive this account? Existing Pos still pointing at it will keep working but the account will be hidden from default lists.');">
+    <button type="submit">Archive</button>
+  </form>
+{{else}}&mdash;{{end}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</div>
+{{end}}`
+
+const accountNewBody = `<h1>New Account</h1>
+<p class="subtitle">Create an IDR purse. After creation, point a Pos at it via the Pos detail page.</p>
+{{if .Errors}}
+<div class="alert" role="alert">
+<strong>Couldn&rsquo;t save this Account:</strong>
+<ul style="margin:8px 0 0 20px; padding:0;">
+{{range .Errors}}<li>{{.}}</li>{{end}}
+</ul>
+</div>
+{{end}}
+<form method="post" action="/accounts">
+<div class="field">
+<label for="name">Name</label>
+<input id="name" name="name" type="text" value="{{.Name}}"
+  autocapitalize="words" autocorrect="off" spellcheck="false"
+  required maxlength="80"
+  placeholder="e.g. BCA Joint, Cash, Mandiri Riza">
+</div>
+<button type="submit">Create Account</button>
+</form>
+<p class="aside"><a class="linkbtn" href="/accounts">&larr; Cancel</a></p>`
 
 const settingsBody = `<h1>Settings</h1>
 <p class="subtitle">Display preferences for this device. Stored in a cookie.</p>

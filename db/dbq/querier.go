@@ -102,11 +102,20 @@ type Querier interface {
 	// always denominate pos_amount in the pos's currency (§4.3 / §5.1).
 	SumPosCashBalances(ctx context.Context) ([]SumPosCashBalancesRow, error)
 	UnreadCount(ctx context.Context, userID pgtype.UUID) (int64, error)
+	// Rename an account. Account.name is free text per spec §4.1; no
+	// uniqueness constraint, so a rename to a clashing name is allowed.
+	UpdateAccountName(ctx context.Context, arg UpdateAccountNameParams) (Account, error)
 	// Reassign a Pos to a different Account. Snapshot semantics per spec
 	// §5.6: every historical money_in / money_out for this Pos is re-
 	// attributed to the new Account on the next balance read; no ledger
 	// entry is written. Returns the updated Pos so the caller can echo it.
 	UpdatePosAccount(ctx context.Context, arg UpdatePosAccountParams) (Po, error)
+	// Rename a Pos and/or change its budget target. Currency is
+	// intentionally NOT mutable here — changing it would re-bucket every
+	// past transaction's pos_amount semantics, which is the kind of
+	// balance-mutating UPDATE spec §10.3 forbids. Callers wanting a
+	// different currency archive this Pos and create a new one.
+	UpdatePosNameAndTarget(ctx context.Context, arg UpdatePosNameAndTargetParams) (Po, error)
 	UpsertUser(ctx context.Context, arg UpsertUserParams) (User, error)
 }
 

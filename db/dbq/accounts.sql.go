@@ -109,3 +109,27 @@ func (q *Queries) ListAccountsIncludingArchived(ctx context.Context) ([]Account,
 	}
 	return items, nil
 }
+
+const updateAccountName = `-- name: UpdateAccountName :one
+UPDATE accounts SET name = $2 WHERE id = $1
+RETURNING id, name, archived, created_at
+`
+
+type UpdateAccountNameParams struct {
+	ID   pgtype.UUID
+	Name string
+}
+
+// Rename an account. Account.name is free text per spec §4.1; no
+// uniqueness constraint, so a rename to a clashing name is allowed.
+func (q *Queries) UpdateAccountName(ctx context.Context, arg UpdateAccountNameParams) (Account, error) {
+	row := q.db.QueryRow(ctx, updateAccountName, arg.ID, arg.Name)
+	var i Account
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Archived,
+		&i.CreatedAt,
+	)
+	return i, err
+}

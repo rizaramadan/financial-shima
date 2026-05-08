@@ -164,3 +164,34 @@ func (q *Queries) UpdatePosAccount(ctx context.Context, arg UpdatePosAccountPara
 	)
 	return i, err
 }
+
+const updatePosNameAndTarget = `-- name: UpdatePosNameAndTarget :one
+UPDATE pos SET name = $2, target = $3 WHERE id = $1
+RETURNING id, name, currency, target, archived, created_at, account_id
+`
+
+type UpdatePosNameAndTargetParams struct {
+	ID     pgtype.UUID
+	Name   string
+	Target *int64
+}
+
+// Rename a Pos and/or change its budget target. Currency is
+// intentionally NOT mutable here — changing it would re-bucket every
+// past transaction's pos_amount semantics, which is the kind of
+// balance-mutating UPDATE spec §10.3 forbids. Callers wanting a
+// different currency archive this Pos and create a new one.
+func (q *Queries) UpdatePosNameAndTarget(ctx context.Context, arg UpdatePosNameAndTargetParams) (Po, error) {
+	row := q.db.QueryRow(ctx, updatePosNameAndTarget, arg.ID, arg.Name, arg.Target)
+	var i Po
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Currency,
+		&i.Target,
+		&i.Archived,
+		&i.CreatedAt,
+		&i.AccountID,
+	)
+	return i, err
+}
