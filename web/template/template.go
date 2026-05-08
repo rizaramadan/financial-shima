@@ -553,6 +553,7 @@ type PosCurrencyGroup struct {
 
 // PosRow is one row in a per-currency Pos table.
 type PosRow struct {
+	ID        string // links the row to /pos/:id detail page
 	Name      string
 	Cash      int64 // unit = the group's currency's smallest unit; zero until wired
 	Target    int64
@@ -1517,7 +1518,7 @@ const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
 <tbody>
 {{range $g.Items}}
 <tr>
-  <td>{{.Name}}</td>
+  <td>{{if .ID}}<a href="/pos/{{.ID}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td>
   <td class="num{{if lt .Cash 0}} neg-cash{{end}}">{{money .Cash $g.Currency}}</td>
   <td class="num">{{if .HasTarget}}{{money .Target $g.Currency}}<span class="progress" aria-label="{{pct .Cash .Target}}% of target"><span class="progress-fill" style="width: {{pct .Cash .Target}}%"></span></span>{{else}}&mdash;{{end}}</td>
 </tr>
