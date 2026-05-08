@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -90,6 +91,11 @@ func (r *Recorder) SendOTP(ctx context.Context, code, displayName string) error 
 		return r.ErrToReturn
 	}
 	r.Sent = append(r.Sent, SentMessage{Code: code, DisplayName: displayName, At: time.Now()})
+	// Honour the type's stated contract: in dev mode, print the code so
+	// the operator can complete the login flow without a real Telegram
+	// delivery. Production wiring uses HTTPClient; this path only fires
+	// when OTP_ASSISTANT_URL/_API_KEY are unset.
+	log.Printf("Recorder OTP for %s: %s", displayName, code)
 	return nil
 }
 
