@@ -1441,19 +1441,12 @@ const transactionNewBody = `<h1>{{.Title}}</h1>
 <input id="effective_date" name="effective_date" type="date" required value="{{.EffectiveDate}}">
 </div>
 <div class="field">
-<label for="account_id">{{if .IsIncoming}}Receiving account{{else}}Source account{{end}}</label>
-<select id="account_id" name="account_id" required>
-<option value="">— select —</option>
-{{range .Accounts}}<option value="{{.ID}}"{{if eq .ID $.AccountID}} selected{{end}}>{{.Name}}</option>{{end}}
-</select>
-</div>
-<div class="field">
 <label for="pos_id">{{if .IsIncoming}}Destination Pos{{else}}Pos charged{{end}}</label>
 <select id="pos_id" name="pos_id" required>
 <option value="">— select —</option>
 {{range .PosOptions}}<option value="{{.ID}}"{{if eq .ID $.PosID}} selected{{end}}>{{.Name}} ({{.Currency}})</option>{{end}}
 </select>
-<p class="hint">IDR Pos only. Cross-currency lives behind the API for now.</p>
+<p class="hint">The receiving / source account is the Pos's funding account (spec §4.2). IDR only here; cross-currency stays behind the API.</p>
 </div>
 <div class="field">
 <label for="amount">Amount (IDR, smallest unit)</label>

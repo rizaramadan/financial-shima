@@ -69,7 +69,6 @@ func (h *Handlers) TransactionNewPost(c echo.Context) error {
 		DisplayName:      u.DisplayName,
 		Type:             strings.TrimSpace(c.FormValue("type")),
 		EffectiveDate:    strings.TrimSpace(c.FormValue("effective_date")),
-		AccountID:        strings.TrimSpace(c.FormValue("account_id")),
 		PosID:            strings.TrimSpace(c.FormValue("pos_id")),
 		AmountRaw:        strings.TrimSpace(c.FormValue("amount")),
 		CounterpartyName: strings.TrimSpace(c.FormValue("counterparty_name")),
@@ -100,10 +99,6 @@ func (h *Handlers) TransactionNewPost(c echo.Context) error {
 	if err != nil {
 		return rerender([]string{"Effective date is required (YYYY-MM-DD)."})
 	}
-	accountID, err := uuid.Parse(in.AccountID)
-	if err != nil {
-		return rerender([]string{"Account is required."})
-	}
 	posID, err := uuid.Parse(in.PosID)
 	if err != nil {
 		return rerender([]string{"Pos is required."})
@@ -124,17 +119,18 @@ func (h *Handlers) TransactionNewPost(c echo.Context) error {
 	defer cancel()
 	q := dbq.New(h.DB)
 
-	// Resolve account + pos so we can run §5.1 validation against real
-	// rows (currency, archived) before handing off to ledger.
-	account, err := q.GetAccount(ctx, pgtype.UUID{Bytes: accountID, Valid: true})
-	if err != nil {
-		c.Logger().Errorf("[FS-0270] new txn: GetAccount: %v", err)
-		return rerender([]string{"Account not found."})
-	}
+	// Resolve pos and follow its account_id (§4.2/§5.6) so we can run
+	// §5.1 validation against real rows (currency, archived) before
+	// handing off to ledger.
 	pos, err := q.GetPos(ctx, pgtype.UUID{Bytes: posID, Valid: true})
 	if err != nil {
 		c.Logger().Errorf("[FS-0271] new txn: GetPos: %v", err)
 		return rerender([]string{"Pos not found."})
+	}
+	account, err := q.GetAccount(ctx, pos.AccountID)
+	if err != nil {
+		c.Logger().Errorf("[FS-0270] new txn: GetAccount via pos: %v", err)
+		return rerender([]string{"Account not found for this Pos."})
 	}
 	// Web form is IDR-only for now; reject cross-currency until we
 	// design the FX UX. API can still do it directly.
@@ -153,15 +149,13 @@ func (h *Handlers) TransactionNewPost(c echo.Context) error {
 
 	logicIn := logictxn.MoneyInput{
 		EffectiveDate: effDate,
-		Account: logictxn.AccountRef{
-			ID:       uuid.UUID(account.ID.Bytes).String(),
-			Archived: account.Archived,
-		},
 		AccountAmount: money.New(amount, "idr"),
 		Pos: logictxn.PosRef{
-			ID:       uuid.UUID(pos.ID.Bytes).String(),
-			Currency: pos.Currency,
-			Archived: pos.Archived,
+			ID:              uuid.UUID(pos.ID.Bytes).String(),
+			Currency:        pos.Currency,
+			Archived:        pos.Archived,
+			AccountID:       uuid.UUID(account.ID.Bytes).String(),
+			AccountArchived: account.Archived,
 		},
 		PosAmount:        money.New(amount, "idr"),
 		CounterpartyName: cpRow.Name,
@@ -180,7 +174,6 @@ func (h *Handlers) TransactionNewPost(c echo.Context) error {
 	_, err = svc.Insert(ctx, ledger.MoneyTxnInput{
 		Type:           in.Type,
 		EffectiveDate:  pgtype.Date{Time: effDate, Valid: true},
-		AccountID:      accountID,
 		AccountAmount:  amount,
 		PosID:          posID,
 		PosAmount:      amount,
