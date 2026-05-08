@@ -72,6 +72,13 @@ func main() {
 	rec := &assistant.Recorder{}
 	a := auth.New(users, clock.System{}, rand.Reader, idgen.Crypto{})
 	h := handler.New(a, rec, pool)
+	// Mirror cmd/server: shared password from env. Dev defaults to a
+	// known value so browser-driven scripts (mobile_check.js, uat.js)
+	// don't have to wire LOGIN_PASSWORD themselves.
+	h.LoginPassword = os.Getenv("LOGIN_PASSWORD")
+	if h.LoginPassword == "" {
+		h.LoginPassword = "dev-password"
+	}
 
 	e := echo.New()
 	e.Renderer = template.New()
@@ -89,6 +96,8 @@ func main() {
 	e.POST("/notifications/:id/read", h.NotificationMarkRead)
 	e.POST("/notifications/mark-all-read", h.NotificationsMarkAllRead)
 	e.GET("/transactions", h.TransactionsGet)
+	e.GET("/transactions/new", h.TransactionNewGet)
+	e.POST("/transactions", h.TransactionNewPost)
 	e.GET("/pos/new", h.PosNewGet)
 	e.POST("/pos", h.PosNewPost)
 	e.GET("/pos/:id", h.PosGet)

@@ -198,6 +198,23 @@ func (a *Auth) Verify(identifier string, submitted otp.Code) VerifyOutcome {
 	return VerifyOutcome{Result: Rejected}
 }
 
+// MintSession creates a session for u and stores it. It bypasses OTP — the
+// caller is responsible for whatever credential check authorizes this (e.g.
+// the LOGIN_PASSWORD env-var check in the login handler).
+func (a *Auth) MintSession(u user.User) Session {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := a.Clock.Now()
+	s := Session{
+		Token:     a.IDGen.NewID(),
+		UserID:    u.ID,
+		IssuedAt:  now,
+		ExpiresAt: now.Add(SessionLifetime),
+	}
+	a.sessions[s.Token] = s
+	return s
+}
+
 // ResolveSession returns the user attached to a session token if it exists
 // and has not expired. This is what middleware calls on every request.
 func (a *Auth) ResolveSession(token string) (user.User, bool) {

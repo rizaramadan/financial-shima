@@ -44,6 +44,7 @@ func New() *Renderer {
 	template.Must(t.New("home").Parse(layoutOpen + homeBody + layoutClose))
 	template.Must(t.New("notifications").Parse(layoutOpen + notificationsBody + layoutClose))
 	template.Must(t.New("transactions").Parse(layoutOpen + transactionsBody + layoutClose))
+	template.Must(t.New("transaction_new").Parse(layoutOpen + transactionNewBody + layoutClose))
 	template.Must(t.New("pos").Parse(layoutOpen + posBody + layoutClose))
 	template.Must(t.New("pos_new").Parse(layoutOpen + posNewBody + layoutClose))
 	template.Must(t.New("spending").Parse(layoutOpen + spendingBody + layoutClose))
@@ -493,6 +494,35 @@ func (d TransactionsData) Wide() bool     { return true }
 func (d TransactionsData) HideBell() bool { return false }
 func (d TransactionsData) Route() string  { return "transactions" }
 
+// TransactionNewData drives the one-off "new income" / "new spending"
+// form. Type is set by the handler from the ?type= query param so the
+// same template renders both with focused titles + submit labels. All
+// raw form fields are kept as strings so a validation failure can
+// re-render with the user's input intact.
+type TransactionNewData struct {
+	Title            string
+	DisplayName      string
+	UnreadCount      int
+	Type             string // "money_in" | "money_out"
+	EffectiveDate    string // YYYY-MM-DD
+	AccountID        string
+	PosID            string
+	AmountRaw        string
+	CounterpartyName string
+	Note             string
+	IdempotencyKey   string
+	Accounts         []AccountOption
+	PosOptions       []PosOption
+	Errors           []string
+}
+
+func (d TransactionNewData) SignedIn() bool { return d.DisplayName != "" }
+func (d TransactionNewData) Compact() bool  { return false }
+func (d TransactionNewData) Wide() bool     { return false }
+func (d TransactionNewData) HideBell() bool { return false }
+func (d TransactionNewData) Route() string  { return "transactions" }
+func (d TransactionNewData) IsIncoming() bool { return d.Type == "money_in" }
+
 // TransactionRow is one row in the list, pre-flattened from the SQL join.
 type TransactionRow struct {
 	ID               string
@@ -652,6 +682,8 @@ const layoutOpen = `<!doctype html>
 ::selection { background: color-mix(in oklab, var(--primary) 25%, transparent); }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
+/* Mobile-first: base rules target narrow viewports; min-width queries
+ * scale up for tablets (≥480px) and desktop (≥768px). */
 body {
   background: var(--bg-page);
   color: var(--text);
@@ -661,24 +693,44 @@ body {
   font-size: var(--font-base); line-height: 1.5714;
   min-height: 100vh; display: grid;
   align-items: start; justify-items: center;
-  padding: 24px;
+  padding: 0;
 }
-@media (max-width: 360px) { body { padding: 16px; } }
 main {
   position: relative; /* anchor for the bell */
   width: 100%; max-width: 720px;
+  /* Body is display:grid, so main as a grid item defaults to
+   * min-width: auto (= min-content). Without this override, the
+   * sticky .nav with its overflow-x:auto child cannot shrink — main
+   * grows to fit the nav's full unbroken width (~486px), pushes past
+   * the 375px viewport, and the browser auto-zooms-out the whole
+   * page. min-width:0 lets main collapse so the nav scrolls
+   * internally as designed. */
+  min-width: 0;
   background: var(--bg-container);
-  border-radius: var(--radius-lg);
-  padding: 32px;
+  border-radius: 0;
+  padding: 16px;
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--border-secondary);
+  border-left: 0; border-right: 0;
 }
-main.compact { max-width: 420px; padding: 32px 28px; }
+main.compact { max-width: 420px; }
 main.wide    { max-width: 920px; }
-@media (max-width: 480px) { main { padding: 20px; border-radius: 0;
-  border-left: 0; border-right: 0; } }
-h1 { font-size: var(--font-h2); font-weight: 600; line-height: 1.21;
+@media (min-width: 480px) {
+  body { padding: 16px; }
+  main { padding: 24px; border-radius: var(--radius-lg);
+    border-left: 1px solid var(--border-secondary);
+    border-right: 1px solid var(--border-secondary); }
+}
+@media (min-width: 768px) {
+  body { padding: 24px; }
+  main { padding: 32px; }
+  main.compact { padding: 32px 28px; }
+}
+h1 { font-size: var(--font-h3); font-weight: 600; line-height: 1.27;
   margin: 0 0 16px; color: var(--text); }
+@media (min-width: 480px) {
+  h1 { font-size: var(--font-h2); line-height: 1.21; }
+}
 h2 { font-size: var(--font-h5); font-weight: 600; margin: 0 0 8px; color: var(--text); }
 
 form { margin: 0; }
@@ -710,8 +762,8 @@ button {
   cursor: pointer; transition: background 0.2s, border-color 0.2s;
   box-shadow: 0 2px 0 rgba(35, 120, 4, 0.12);
 }
-button:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
-button:active:not(:disabled) { background: var(--primary-active); border-color: var(--primary-active); }
+button:not(.linkbtn):hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
+button:not(.linkbtn):active:not(:disabled) { background: var(--primary-active); border-color: var(--primary-active); }
 button:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 25%, transparent); }
 button:disabled {
   background: var(--bg-fill); color: var(--text-tertiary);
@@ -750,19 +802,23 @@ button:disabled {
 .card h2 { font-size: var(--font-base); font-weight: 600; margin: 0 0 12px;
   color: var(--text-tertiary); text-transform: none; letter-spacing: 0; }
 
-/* AntD Table */
+/* AntD Table — tighter cell padding on mobile to fit more columns
+ * before .table-wrap kicks in horizontal scroll. */
 table {
   width: 100%; border-collapse: collapse;
   font-size: var(--font-base); color: var(--text);
 }
 thead th {
   background: var(--bg-fill); color: var(--text);
-  font-weight: 500; padding: 12px 16px;
+  font-weight: 500; padding: 10px 8px;
   border-bottom: 1px solid var(--border-secondary); text-align: left;
 }
 tbody td {
-  padding: 12px 16px;
+  padding: 10px 8px;
   border-bottom: 1px solid var(--border-secondary);
+}
+@media (min-width: 480px) {
+  thead th, tbody td { padding: 12px 16px; }
 }
 tbody tr:hover { background: color-mix(in oklab, var(--primary) 4%, transparent); }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -781,10 +837,11 @@ tbody tr:hover { background: color-mix(in oklab, var(--primary) 4%, transparent)
 }
 .badge:empty { display: none; }
 
-/* Notifications feed */
+/* Notifications feed — on mobile, stack action below the body so the
+ * "Mark read" tap target sits on its own line; ≥480px goes inline. */
 .notifs { list-style: none; margin: 0; padding: 0; }
 .notif {
-  display: flex; gap: 12px; padding: 12px 0;
+  display: flex; flex-direction: column; gap: 8px; padding: 12px 0;
   border-bottom: 1px solid var(--border-secondary);
 }
 .notif:last-child { border-bottom: 0; }
@@ -793,14 +850,52 @@ tbody tr:hover { background: color-mix(in oklab, var(--primary) 4%, transparent)
 .notif-link { flex: 1; display: block; text-decoration: none; color: inherit; }
 .notif-body { display: block; font-size: var(--font-base); color: var(--text-secondary); margin-top: 4px; }
 .notif-time { display: block; font-size: var(--font-sm); color: var(--text-tertiary); margin-top: 4px; }
-.notif-actions { flex-shrink: 0; }
+.notif-actions { flex-shrink: 0; align-self: flex-start; }
+@media (min-width: 480px) {
+  .notif { flex-direction: row; gap: 12px; }
+}
 
-/* Filter row — input + button both AntD middle-size (32px tall). */
+/* Filter row — mobile stacks each control to a comfortable touch target
+ * (40px); ≥480px collapses to AntD middle size (32px) on a single row. */
 .filter { display: flex; gap: 12px; align-items: end; margin: 0 0 24px; flex-wrap: wrap; }
 .filter label { display: flex; flex-direction: column; gap: 4px;
-  font-size: var(--font-sm); color: var(--text-tertiary); }
-.filter input { width: auto; min-width: 144px; height: 32px; padding: 4px 11px; }
-.filter button { width: auto; height: 32px; padding: 0 16px; box-shadow: 0 2px 0 rgba(35, 120, 4, 0.12); }
+  font-size: var(--font-sm); color: var(--text-tertiary);
+  flex: 1 1 140px; }
+.filter input { width: 100%; height: 40px; padding: 8px 12px; }
+.filter button { width: 100%; height: 40px; padding: 0 16px;
+  box-shadow: 0 2px 0 rgba(35, 120, 4, 0.12); }
+@media (min-width: 480px) {
+  .filter label { flex: 0 0 auto; }
+  .filter input { width: auto; min-width: 144px; height: 32px; padding: 4px 11px; }
+  .filter button { width: auto; height: 32px; }
+}
+
+/* Income-template allocation rows — what used to be a 2-col table
+ * (Pos select + amount input) becomes a stack of touch-friendly rows
+ * on mobile: select full-width above input full-width. ≥480px the
+ * pair sits on one line. Cleaner than a cramped table on a 360px
+ * phone where the select label "Mortgage (idr)" overflowed the cell. */
+.alloc { display: flex; flex-direction: column; gap: 16px; margin: 0 0 16px; }
+.alloc-row {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px; border: 1px solid var(--border-secondary);
+  border-radius: var(--radius); background: var(--bg-fill);
+}
+.alloc-row select, .alloc-row input { width: 100%; min-height: 40px; }
+.alloc-total {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 12px; padding: 12px; background: var(--bg-fill);
+  border-radius: var(--radius); border: 1px solid var(--border-secondary);
+  font-weight: 500;
+}
+.alloc-total strong { font-variant-numeric: tabular-nums; }
+@media (min-width: 480px) {
+  .alloc-row { flex-direction: row; align-items: center; gap: 12px;
+    background: transparent; border: 0; padding: 0; }
+  .alloc-row select { flex: 1 1 60%; min-height: 32px; }
+  .alloc-row input  { flex: 1 1 40%; min-height: 32px; text-align: right;
+    font-variant-numeric: tabular-nums; }
+}
 
 /* AntD Empty — icon + line for the empty content states. */
 .empty-state {
@@ -877,17 +972,39 @@ tbody tr:hover { background: color-mix(in oklab, var(--primary) 4%, transparent)
 tr.totals { border-top: 1px solid var(--border); background: var(--bg-fill); }
 tr.totals td { font-weight: 600; }
 
+/* Mobile: horizontally scrollable tab strip — five+ items don't fit on
+ * narrow screens, so let users swipe rather than wrap to multiple rows
+ * (which collides with .nav-end's auto-margin). Desktop reverts to the
+ * wider, non-scrolling row.
+ *
+ * Sticky on mobile so long pages (transactions / spending) don't
+ * require scrolling back to the top to switch tabs. The negative
+ * horizontal margins + matching padding bleed the sticky bg across
+ * main's edge-padding so the nav never floats over visible content
+ * underneath as it scrolls.
+ *
+ * Tap targets: padding-top + padding-bottom each 12px → ~44px nav-link
+ * height including the text glyph (Apple HIG min). */
 .nav {
-  display: flex; gap: 24px; align-items: baseline; margin: 0 0 24px;
+  display: flex; gap: 16px; align-items: baseline; margin: -16px -16px 16px;
   font-size: var(--font-base);
-  padding-bottom: 16px;
+  padding: 0 16px;
   border-bottom: 1px solid var(--border-secondary);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  position: sticky; top: 0; z-index: 10;
+  background: var(--bg-container);
 }
+.nav::-webkit-scrollbar { display: none; }
+.nav > * { flex-shrink: 0; }
 .nav a {
   color: var(--text-secondary); text-decoration: none;
-  padding-bottom: 16px; margin-bottom: -17px;
+  padding: 12px 0;
   border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
   transition: color 0.2s, border-color 0.2s;
+  white-space: nowrap;
 }
 .nav a:hover { color: var(--primary); }
 .nav a[aria-current="page"] {
@@ -895,20 +1012,32 @@ tr.totals td { font-weight: 600; }
   border-bottom-color: var(--primary);
 }
 .nav-end { margin-left: auto; }
-.nav-end .linkbtn { color: var(--text-tertiary); }
+.nav-end .linkbtn { color: var(--text-tertiary); padding: 12px 0; }
 .nav-end .linkbtn:hover { color: var(--primary); }
+@media (min-width: 480px) {
+  .nav { gap: 24px; margin: -24px -24px 24px; padding: 0 24px;
+    overflow-x: visible; }
+}
+@media (min-width: 768px) {
+  .nav { margin: -32px -32px 24px; padding: 0 32px; }
+}
 
 /* Theme switcher — three side-by-side buttons; the active one
- * adopts the primary fill so the user sees their current pick. */
+ * adopts the primary fill so the user sees their current pick.
+ * Mobile stacks them full-width so each has a comfortable tap target. */
 .theme-switch {
-  display: flex; gap: 8px; margin: 0 0 12px; flex-wrap: wrap;
+  display: flex; flex-direction: column; gap: 8px; margin: 0 0 12px;
 }
 .theme-switch button {
-  width: auto; padding: 6px 14px;
+  width: 100%; padding: 10px 14px;
   background: var(--bg-container); color: var(--text);
   border: 1px solid var(--border);
   box-shadow: none;
   font-weight: 400;
+}
+@media (min-width: 480px) {
+  .theme-switch { flex-direction: row; flex-wrap: wrap; gap: 12px; }
+  .theme-switch button { width: auto; padding: 6px 14px; }
 }
 .theme-switch button:hover:not(.active):not(:disabled) {
   border-color: var(--primary); color: var(--primary); background: var(--bg-container);
@@ -954,7 +1083,13 @@ const loginBody = `<h1>Sign in</h1>
   required aria-describedby="identifier-hint">
 <p id="identifier-hint" class="hint">@username or numeric ID</p>
 </div>
-<button type="submit">Continue with Telegram</button>
+<div class="field">
+<label for="password">Password</label>
+<input id="password" name="password" type="password"
+  autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false"
+  required>
+</div>
+<button type="submit">Sign in</button>
 </form>`
 
 const verifyBody = `<h1>Enter your code</h1>
@@ -1145,6 +1280,7 @@ const posBody = `{{if .NotFound}}
 {{if .Obligations}}
 <section class="card">
 <h2>Open obligations</h2>
+<div class="table-wrap">
 <table>
 <thead><tr><th>Direction</th><th>Counterparty Pos</th><th class="num">Outstanding</th><th>Since</th></tr></thead>
 <tbody>
@@ -1158,6 +1294,7 @@ const posBody = `{{if .NotFound}}
 {{end}}
 </tbody>
 </table>
+</div>
 </section>
 {{end}}
 
@@ -1235,6 +1372,11 @@ const posNewBody = `<h1>New Pos</h1>
 <p class="aside"><a class="linkbtn" href="/">&larr; Cancel</a></p>`
 
 const transactionsBody = `<h1>Transactions</h1>
+<p class="aside" style="text-align:right; margin: -8px 0 8px;">
+<a class="linkbtn" href="/transactions/new?type=money_in">+ Income</a>
+&nbsp;·&nbsp;
+<a class="linkbtn" href="/transactions/new?type=money_out">+ Spending</a>
+</p>
 <form method="get" action="/transactions" class="filter">
 <label>From <input type="date" name="from" value="{{.From}}"></label>
 <label>To <input type="date" name="to" value="{{.To}}"></label>
@@ -1278,6 +1420,61 @@ const transactionsBody = `<h1>Transactions</h1>
 </div>
 {{end}}`
 
+const transactionNewBody = `<h1>{{.Title}}</h1>
+<p class="subtitle">
+{{if .IsIncoming}}A one-off incoming credit (e.g. refund, gift). For a salary that fans across multiple Pos, use an <a class="linkbtn" href="/income-templates">income template</a> instead.
+{{else}}A one-off expense (e.g. groceries, transport).{{end}}
+</p>
+{{if .Errors}}
+<div class="alert" role="alert">
+<strong>Couldn&rsquo;t save this transaction:</strong>
+<ul style="margin:8px 0 0 20px; padding:0;">
+{{range .Errors}}<li>{{.}}</li>{{end}}
+</ul>
+</div>
+{{end}}
+<form method="post" action="/transactions">
+<input type="hidden" name="type" value="{{.Type}}">
+<input type="hidden" name="idempotency_key" value="{{.IdempotencyKey}}">
+<div class="field">
+<label for="effective_date">Effective date</label>
+<input id="effective_date" name="effective_date" type="date" required value="{{.EffectiveDate}}">
+</div>
+<div class="field">
+<label for="account_id">{{if .IsIncoming}}Receiving account{{else}}Source account{{end}}</label>
+<select id="account_id" name="account_id" required>
+<option value="">— select —</option>
+{{range .Accounts}}<option value="{{.ID}}"{{if eq .ID $.AccountID}} selected{{end}}>{{.Name}}</option>{{end}}
+</select>
+</div>
+<div class="field">
+<label for="pos_id">{{if .IsIncoming}}Destination Pos{{else}}Pos charged{{end}}</label>
+<select id="pos_id" name="pos_id" required>
+<option value="">— select —</option>
+{{range .PosOptions}}<option value="{{.ID}}"{{if eq .ID $.PosID}} selected{{end}}>{{.Name}} ({{.Currency}})</option>{{end}}
+</select>
+<p class="hint">IDR Pos only. Cross-currency lives behind the API for now.</p>
+</div>
+<div class="field">
+<label for="amount">Amount (IDR, smallest unit)</label>
+<input id="amount" name="amount" type="text" inputmode="numeric" pattern="[0-9]*" required
+  value="{{.AmountRaw}}" placeholder="e.g. 250000 for Rp 250.000">
+</div>
+<div class="field">
+<label for="counterparty_name">Counterparty</label>
+<input id="counterparty_name" name="counterparty_name" type="text" required maxlength="80"
+  value="{{.CounterpartyName}}"
+  placeholder="{{if .IsIncoming}}e.g. PT Telkom{{else}}e.g. Indomaret{{end}}">
+<p class="hint">A new counterparty is created automatically if the name doesn&rsquo;t exist yet.</p>
+</div>
+<div class="field">
+<label for="note">Note <span style="color:var(--text-tertiary); font-weight:400;">(optional)</span></label>
+<input id="note" name="note" type="text" maxlength="200" value="{{.Note}}">
+</div>
+<button type="submit">{{if .IsIncoming}}Record income{{else}}Record spending{{end}}</button>
+</form>
+<p class="aside"><a class="linkbtn" href="/transactions">&larr; Cancel</a></p>`
+
 const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
 {{if .LoadError}}
 <p class="alert" role="alert">Couldn&rsquo;t load your accounts and pos right now. Refresh in a moment.</p>
@@ -1298,6 +1495,7 @@ const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
 {{if .Accounts}}
 <section class="card">
 <h2>Accounts</h2>
+<div class="table-wrap">
 <table>
 <thead><tr><th>Name</th><th class="num">Balance</th></tr></thead>
 <tbody>
@@ -1306,13 +1504,21 @@ const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
 {{end}}
 </tbody>
 </table>
+</div>
 </section>
 {{end}}
 
-{{if .PosByCurrency}}<p class="aside" style="text-align:right; margin: 0 0 -8px;"><a class="linkbtn" href="/pos/new">+ New Pos</a></p>{{end}}
+{{if .PosByCurrency}}<p class="aside" style="text-align:right; margin: 0 0 -8px;">
+<a class="linkbtn" href="/transactions/new?type=money_in">+ Income</a>
+&nbsp;·&nbsp;
+<a class="linkbtn" href="/transactions/new?type=money_out">+ Spending</a>
+&nbsp;·&nbsp;
+<a class="linkbtn" href="/pos/new">+ New Pos</a>
+</p>{{end}}
 {{range $g := .PosByCurrency}}
 <section class="card">
 <h2>Pos &mdash; {{$g.Currency}}</h2>
+<div class="table-wrap">
 <table>
 <thead><tr><th>Name</th><th class="num">Cash</th><th class="num">Target</th></tr></thead>
 <tbody>
@@ -1325,6 +1531,7 @@ const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
 {{end}}
 </tbody>
 </table>
+</div>
 </section>
 {{end}}
 
@@ -1474,6 +1681,7 @@ const incomeTemplatesListBody = `<h1>Income templates</h1>
 <p class="empty-state-hint">Create one to fan-out a salary across Pos in one step.</p>
 </div>
 {{else}}
+<div class="table-wrap">
 <table>
 <thead><tr><th>Name</th><th class="num">Lines total</th></tr></thead>
 <tbody>
@@ -1482,6 +1690,7 @@ const incomeTemplatesListBody = `<h1>Income templates</h1>
 {{end}}
 </tbody>
 </table>
+</div>
 {{end}}`
 
 const incomeTemplateNewBody = `<h1>New income template</h1>
@@ -1512,32 +1721,30 @@ const incomeTemplateNewBody = `<h1>New income template</h1>
 <p class="hint">If set, any amount above the lines&rsquo; total lands here. Otherwise a too-large amount is rejected.</p>
 </div>
 <h2 style="font-size: var(--font-base); font-weight: 600; margin: 24px 0 12px;">Lines</h2>
-<table>
-<thead><tr><th>Pos</th><th class="num">Amount (smallest unit)</th></tr></thead>
-<tbody>
+<div class="alloc">
 {{range $i, $line := .Lines}}
-<tr>
-<td><select name="pos_id_{{$i}}">
+<div class="alloc-row">
+<select name="pos_id_{{$i}}" aria-label="Pos for line {{$i}}">
 <option value="">— skip —</option>
 {{range $.Pos}}<option value="{{.ID}}"{{if eq .ID $line.PosID}} selected{{end}}>{{.Name}} ({{.Currency}})</option>{{end}}
-</select></td>
-<td><input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9]*" value="{{$line.Amount}}"
-  placeholder="e.g. 12000000"></td>
-</tr>
+</select>
+<input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9]*" value="{{$line.Amount}}"
+  placeholder="e.g. 12000000" aria-label="Amount for line {{$i}}">
+</div>
 {{end}}
 {{if not .Lines}}
 {{range $i := (intRange 0 8)}}
-<tr>
-<td><select name="pos_id_{{$i}}">
+<div class="alloc-row">
+<select name="pos_id_{{$i}}" aria-label="Pos for line {{$i}}">
 <option value="">— skip —</option>
 {{range $.Pos}}<option value="{{.ID}}">{{.Name}} ({{.Currency}})</option>{{end}}
-</select></td>
-<td><input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 12000000"></td>
-</tr>
+</select>
+<input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 12000000"
+  aria-label="Amount for line {{$i}}">
+</div>
 {{end}}
 {{end}}
-</tbody>
-</table>
+</div>
 <button type="submit" style="margin-top: 16px;">Create template</button>
 </form>
 <p class="aside"><a class="linkbtn" href="/income-templates">&larr; Back</a></p>`
@@ -1615,22 +1822,19 @@ const incomeTemplatePreviewBody = `<h1>Review allocation</h1>
 <section class="card">
 <h2>Allocation</h2>
 <p class="subtitle">Adjust as needed. The rows must sum to {{money .Amount "idr"}}.</p>
-<table>
-<thead><tr><th>Pos</th><th class="num">Amount (IDR, smallest unit)</th></tr></thead>
-<tbody>
+<div class="alloc">
 {{range $i, $row := .Rows}}
-<tr>
-<td><select name="alloc_pos_{{$i}}">
+<div class="alloc-row">
+<select name="alloc_pos_{{$i}}" aria-label="Pos for row {{$i}}">
 <option value="">— skip —</option>
 {{range $.PosOptions}}<option value="{{.ID}}"{{if eq .ID $row.PosID}} selected{{end}}>{{.Name}} ({{.Currency}})</option>{{end}}
-</select></td>
-<td><input name="alloc_amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9]*"
-  value="{{$row.Amount}}" placeholder="e.g. 12000000"></td>
-</tr>
+</select>
+<input name="alloc_amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9]*"
+  value="{{$row.Amount}}" placeholder="e.g. 12000000" aria-label="Amount for row {{$i}}">
+</div>
 {{end}}
-<tr class="totals"><td><strong>Salary total to allocate</strong></td><td class="num"><strong>{{money .Amount "idr"}}</strong></td></tr>
-</tbody>
-</table>
+<div class="alloc-total"><span>Salary total to allocate</span><strong>{{money .Amount "idr"}}</strong></div>
+</div>
 <p class="hint">Tip: leave a row empty to drop it. Add a Pos to a previously-empty row to introduce a new line. Each Pos can appear only once.</p>
 </section>
 

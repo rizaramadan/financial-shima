@@ -36,6 +36,7 @@ func testServer(t *testing.T) (*echo.Echo, *auth.Auth, *assistant.Recorder) {
 	a := auth.New(user.Seeded(), clock.Fixed{T: t0}, src, idgen.Fixed{Value: "tok-test"})
 	rec := &assistant.Recorder{}
 	h := New(a, rec, nil) // nil pool: handler tests run without DB
+	h.LoginPassword = "test-password"
 
 	e := echo.New()
 	e.Renderer = tplpkg.New()
@@ -247,18 +248,18 @@ func TestLoginGet_HasSubmitButtonWithExactCopy(t *testing.T) {
 	if len(btns) != 1 {
 		t.Fatalf("found %d submit buttons, want 1", len(btns))
 	}
-	if got := textOf(btns[0]); got != "Continue with Telegram" {
-		t.Errorf("button text = %q, want Continue with Telegram", got)
+	if got := textOf(btns[0]); got != "Sign in" {
+		t.Errorf("button text = %q, want Sign in", got)
 	}
 }
 
-// --- Phase 2 tests for the OTP flow ---
+// --- password-login tests ---
 
-func TestLoginPost_KnownUser_RedirectsToVerifyAndQueuesAssistantSend(t *testing.T) {
+func TestLoginPost_KnownUserCorrectPassword_SetsSessionCookieAndRedirectsHome(t *testing.T) {
 	t.Parallel()
-	e, _, rec := testServer(t)
+	e, _, _ := testServer(t)
 
-	form := url.Values{"identifier": {"@shima"}}
+	form := url.Values{"identifier": {"@shima"}, "password": {"test-password"}}
 	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
 	w := httptest.NewRecorder()
@@ -267,27 +268,25 @@ func TestLoginPost_KnownUser_RedirectsToVerifyAndQueuesAssistantSend(t *testing.
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want %d (303)", w.Code, http.StatusSeeOther)
 	}
-	loc := w.Header().Get("Location")
-	if !strings.HasPrefix(loc, "/verify?id=") {
-		t.Errorf("Location = %q, want prefix /verify?id=", loc)
+	if loc := w.Header().Get("Location"); loc != "/" {
+		t.Errorf("Location = %q, want /", loc)
 	}
-	last, ok := rec.Last()
-	if !ok {
-		t.Fatal("assistant recorder never received a send")
+	var sessionSet bool
+	for _, c := range w.Result().Cookies() {
+		if c.Name == SessionCookieName && c.Value != "" {
+			sessionSet = true
+		}
 	}
-	if last.DisplayName != "Shima" {
-		t.Errorf("assistant got DisplayName = %q, want Shima", last.DisplayName)
-	}
-	if len(last.Code) != 6 {
-		t.Errorf("assistant got Code = %q, want 6 digits", last.Code)
+	if !sessionSet {
+		t.Error("session cookie not set on successful login")
 	}
 }
 
 func TestLoginPost_UnknownUser_RendersUserNotFound(t *testing.T) {
 	t.Parallel()
-	e, _, rec := testServer(t)
+	e, _, _ := testServer(t)
 
-	form := url.Values{"identifier": {"@stranger"}}
+	form := url.Values{"identifier": {"@stranger"}, "password": {"test-password"}}
 	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
 	w := httptest.NewRecorder()
@@ -299,14 +298,33 @@ func TestLoginPost_UnknownUser_RendersUserNotFound(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "User not found") {
 		t.Error("body missing 'User not found' message")
 	}
-	if len(rec.Sent) != 0 {
-		t.Error("assistant should NOT be called for unknown user")
+}
+
+func TestLoginPost_WrongPassword_RendersInvalidPassword(t *testing.T) {
+	t.Parallel()
+	e, _, _ := testServer(t)
+
+	form := url.Values{"identifier": {"@shima"}, "password": {"nope"}}
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+	w := httptest.NewRecorder()
+	e.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (re-render)", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Invalid password") {
+		t.Error("body missing 'Invalid password' message")
+	}
+	for _, c := range w.Result().Cookies() {
+		if c.Name == SessionCookieName {
+			t.Error("session cookie set on wrong password")
+		}
 	}
 }
 
-func TestLoginPost_AssistantFailure_RendersError(t *testing.T) {
+func TestLoginPost_LoginPasswordUnset_RejectsEvenEmptyPassword(t *testing.T) {
 	t.Parallel()
-	// Build a server with a Recorder that always errors.
 	src := bytes.NewReader(make([]byte, 1024))
 	buf := make([]byte, 1024)
 	for i := range buf {
@@ -314,39 +332,24 @@ func TestLoginPost_AssistantFailure_RendersError(t *testing.T) {
 	}
 	src = bytes.NewReader(buf)
 	a := auth.New(user.Seeded(), clock.Fixed{T: t0}, src, idgen.Fixed{Value: "tok"})
-	rec := &assistant.Recorder{ErrToReturn: errAssistantDown}
-	h := New(a, rec, nil)
+	h := New(a, &assistant.Recorder{}, nil)
+	// h.LoginPassword left as zero value (unset).
 	e := echo.New()
 	e.Renderer = tplpkg.New()
 	e.POST("/login", h.LoginPost)
 
-	form := url.Values{"identifier": {"@shima"}}
+	form := url.Values{"identifier": {"@shima"}, "password": {""}}
 	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
 	w := httptest.NewRecorder()
 	e.ServeHTTP(w, req)
 
-	// Structural assertion (no copy overfitting): re-rendered login form,
-	// no redirect, no Location header, no session cookie.
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200 (re-render)", w.Code)
 	}
-	if loc := w.Header().Get("Location"); loc != "" {
-		t.Errorf("Location = %q, want empty (no redirect on assistant failure)", loc)
-	}
-	body := w.Body.String()
-	if !strings.Contains(body, `action="/login"`) {
-		t.Error("body missing login form re-render")
-	}
 	for _, c := range w.Result().Cookies() {
 		if c.Name == SessionCookieName {
-			t.Error("session cookie set on assistant failure")
+			t.Error("session cookie set despite LOGIN_PASSWORD being unset")
 		}
 	}
 }
-
-var errAssistantDown = stringError("assistant down")
-
-type stringError string
-
-func (s stringError) Error() string { return string(s) }
