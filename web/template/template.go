@@ -53,6 +53,8 @@ func New() *Renderer {
 	template.Must(t.New("income_template_detail").Parse(layoutOpen + incomeTemplateDetailBody + layoutClose))
 	template.Must(t.New("income_template_preview").Parse(layoutOpen + incomeTemplatePreviewBody + layoutClose))
 	template.Must(t.New("settings").Parse(layoutOpen + settingsBody + layoutClose))
+	template.Must(t.New("accounts").Parse(layoutOpen + accountsBody + layoutClose))
+	template.Must(t.New("account_new").Parse(layoutOpen + accountNewBody + layoutClose))
 	return &Renderer{t: t}
 }
 
@@ -271,7 +273,7 @@ type LoginData struct {
 
 // Compact narrows the card for single-input forms (AntD form widths).
 func (d LoginData) Compact() bool { return true }
-func (d LoginData) Wide() bool     { return false }
+func (d LoginData) Wide() bool    { return false }
 
 // HideBell — pre-auth pages have no bell anyway (SignedIn=false), but
 // satisfy the interface uniformly.
@@ -345,11 +347,11 @@ type HomeData struct {
 
 // SignedIn for HomeData mirrors NotificationsData — the home page is only
 // reachable post-auth, so a populated DisplayName is the trigger.
-func (d HomeData) SignedIn() bool  { return d.DisplayName != "" }
-func (d HomeData) Compact() bool   { return false }
-func (d HomeData) Wide() bool      { return false }
-func (d HomeData) HideBell() bool  { return false }
-func (d HomeData) Route() string   { return "home" }
+func (d HomeData) SignedIn() bool { return d.DisplayName != "" }
+func (d HomeData) Compact() bool  { return false }
+func (d HomeData) Wide() bool     { return false }
+func (d HomeData) HideBell() bool { return false }
+func (d HomeData) Route() string  { return "home" }
 
 // LoginData and VerifyData are pre-auth; SignedIn always false.
 func (d LoginData) SignedIn() bool  { return false }
@@ -404,6 +406,10 @@ type PosDetailData struct {
 	ID           string
 	Name         string
 	Currency     string
+	AccountID    string          // current funding account
+	AccountName  string          // for display next to the change form
+	Accounts     []AccountOption // for the change-account <select>
+	AccountFlash string          // success flash after a successful PATCH
 	Target       int64
 	HasTarget    bool
 	Archived     bool
@@ -423,7 +429,7 @@ func (d PosDetailData) Wide() bool     { return false }
 func (d PosDetailData) HideBell() bool { return false }
 func (d PosDetailData) Route() string  { return "pos" }
 
-// PosNewData drives the "create Pos" form. Name/Currency/TargetRaw
+// PosNewData drives the "create Pos" form. Name/Currency/TargetRaw/AccountID
 // round-trip on validation failure so the user doesn't retype.
 type PosNewData struct {
 	Title       string
@@ -431,8 +437,10 @@ type PosNewData struct {
 	UnreadCount int
 	Name        string
 	Currency    string
-	TargetRaw   string   // string form so empty stays empty across re-renders
-	Errors      []string // list of validation messages, all rendered together
+	AccountID   string          // chosen account; required per spec §4.2
+	Accounts    []AccountOption // all non-archived accounts
+	TargetRaw   string          // string form so empty stays empty across re-renders
+	Errors      []string        // list of validation messages, all rendered together
 }
 
 func (d PosNewData) SignedIn() bool { return d.DisplayName != "" }
@@ -533,8 +541,8 @@ type TransactionRow struct {
 // AccountRow is one row in the Accounts table on /. Balance is derived
 // from transactions; until that path is wired, render zero.
 type AccountRow struct {
-	Name        string
-	BalanceIDR  int64 // smallest unit (rupiah cents); 0 when balance computation isn't wired
+	Name       string
+	BalanceIDR int64 // smallest unit (rupiah cents); 0 when balance computation isn't wired
 }
 
 // PosCurrencyGroup groups Pos rows by their currency for §6.2 rendering.
@@ -545,6 +553,7 @@ type PosCurrencyGroup struct {
 
 // PosRow is one row in a per-currency Pos table.
 type PosRow struct {
+	ID        string // links the row to /pos/:id detail page
 	Name      string
 	Cash      int64 // unit = the group's currency's smallest unit; zero until wired
 	Target    int64
@@ -931,7 +940,7 @@ tbody tr:hover { background: color-mix(in oklab, var(--primary) 4%, transparent)
 .chip-neutral  { color: var(--text-secondary); background: var(--bg-fill); border-color: var(--border-secondary); }
 
 /* Colored amounts in transaction listings — fintech standard:
- * income green (`+`), expense default (chip carries red), transfers muted. */
+ * income green (` + `), expense default (chip carries red), transfers muted. */
 .amt-in      { color: #389E0D; font-weight: 500; }
 .amt-out     { color: var(--text); font-weight: 500; }
 .amt-neutral { color: var(--text-secondary); }
@@ -1049,6 +1058,7 @@ tr.totals td { font-weight: 600; }
 <a href="/transactions"{{if eq .Route "transactions"}} aria-current="page"{{end}}>Transactions</a>
 <a href="/spending"{{if eq .Route "spending"}} aria-current="page"{{end}}>Spending</a>
 <a href="/income-templates"{{if eq .Route "income"}} aria-current="page"{{end}}>Income</a>
+<a href="/accounts"{{if eq .Route "accounts"}} aria-current="page"{{end}}>Accounts</a>
 <a href="/notifications"{{if eq .Route "notifications"}} aria-current="page"{{end}}>Notifications<span class="badge" aria-label="{{.UnreadCount}} unread">{{if .UnreadCount}}{{.UnreadCount}}{{end}}</span></a>
 <a href="/settings" class="nav-end"{{if eq .Route "settings"}} aria-current="page"{{end}} aria-label="Settings">⚙</a>
 <form method="post" action="/logout">
@@ -1227,6 +1237,47 @@ const posBody = `{{if .NotFound}}
 </table>
 </section>
 
+<section class="card">
+<h2>Funding account</h2>
+{{if .AccountFlash}}<p class="success" role="status">{{.AccountFlash}}</p>{{end}}
+<p class="subtitle">Currently held in <strong>{{.AccountName}}</strong>. Reassigning has snapshot semantics: per-account balances update retroactively, but this Pos's history is preserved.</p>
+<form method="post" action="/pos/{{.ID}}/account">
+<div class="field">
+<label for="change_account_id">Move to</label>
+<select id="change_account_id" name="account_id" required>
+{{range .Accounts}}<option value="{{.ID}}" {{if eq $.AccountID .ID}}selected{{end}}>{{.Name}}</option>
+{{end}}</select>
+</div>
+<button type="submit">Save</button>
+</form>
+</section>
+
+{{if not .Archived}}
+<section class="card">
+<h2>Edit</h2>
+<form method="post" action="/pos/{{.ID}}/rename">
+<div class="field">
+<label for="rename_name">Name</label>
+<input id="rename_name" name="name" type="text" value="{{.Name}}" required maxlength="80">
+</div>
+<div class="field">
+<label for="rename_target">Target <span style="color:var(--text-tertiary); font-weight:400;">(optional, smallest unit; leave blank to clear)</span></label>
+<input id="rename_target" name="target" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="16" value="{{if .HasTarget}}{{.Target}}{{end}}">
+</div>
+<p class="hint">Currency ({{.Currency}}) is fixed; archive and recreate this Pos to change it.</p>
+<button type="submit">Save changes</button>
+</form>
+</section>
+
+<section class="card">
+<h2>Archive</h2>
+<p class="subtitle">Archived Pos disappear from the home view but their history is preserved. Re-create or unarchive via SQL if needed.</p>
+<form method="post" action="/pos/{{.ID}}/archive" onsubmit="return confirm('Archive this Pos? It will hide from default views but past transactions stay.');">
+<button type="submit">Archive this Pos</button>
+</form>
+</section>
+{{end}}
+
 {{if .Obligations}}
 <section class="card">
 <h2>Open obligations</h2>
@@ -1299,6 +1350,14 @@ const posNewBody = `<h1>New Pos</h1>
   required maxlength="16" pattern="[a-z0-9-]+"
   placeholder="idr, usd, gold-g">
 <p class="hint">Lowercase letters, digits, hyphen. Example: idr · usd · gold-g.</p>
+</div>
+<div class="field">
+<label for="pos_account_id">Funding account</label>
+<select id="pos_account_id" name="account_id" required>
+<option value="" {{if not .AccountID}}selected{{end}} disabled>Choose an account…</option>
+{{range .Accounts}}<option value="{{.ID}}" {{if eq $.AccountID .ID}}selected{{end}}>{{.Name}}</option>
+{{end}}</select>
+<p class="hint">The IDR account that funds this Pos. Required for every Pos, including non-IDR (gold-g, USD) — it's the IDR backing. You can move the Pos later (the per-account view updates retroactively).</p>
 </div>
 <div class="field">
 <label for="target">Target <span style="color:var(--text-tertiary); font-weight:400;">(optional)</span></label>
@@ -1383,19 +1442,12 @@ const transactionNewBody = `<h1>{{.Title}}</h1>
 <input id="effective_date" name="effective_date" type="date" required value="{{.EffectiveDate}}">
 </div>
 <div class="field">
-<label for="account_id">{{if .IsIncoming}}Receiving account{{else}}Source account{{end}}</label>
-<select id="account_id" name="account_id" required>
-<option value="">— select —</option>
-{{range .Accounts}}<option value="{{.ID}}"{{if eq .ID $.AccountID}} selected{{end}}>{{.Name}}</option>{{end}}
-</select>
-</div>
-<div class="field">
 <label for="pos_id">{{if .IsIncoming}}Destination Pos{{else}}Pos charged{{end}}</label>
 <select id="pos_id" name="pos_id" required>
 <option value="">— select —</option>
 {{range .PosOptions}}<option value="{{.ID}}"{{if eq .ID $.PosID}} selected{{end}}>{{.Name}} ({{.Currency}})</option>{{end}}
 </select>
-<p class="hint">IDR Pos only. Cross-currency lives behind the API for now.</p>
+<p class="hint">The receiving / source account is the Pos's funding account (spec §4.2). IDR only here; cross-currency stays behind the API.</p>
 </div>
 <div class="field">
 <label for="amount">Amount (IDR, smallest unit)</label>
@@ -1466,7 +1518,7 @@ const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
 <tbody>
 {{range $g.Items}}
 <tr>
-  <td>{{.Name}}</td>
+  <td>{{if .ID}}<a href="/pos/{{.ID}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td>
   <td class="num{{if lt .Cash 0}} neg-cash{{end}}">{{money .Cash $g.Currency}}</td>
   <td class="num">{{if .HasTarget}}{{money .Target $g.Currency}}<span class="progress" aria-label="{{pct .Cash .Target}}% of target"><span class="progress-fill" style="width: {{pct .Cash .Target}}%"></span></span>{{else}}&mdash;{{end}}</td>
 </tr>
@@ -1727,13 +1779,6 @@ const incomeTemplateDetailBody = `<h1>{{.Name}}</h1>
 <input id="effective_date" name="effective_date" type="date" required>
 </div>
 <div class="field">
-<label for="account_id">Receiving account</label>
-<select id="account_id" name="account_id" required>
-<option value="">— select —</option>
-{{range .Accounts}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
-</select>
-</div>
-<div class="field">
 <label for="counterparty_name">Counterparty</label>
 <input id="counterparty_name" name="counterparty_name" type="text" required maxlength="80"
   placeholder="e.g. PT Telkom">
@@ -1753,7 +1798,6 @@ const incomeTemplatePreviewBody = `<h1>Review allocation</h1>
 <tbody>
 <tr><td>Amount</td><td class="num"><strong>{{money .Amount "idr"}}</strong></td></tr>
 <tr><td>Date</td><td class="num">{{.EffectiveDate}}</td></tr>
-<tr><td>Account</td><td class="num">{{.AccountName}}</td></tr>
 <tr><td>Counterparty</td><td class="num">{{.CounterpartyName}}</td></tr>
 </tbody>
 </table>
@@ -1766,7 +1810,6 @@ const incomeTemplatePreviewBody = `<h1>Review allocation</h1>
 <form method="post" action="/income-templates/{{.ID}}/apply">
 <input type="hidden" name="amount" value="{{.AmountRaw}}">
 <input type="hidden" name="effective_date" value="{{.EffectiveDate}}">
-<input type="hidden" name="account_id" value="{{.AccountID}}">
 <input type="hidden" name="counterparty_name" value="{{.CounterpartyName}}">
 <input type="hidden" name="idempotency_key" value="{{.IdempotencyKey}}">
 
@@ -1806,6 +1849,100 @@ func (d SettingsData) Compact() bool  { return false }
 func (d SettingsData) Wide() bool     { return false }
 func (d SettingsData) HideBell() bool { return false }
 func (d SettingsData) Route() string  { return "settings" }
+
+// AccountManageRow is a row on /accounts. Drives the rename + archive
+// forms inline; archived rows render with the action area suppressed.
+type AccountManageRow struct {
+	ID       string
+	Name     string
+	Archived bool
+}
+
+// AccountsData drives /accounts (manage list view).
+type AccountsData struct {
+	Title       string
+	DisplayName string
+	UnreadCount int
+	Accounts    []AccountManageRow
+	Flash       string
+	Error       string
+}
+
+func (d AccountsData) SignedIn() bool { return d.DisplayName != "" }
+func (d AccountsData) Compact() bool  { return false }
+func (d AccountsData) Wide() bool     { return false }
+func (d AccountsData) HideBell() bool { return false }
+func (d AccountsData) Route() string  { return "accounts" }
+
+// AccountNewData drives /accounts/new — name round-trips on validation.
+type AccountNewData struct {
+	Title       string
+	DisplayName string
+	UnreadCount int
+	Name        string
+	Errors      []string
+}
+
+func (d AccountNewData) SignedIn() bool { return d.DisplayName != "" }
+func (d AccountNewData) Compact() bool  { return true }
+func (d AccountNewData) Wide() bool     { return false }
+func (d AccountNewData) HideBell() bool { return false }
+func (d AccountNewData) Route() string  { return "accounts" }
+
+const accountsBody = `<h1>Accounts</h1>
+<p class="subtitle">An Account is an IDR purse — a real bank account, cash on hand, etc. Pos point at exactly one Account; reassigning a Pos has snapshot semantics (§5.6).</p>
+{{if .Flash}}<p class="success" role="status">{{.Flash}}</p>{{end}}
+{{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
+<p class="aside"><a class="linkbtn" href="/accounts/new">+ New Account</a></p>
+{{if not .Accounts}}
+<p class="subtitle">No accounts yet. Create one above.</p>
+{{else}}
+<div class="table-wrap">
+<table>
+<thead><tr><th>Name</th><th>Status</th><th>Actions</th></tr></thead>
+<tbody>
+{{range .Accounts}}
+<tr>
+<td>
+  <form method="post" action="/accounts/{{.ID}}/rename" style="display:flex; gap:8px; align-items:center; min-width:280px;">
+    <input type="text" name="name" value="{{.Name}}" required maxlength="80" style="flex:1 1 auto; min-width:0; width:100%;">
+    <button type="submit" style="white-space:nowrap;">Rename</button>
+  </form>
+</td>
+<td>{{if .Archived}}<span class="chip">archived</span>{{else}}<span class="chip chip-in">active</span>{{end}}</td>
+<td>{{if not .Archived}}
+  <form method="post" action="/accounts/{{.ID}}/archive" onsubmit="return confirm('Archive this account? Existing Pos still pointing at it will keep working but the account will be hidden from default lists.');">
+    <button type="submit">Archive</button>
+  </form>
+{{else}}&mdash;{{end}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</div>
+{{end}}`
+
+const accountNewBody = `<h1>New Account</h1>
+<p class="subtitle">Create an IDR purse. After creation, point a Pos at it via the Pos detail page.</p>
+{{if .Errors}}
+<div class="alert" role="alert">
+<strong>Couldn&rsquo;t save this Account:</strong>
+<ul style="margin:8px 0 0 20px; padding:0;">
+{{range .Errors}}<li>{{.}}</li>{{end}}
+</ul>
+</div>
+{{end}}
+<form method="post" action="/accounts">
+<div class="field">
+<label for="name">Name</label>
+<input id="name" name="name" type="text" value="{{.Name}}"
+  autocapitalize="words" autocorrect="off" spellcheck="false"
+  required maxlength="80"
+  placeholder="e.g. BCA Joint, Cash, Mandiri Riza">
+</div>
+<button type="submit">Create Account</button>
+</form>
+<p class="aside"><a class="linkbtn" href="/accounts">&larr; Cancel</a></p>`
 
 const settingsBody = `<h1>Settings</h1>
 <p class="subtitle">Display preferences for this device. Stored in a cookie.</p>

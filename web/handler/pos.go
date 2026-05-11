@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -71,11 +73,31 @@ func (h *Handlers) PosGet(c echo.Context) error {
 		ID:          uuid.UUID(pos.ID.Bytes).String(),
 		Name:        pos.Name,
 		Currency:    pos.Currency,
+		AccountID:   uuid.UUID(pos.AccountID.Bytes).String(),
 		Archived:    pos.Archived,
 	}
 	if pos.Target != nil {
 		data.Target = *pos.Target
 		data.HasTarget = true
+	}
+	if flash, _ := c.Cookie("pos_account_flash"); flash != nil && flash.Value != "" {
+		data.AccountFlash = flash.Value
+		// Clear the cookie so the flash shows once.
+		c.SetCookie(&http.Cookie{Name: "pos_account_flash", Value: "", Path: "/", MaxAge: -1})
+	}
+	if accRows, err := q.ListAccounts(ctx); err == nil {
+		for _, a := range accRows {
+			data.Accounts = append(data.Accounts, template.AccountOption{
+				ID:   uuid.UUID(a.ID.Bytes).String(),
+				Name: a.Name,
+			})
+			if a.ID == pos.AccountID {
+				data.AccountName = a.Name
+			}
+		}
+	} else {
+		c.Logger().Errorf("ListAccounts: %v", err)
+		data.LoadError = true
 	}
 
 	if cash, err := q.GetPosCashBalance(ctx, pgtype.UUID{Bytes: id, Valid: true}); err == nil {
@@ -179,4 +201,133 @@ func (h *Handlers) PosGet(c echo.Context) error {
 
 	data.UnreadCount = h.loadBellCount(ctx, c, u.ID)
 	return c.Render(http.StatusOK, "pos", data)
+}
+
+// PosRenamePost handles POST /pos/:id/rename — rename and/or change
+// the budget target. Currency stays immutable per spec §10.3 (changing
+// it would re-bucket past pos_amount).
+func (h *Handlers) PosRenamePost(c echo.Context) error {
+	if _, ok := mw.CurrentUser(c); !ok {
+		return c.Redirect(http.StatusSeeOther, "/login")
+	}
+	posID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return c.Redirect(http.StatusSeeOther, "/")
+	}
+	if h.DB == nil {
+		return c.Redirect(http.StatusSeeOther, "/pos/"+c.Param("id"))
+	}
+	name := strings.TrimSpace(c.FormValue("name"))
+	if name == "" {
+		c.SetCookie(&http.Cookie{Name: "pos_account_flash", Value: "Name is required.", Path: "/", MaxAge: 30})
+		return c.Redirect(http.StatusSeeOther, "/pos/"+posID.String())
+	}
+	rawTarget := strings.TrimSpace(c.FormValue("target"))
+	var target *int64
+	if rawTarget != "" {
+		t, err := strconv.ParseInt(rawTarget, 10, 64)
+		if err != nil || t < 0 {
+			c.SetCookie(&http.Cookie{Name: "pos_account_flash", Value: "Target must be a non-negative whole number.", Path: "/", MaxAge: 30})
+			return c.Redirect(http.StatusSeeOther, "/pos/"+posID.String())
+		}
+		target = &t
+	}
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 3*time.Second)
+	defer cancel()
+	q := dbq.New(h.DB)
+	if _, err := q.UpdatePosNameAndTarget(ctx, dbq.UpdatePosNameAndTargetParams{
+		ID:     pgtype.UUID{Bytes: posID, Valid: true},
+		Name:   name,
+		Target: target,
+	}); err != nil {
+		c.Logger().Errorf("UpdatePosNameAndTarget: %v", err)
+		msg := "Couldn’t save the changes."
+		if isUniqueViolation(err) {
+			msg = "A Pos with that name and currency already exists."
+		}
+		c.SetCookie(&http.Cookie{Name: "pos_account_flash", Value: msg, Path: "/", MaxAge: 30})
+		return c.Redirect(http.StatusSeeOther, "/pos/"+posID.String())
+	}
+	c.SetCookie(&http.Cookie{Name: "pos_account_flash", Value: "Pos updated.", Path: "/", MaxAge: 30})
+	return c.Redirect(http.StatusSeeOther, "/pos/"+posID.String())
+}
+
+// PosArchivePost handles POST /pos/:id/archive — soft delete only.
+// Per spec §10.3 the row is preserved.
+func (h *Handlers) PosArchivePost(c echo.Context) error {
+	if _, ok := mw.CurrentUser(c); !ok {
+		return c.Redirect(http.StatusSeeOther, "/login")
+	}
+	posID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return c.Redirect(http.StatusSeeOther, "/")
+	}
+	if h.DB == nil {
+		return c.Redirect(http.StatusSeeOther, "/")
+	}
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 3*time.Second)
+	defer cancel()
+	if err := dbq.New(h.DB).ArchivePos(ctx, pgtype.UUID{Bytes: posID, Valid: true}); err != nil {
+		c.Logger().Errorf("ArchivePos: %v", err)
+		c.SetCookie(&http.Cookie{Name: "pos_account_flash", Value: "Couldn’t archive the Pos.", Path: "/", MaxAge: 30})
+		return c.Redirect(http.StatusSeeOther, "/pos/"+posID.String())
+	}
+	// Archived Pos vanish from the home view; redirect there so the
+	// operator sees the change reflected.
+	return c.Redirect(http.StatusSeeOther, "/")
+}
+
+// isUniqueViolation reports whether err is a Postgres unique-constraint
+// violation (SQLSTATE 23505). Inlined here so this file doesn't need
+// the pgconn import on the happy path.
+func isUniqueViolation(err error) bool {
+	type pgErr interface {
+		SQLState() string
+	}
+	for e := err; e != nil; {
+		if pe, ok := e.(pgErr); ok && pe.SQLState() == "23505" {
+			return true
+		}
+		u, ok := e.(interface{ Unwrap() error })
+		if !ok {
+			break
+		}
+		e = u.Unwrap()
+	}
+	return false
+}
+
+// PosUpdateAccountPost handles POST /pos/:id/account from the detail
+// page's "Funding account" form. Per spec §5.6, this is the snapshot-
+// semantic reassignment: pos.account_id changes, past balances re-
+// attribute on next read.
+func (h *Handlers) PosUpdateAccountPost(c echo.Context) error {
+	if _, ok := mw.CurrentUser(c); !ok {
+		return c.Redirect(http.StatusSeeOther, "/login")
+	}
+	posID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return c.Redirect(http.StatusSeeOther, "/")
+	}
+	if h.DB == nil {
+		return c.Redirect(http.StatusSeeOther, "/pos/"+c.Param("id"))
+	}
+	accountID, err := uuid.Parse(strings.TrimSpace(c.FormValue("account_id")))
+	if err != nil {
+		c.SetCookie(&http.Cookie{Name: "pos_account_flash", Value: "Invalid account.", Path: "/", MaxAge: 30})
+		return c.Redirect(http.StatusSeeOther, "/pos/"+posID.String())
+	}
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 3*time.Second)
+	defer cancel()
+	q := dbq.New(h.DB)
+	if _, err := q.UpdatePosAccount(ctx, dbq.UpdatePosAccountParams{
+		ID:        pgtype.UUID{Bytes: posID, Valid: true},
+		AccountID: pgtype.UUID{Bytes: accountID, Valid: true},
+	}); err != nil {
+		c.Logger().Errorf("UpdatePosAccount: %v", err)
+		c.SetCookie(&http.Cookie{Name: "pos_account_flash", Value: "Couldn’t move the Pos. Try again.", Path: "/", MaxAge: 30})
+		return c.Redirect(http.StatusSeeOther, "/pos/"+posID.String())
+	}
+	c.SetCookie(&http.Cookie{Name: "pos_account_flash", Value: "Funding account updated. Per-account balances now reflect the change.", Path: "/", MaxAge: 30})
+	return c.Redirect(http.StatusSeeOther, "/pos/"+posID.String())
 }

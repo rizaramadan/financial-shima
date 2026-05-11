@@ -149,9 +149,11 @@ func main() {
 		mustJSON(map[string]string{"name": "  "}), 400, "validation_failed")
 	pass("S5 POST /api/v1/accounts empty name → 400 validation_failed")
 
-	// 6. POST /api/v1/pos (valid, with target).
+	// 6. POST /api/v1/pos (valid, with target). Per spec §4.2, account_id
+	// is required — every Pos lives in exactly one Account.
 	posBody := mustJSON(map[string]interface{}{
 		"name": posName, "currency": "idr", "target": 12000000,
+		"account_id": accountID,
 	})
 	var pos map[string]interface{}
 	postJSON(srv.URL+"/api/v1/pos", posBody, http.StatusCreated, &pos)
@@ -185,6 +187,7 @@ func main() {
 	postJSONExpectStatus(srv.URL+"/api/v1/pos",
 		mustJSON(map[string]interface{}{
 			"name": "x" + posName, "currency": "BAD CURRENCY",
+			"account_id": accountID,
 		}), 400, "validation_failed")
 	pass("S9 POST /api/v1/pos invalid currency → 400 validation_failed")
 
@@ -208,18 +211,19 @@ func main() {
 	}
 	pass("S11 POST /api/v1/counterparties same-name uppercase → same id, original casing")
 
-	// 12. POST /api/v1/transactions (money_in, IDR, valid).
+	// 12. POST /api/v1/transactions (money_in, IDR, valid). Account is
+	// implicit via pos.account_id (spec §4.2/§5.6); the request body
+	// no longer carries account_id.
 	idemKey := fmt.Sprintf("e2e-idem-%d-001", stamp)
 	txBody := mustJSON(map[string]interface{}{
-		"type":              "money_in",
-		"effective_date":    time.Now().Format("2006-01-02"),
-		"account_id":        accountID,
-		"account_amount":    1500000,
-		"pos_id":            posID,
-		"pos_amount":        1500000,
-		"counterparty_id":   cpID,
-		"note":              "e2e test salary",
-		"idempotency_key":   idemKey,
+		"type":            "money_in",
+		"effective_date":  time.Now().Format("2006-01-02"),
+		"account_amount":  1500000,
+		"pos_id":          posID,
+		"pos_amount":      1500000,
+		"counterparty_id": cpID,
+		"note":            "e2e test salary",
+		"idempotency_key": idemKey,
 	})
 	var txn map[string]interface{}
 	postJSON(srv.URL+"/api/v1/transactions", txBody, http.StatusCreated, &txn)
@@ -231,7 +235,7 @@ func main() {
 
 	// 13. DB verify: transaction row physically exists with all fields.
 	var (
-		dbType, dbIdem string
+		dbType, dbIdem         string
 		dbAccountAmt, dbPosAmt int64
 	)
 	if err := pool.QueryRow(ctx, `
@@ -283,7 +287,6 @@ func main() {
 	txBody2 := mustJSON(map[string]interface{}{
 		"type":              "money_out",
 		"effective_date":    time.Now().Format("2006-01-02"),
-		"account_id":        accountID,
 		"account_amount":    250000,
 		"pos_id":            posID,
 		"pos_amount":        250000,
@@ -304,7 +307,6 @@ func main() {
 		mustJSON(map[string]interface{}{
 			"type":            "money_in",
 			"effective_date":  time.Now().Format("2006-01-02"),
-			"account_id":      accountID,
 			"account_amount":  100000,
 			"pos_id":          posID,
 			"pos_amount":      99999, // mismatch on IDR pos
@@ -318,7 +320,6 @@ func main() {
 		mustJSON(map[string]interface{}{
 			"type":            "money_in",
 			"effective_date":  time.Now().AddDate(0, 0, 30).Format("2006-01-02"),
-			"account_id":      accountID,
 			"account_amount":  1000000,
 			"pos_id":          posID,
 			"pos_amount":      1000000,
@@ -327,19 +328,19 @@ func main() {
 		}), 400, "validation_failed")
 	pass("S18 future effective_date → 400 validation_failed (spec §5.1)")
 
-	// 19. NOT FOUND: unknown account_id.
+	// 19. NOT FOUND: unknown pos_id (account is implicit now, so the
+	// equivalent failure mode is an invalid pos).
 	postJSONExpectStatus(srv.URL+"/api/v1/transactions",
 		mustJSON(map[string]interface{}{
 			"type":            "money_in",
 			"effective_date":  time.Now().Format("2006-01-02"),
-			"account_id":      "00000000-0000-0000-0000-000000000000",
 			"account_amount":  1000000,
-			"pos_id":          posID,
+			"pos_id":          "00000000-0000-0000-0000-000000000000",
 			"pos_amount":      1000000,
 			"counterparty_id": cpID,
 			"idempotency_key": fmt.Sprintf("e2e-idem-%d-005", stamp),
 		}), 404, "not_found")
-	pass("S19 unknown account_id → 404 not_found")
+	pass("S19 unknown pos_id → 404 not_found")
 
 	// 20. GET /api/v1/accounts (with key) returns the seeded account
 	//     in the list (proves create + list see consistent data).

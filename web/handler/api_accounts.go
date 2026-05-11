@@ -2,11 +2,15 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/labstack/echo/v4"
 
 	"github.com/rizaramadan/financial-shima/db/dbq"
@@ -118,4 +122,126 @@ func (h *Handlers) APIAccountsList(c echo.Context) error {
 		})
 	}
 	return c.JSON(http.StatusOK, out)
+}
+
+// APIAccountGet implements GET /api/v1/accounts/:id per spec §7.2.
+// Single-row read; 404 when missing.
+func (h *Handlers) APIAccountGet(c echo.Context) error {
+	if h.DB == nil {
+		return mw.WriteAPIError(c, http.StatusServiceUnavailable,
+			mw.APIErrorCodeServiceUnavailable,
+			"data layer not configured (DATABASE_URL unset)")
+	}
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return mw.WriteAPIError(c, http.StatusBadRequest,
+			mw.APIErrorCodeValidation, "id must be a valid UUID")
+	}
+	ctx, cancel := context.WithTimeout(c.Request().Context(), listTimeout)
+	defer cancel()
+	row, err := dbq.New(h.DB).GetAccount(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return mw.WriteAPIError(c, http.StatusNotFound,
+				mw.APIErrorCodeNotFound, "account not found")
+		}
+		c.Logger().Errorf("api get account: %v", err)
+		return mw.WriteAPIError(c, http.StatusInternalServerError,
+			mw.APIErrorCodeInternal, "failed to load account")
+	}
+	return c.JSON(http.StatusOK, APIAccount{
+		ID:        uuid.UUID(row.ID.Bytes).String(),
+		Name:      row.Name,
+		Archived:  row.Archived,
+		CreatedAt: row.CreatedAt.Time,
+	})
+}
+
+// updateAccountRequest is the body for PATCH /api/v1/accounts/:id.
+// Only `name` is mutable per spec §4.1 (no currency, no archived flag —
+// archive uses DELETE).
+type updateAccountRequest struct {
+	Name string `json:"name"`
+}
+
+// APIAccountUpdate implements PATCH /api/v1/accounts/:id (rename).
+func (h *Handlers) APIAccountUpdate(c echo.Context) error {
+	if h.DB == nil {
+		return mw.WriteAPIError(c, http.StatusServiceUnavailable,
+			mw.APIErrorCodeServiceUnavailable,
+			"data layer not configured (DATABASE_URL unset)")
+	}
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return mw.WriteAPIError(c, http.StatusBadRequest,
+			mw.APIErrorCodeValidation, "id must be a valid UUID")
+	}
+	var req updateAccountRequest
+	if err := decodeJSONStrict(c.Request().Body, &req); err != nil {
+		return mw.WriteAPIError(c, http.StatusBadRequest,
+			mw.APIErrorCodeValidation, "invalid JSON body: "+err.Error())
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return mw.WriteAPIError(c, http.StatusBadRequest,
+			mw.APIErrorCodeValidation, "name is required")
+	}
+	ctx, cancel := context.WithTimeout(c.Request().Context(), listTimeout)
+	defer cancel()
+	row, err := dbq.New(h.DB).UpdateAccountName(ctx,
+		dbq.UpdateAccountNameParams{
+			ID:   pgtype.UUID{Bytes: id, Valid: true},
+			Name: name,
+		})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return mw.WriteAPIError(c, http.StatusNotFound,
+				mw.APIErrorCodeNotFound, "account not found")
+		}
+		c.Logger().Errorf("api update account: %v", err)
+		return mw.WriteAPIError(c, http.StatusInternalServerError,
+			mw.APIErrorCodeInternal, "failed to update account")
+	}
+	return c.JSON(http.StatusOK, APIAccount{
+		ID:        uuid.UUID(row.ID.Bytes).String(),
+		Name:      row.Name,
+		Archived:  row.Archived,
+		CreatedAt: row.CreatedAt.Time,
+	})
+}
+
+// APIAccountArchive implements DELETE /api/v1/accounts/:id. Soft delete
+// only — sets archived=true, preserves the row (spec §10.3 forbids
+// hard delete of any ledger-anchored entity, and Pos still reference
+// accounts via account_id). Returns 204 on success.
+func (h *Handlers) APIAccountArchive(c echo.Context) error {
+	if h.DB == nil {
+		return mw.WriteAPIError(c, http.StatusServiceUnavailable,
+			mw.APIErrorCodeServiceUnavailable,
+			"data layer not configured (DATABASE_URL unset)")
+	}
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return mw.WriteAPIError(c, http.StatusBadRequest,
+			mw.APIErrorCodeValidation, "id must be a valid UUID")
+	}
+	ctx, cancel := context.WithTimeout(c.Request().Context(), listTimeout)
+	defer cancel()
+	q := dbq.New(h.DB)
+	// Confirm existence so we can return 404 vs 204 honestly.
+	if _, err := q.GetAccount(ctx, pgtype.UUID{Bytes: id, Valid: true}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return mw.WriteAPIError(c, http.StatusNotFound,
+				mw.APIErrorCodeNotFound, "account not found")
+		}
+		c.Logger().Errorf("api archive account: lookup: %v", err)
+		return mw.WriteAPIError(c, http.StatusInternalServerError,
+			mw.APIErrorCodeInternal, "failed to archive account")
+	}
+	if err := q.ArchiveAccount(ctx, pgtype.UUID{Bytes: id, Valid: true}); err != nil {
+		c.Logger().Errorf("api archive account: %v", err)
+		return mw.WriteAPIError(c, http.StatusInternalServerError,
+			mw.APIErrorCodeInternal, "failed to archive account")
+	}
+	return c.NoContent(http.StatusNoContent)
 }

@@ -59,6 +59,7 @@ func (h *Handlers) APIPosList(c echo.Context) error {
 			ID:        uuid.UUID(r.ID.Bytes).String(),
 			Name:      r.Name,
 			Currency:  r.Currency,
+			AccountID: uuid.UUID(r.AccountID.Bytes).String(),
 			Target:    r.Target,
 			Archived:  r.Archived,
 			CreatedAt: r.CreatedAt.Time,

@@ -4,15 +4,20 @@
 // against the real handler tree + real Postgres:
 //
 //   - Create template (name + leftover Pos + 3 lines).
+//
 //   - Reject apply with amount < Σ(lines).
+//
 //   - Apply with amount == Σ(lines): expand to 3 money_in rows.
+//
 //   - Apply with amount > Σ(lines): expand to 3 + leftover row.
+//
 //   - Idempotent re-apply: same idempotency_key returns the same txn ids.
+//
 //   - Strict template (no leftover): amount > Σ rejected.
 //
-//   export DATABASE_URL=postgres://…
-//   export LLM_API_KEY=test-api-key-for-e2e
-//   go run ./scripts/e2e_income_template.go
+//     export DATABASE_URL=postgres://…
+//     export LLM_API_KEY=test-api-key-for-e2e
+//     go run ./scripts/e2e_income_template.go
 package main
 
 import (
@@ -119,8 +124,9 @@ func main() {
 	for _, name := range []string{"mortgage", "groceries", "liburan", "leftover"} {
 		var p map[string]any
 		postJSON(srv.URL+"/api/v1/pos", mustJSON(map[string]any{
-			"name":     fmt.Sprintf("e2e-tpl-pos-%d-%s", stamp, name),
-			"currency": "idr",
+			"name":       fmt.Sprintf("e2e-tpl-pos-%d-%s", stamp, name),
+			"currency":   "idr",
+			"account_id": accID,
 		}), http.StatusCreated, &p)
 		posIDs[name] = p["id"].(string)
 	}
@@ -134,8 +140,8 @@ func main() {
 	// ── S1 Create template with 3 lines + leftover Pos ──────────────
 	var tmpl map[string]any
 	tplBody := mustJSON(map[string]any{
-		"name":             fmt.Sprintf("e2e-tpl-%d-with-leftover", stamp),
-		"leftover_pos_id":  posIDs["leftover"],
+		"name":            fmt.Sprintf("e2e-tpl-%d-with-leftover", stamp),
+		"leftover_pos_id": posIDs["leftover"],
 		"lines": []map[string]any{
 			{"pos_id": posIDs["mortgage"], "amount": 12_000_000, "sort_order": 1},
 			{"pos_id": posIDs["groceries"], "amount": 5_000_000, "sort_order": 2},
@@ -315,11 +321,13 @@ func main() {
 	fmt.Println("PASS — income-template /api/v1 surface works end-to-end")
 }
 
-func applyBody(stamp int64, suffix string, amount int64, accID, cpID string) []byte {
+// applyBody builds the apply request. account_id is no longer accepted
+// — accounts are reached via pos.account_id (spec §4.2/§5.6). The
+// template's lines and pos already determine which account is funded.
+func applyBody(stamp int64, suffix string, amount int64, _, cpID string) []byte {
 	return mustJSON(map[string]any{
 		"amount":          amount,
 		"effective_date":  time.Now().Format("2006-01-02"),
-		"account_id":      accID,
 		"counterparty_id": cpID,
 		"note":            "e2e " + suffix,
 		"idempotency_key": fmt.Sprintf("e2e-tpl-%d-%s", stamp, suffix),

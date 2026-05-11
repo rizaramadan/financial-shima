@@ -1,8 +1,12 @@
-// Package balance computes per-account and per-pos cash balances from a
+// Package balance computes per-pos and per-account cash balances from a
 // stream of transactions. The package is pure: no DB, no time.Now, no rand.
 //
 // Spec references:
 //   - §4.2: Pos cash_balance is derived (no stored balance column).
+//     Each Pos has a current `account_id`; account balances are derived
+//     by joining transactions through this pointer (§5.6 snapshot
+//     semantics). Reassigning a Pos to a new Account retroactively
+//     re-attributes that Pos's IDR contribution.
 //   - §5.1 IDR-Pos rule: money_in / money_out to an IDR pos requires
 //     account_amount == pos_amount.
 //   - §10.5: per-currency reconciliation — for IDR, Σ(Pos.cash) = Σ(Account).
@@ -19,37 +23,54 @@ import (
 )
 
 // IDR is the literal currency string used for the operator's primary unit.
-// Centralised so a future rename ripples cleanly.
 const IDR = "idr"
 
 // PosKey uniquely identifies a Pos balance bucket — a Pos id paired with
-// the currency the running total is in. Lifting Currency into the key keeps
-// per-currency aggregation natural.
+// the currency the running total is in.
 type PosKey struct {
 	PosID    string
 	Currency string
 }
 
-// Event is the closed sum of transaction shapes. Pointer methods on each
-// concrete type embed eventTag so the interface is unforgeable outside
-// the package.
+// Event is the closed sum of transaction shapes.
 type Event interface {
 	apply(s *State) error
 }
 
-type MoneyIn struct {
-	AccountID    string
-	AccountIDR   int64 // positive
-	PosID        string
-	PosCurrency  string
-	PosAmount    int64 // positive
+// RegisterPos declares a Pos and binds it to its initial Account.
+// Mirrors the schema's `pos.account_id NOT NULL` constraint: every Pos
+// must know its funding account before any money flows through it.
+type RegisterPos struct {
+	PosID     string
+	AccountID string
+	Currency  string
 }
 
-type MoneyOut struct {
-	AccountID   string
-	AccountIDR  int64 // positive; Apply subtracts
+// Reassign changes a Pos's funding Account (spec §5.6 snapshot
+// semantics). Past flows attached to this Pos are reattributed to the
+// new Account on the next AccountTotal() / Accounts() read — there is
+// no per-event mutation of account totals because account totals are
+// derived, not stored.
+type Reassign struct {
+	PosID        string
+	NewAccountID string
+}
+
+// MoneyIn is money_in / money_out's positive cousin. AccountID is no
+// longer a field — the funding account is read from posAccount[PosID]
+// at apply time.
+type MoneyIn struct {
 	PosID       string
 	PosCurrency string
+	AccountIDR  int64 // positive
+	PosAmount   int64 // positive
+}
+
+// MoneyOut subtracts; same field set as MoneyIn.
+type MoneyOut struct {
+	PosID       string
+	PosCurrency string
+	AccountIDR  int64 // positive; Apply subtracts
 	PosAmount   int64 // positive; Apply subtracts
 }
 
@@ -74,21 +95,30 @@ type InterPos struct {
 }
 
 // State accumulates running totals as events are applied.
+//
+// Account balances are *derived* from posAccount + posIDRFlow
+// (§5.6 snapshot view); they are not stored. Read them with Accounts()
+// or AccountTotal().
 type State struct {
-	Accounts map[string]int64 // account_id → IDR cents
-	Pos      map[PosKey]int64 // pos_id × currency → cents
+	posAccount  map[string]string // pos_id → current account_id
+	posCurrency map[string]string // pos_id → currency (set on RegisterPos)
+	posIDRFlow  map[string]int64  // pos_id → cumulative IDR account-side delta
+	Pos         map[PosKey]int64  // pos_id × currency → cents
 }
 
 // New returns a zero State.
 func New() *State {
 	return &State{
-		Accounts: map[string]int64{},
-		Pos:      map[PosKey]int64{},
+		posAccount:  map[string]string{},
+		posCurrency: map[string]string{},
+		posIDRFlow:  map[string]int64{},
+		Pos:         map[PosKey]int64{},
 	}
 }
 
 // Apply mutates s by applying the event. Returns an error if the event
-// would violate spec invariants (currency mismatch, amount sign, overflow).
+// would violate spec invariants (currency mismatch, amount sign,
+// overflow, unknown pos).
 func (s *State) Apply(e Event) error { return e.apply(s) }
 
 // ApplyAll applies events in order, returning at the first failure.
@@ -101,13 +131,31 @@ func (s *State) ApplyAll(events []Event) error {
 	return nil
 }
 
-// AccountTotal returns Σ(Account balance). All accounts are IDR per §4.1.
+// Accounts returns the *derived* per-account IDR balances. A Pos's
+// cumulative IDR flow is attributed to its current account_id (§5.6).
+func (s *State) Accounts() map[string]int64 {
+	out := map[string]int64{}
+	for posID, acc := range s.posAccount {
+		out[acc] += s.posIDRFlow[posID]
+	}
+	return out
+}
+
+// AccountTotal returns Σ(Account balance) under the snapshot view.
 func (s *State) AccountTotal() int64 {
 	var sum int64
-	for _, v := range s.Accounts {
-		sum += v
+	for _, posID := range posIDsSortedForDeterminism(s.posAccount) {
+		sum += s.posIDRFlow[posID]
 	}
 	return sum
+}
+
+func posIDsSortedForDeterminism(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
 
 // PosCashTotal returns Σ(Pos.cash) for the given currency.
@@ -124,11 +172,13 @@ func (s *State) PosCashTotal(currency string) int64 {
 // --- Event implementations ---
 
 var (
-	ErrCurrencyMismatch = errors.New("balance: pos currency mismatch with line/event")
-	ErrIDRPosMismatch   = errors.New("balance: IDR pos requires account_amount == pos_amount")
-	ErrNonPositive      = errors.New("balance: amount must be positive (sign comes from type)")
-	ErrOverflow         = errors.New("balance: int64 arithmetic would overflow")
+	ErrCurrencyMismatch  = errors.New("balance: pos currency mismatch with line/event")
+	ErrIDRPosMismatch    = errors.New("balance: IDR pos requires account_amount == pos_amount")
+	ErrNonPositive       = errors.New("balance: amount must be positive (sign comes from type)")
+	ErrOverflow          = errors.New("balance: int64 arithmetic would overflow")
 	ErrUnreconciledLines = errors.New("balance: inter_pos per-currency line totals do not reconcile")
+	ErrUnregisteredPos   = errors.New("balance: pos has no account_id (RegisterPos required first)")
+	ErrPosAlreadyKnown   = errors.New("balance: pos already registered")
 )
 
 func addSafe(a, b int64) (int64, error) {
@@ -145,14 +195,43 @@ func subSafe(a, b int64) (int64, error) {
 	return a - b, nil
 }
 
+func (e RegisterPos) apply(s *State) error {
+	if e.PosID == "" || e.AccountID == "" || e.Currency == "" {
+		return ErrUnregisteredPos
+	}
+	if _, ok := s.posAccount[e.PosID]; ok {
+		return ErrPosAlreadyKnown
+	}
+	s.posAccount[e.PosID] = e.AccountID
+	s.posCurrency[e.PosID] = e.Currency
+	return nil
+}
+
+func (e Reassign) apply(s *State) error {
+	if _, ok := s.posAccount[e.PosID]; !ok {
+		return ErrUnregisteredPos
+	}
+	if e.NewAccountID == "" {
+		return ErrUnregisteredPos
+	}
+	s.posAccount[e.PosID] = e.NewAccountID
+	return nil
+}
+
 func (e MoneyIn) apply(s *State) error {
 	if e.AccountIDR <= 0 || e.PosAmount <= 0 {
 		return ErrNonPositive
 	}
+	if _, ok := s.posAccount[e.PosID]; !ok {
+		return ErrUnregisteredPos
+	}
+	if e.PosCurrency != s.posCurrency[e.PosID] {
+		return ErrCurrencyMismatch
+	}
 	if e.PosCurrency == IDR && e.AccountIDR != e.PosAmount {
 		return ErrIDRPosMismatch
 	}
-	newAcc, err := addSafe(s.Accounts[e.AccountID], e.AccountIDR)
+	newFlow, err := addSafe(s.posIDRFlow[e.PosID], e.AccountIDR)
 	if err != nil {
 		return err
 	}
@@ -161,7 +240,7 @@ func (e MoneyIn) apply(s *State) error {
 	if err != nil {
 		return err
 	}
-	s.Accounts[e.AccountID] = newAcc
+	s.posIDRFlow[e.PosID] = newFlow
 	s.Pos[key] = newPos
 	return nil
 }
@@ -170,10 +249,16 @@ func (e MoneyOut) apply(s *State) error {
 	if e.AccountIDR <= 0 || e.PosAmount <= 0 {
 		return ErrNonPositive
 	}
+	if _, ok := s.posAccount[e.PosID]; !ok {
+		return ErrUnregisteredPos
+	}
+	if e.PosCurrency != s.posCurrency[e.PosID] {
+		return ErrCurrencyMismatch
+	}
 	if e.PosCurrency == IDR && e.AccountIDR != e.PosAmount {
 		return ErrIDRPosMismatch
 	}
-	newAcc, err := subSafe(s.Accounts[e.AccountID], e.AccountIDR)
+	newFlow, err := subSafe(s.posIDRFlow[e.PosID], e.AccountIDR)
 	if err != nil {
 		return err
 	}
@@ -182,7 +267,7 @@ func (e MoneyOut) apply(s *State) error {
 	if err != nil {
 		return err
 	}
-	s.Accounts[e.AccountID] = newAcc
+	s.posIDRFlow[e.PosID] = newFlow
 	s.Pos[key] = newPos
 	return nil
 }

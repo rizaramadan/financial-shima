@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
 	"github.com/rizaramadan/financial-shima/db/dbq"
@@ -109,6 +110,7 @@ func (h *Handlers) loadHomeData(ctx context.Context, data *template.HomeData) er
 			hasTarget = true
 		}
 		groups[curIdx].Items = append(groups[curIdx].Items, template.PosRow{
+			ID:   uuid.UUID(p.ID.Bytes).String(),
 			Name: p.Name, Cash: posBal[p.ID.Bytes],
 			Target: target, HasTarget: hasTarget,
 		})

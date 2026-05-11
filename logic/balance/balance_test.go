@@ -8,18 +8,19 @@ import (
 
 // --- Unit tests ---
 
-func TestMoneyIn_AddsToAccountAndPos(t *testing.T) {
+func TestMoneyIn_AddsToPosAndDerivedAccount(t *testing.T) {
 	t.Parallel()
 	s := New()
-	err := s.Apply(MoneyIn{
-		AccountID: "acc", AccountIDR: 100_000,
-		PosID: "p", PosCurrency: IDR, PosAmount: 100_000,
-	})
-	if err != nil {
+	if err := s.Apply(RegisterPos{PosID: "p", AccountID: "acc", Currency: IDR}); err != nil {
+		t.Fatalf("RegisterPos: %v", err)
+	}
+	if err := s.Apply(MoneyIn{
+		PosID: "p", PosCurrency: IDR, AccountIDR: 100_000, PosAmount: 100_000,
+	}); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	if got := s.Accounts["acc"]; got != 100_000 {
-		t.Errorf("account = %d, want 100000", got)
+	if got := s.Accounts()["acc"]; got != 100_000 {
+		t.Errorf("derived account = %d, want 100000", got)
 	}
 	if got := s.Pos[PosKey{PosID: "p", Currency: IDR}]; got != 100_000 {
 		t.Errorf("pos = %d, want 100000", got)
@@ -29,24 +30,26 @@ func TestMoneyIn_AddsToAccountAndPos(t *testing.T) {
 func TestMoneyIn_NonIDRPos_AmountsMayDiffer(t *testing.T) {
 	t.Parallel()
 	s := New()
-	err := s.Apply(MoneyIn{
-		AccountID: "acc", AccountIDR: 6_000_000,
-		PosID: "g", PosCurrency: "gold-g", PosAmount: 5,
-	})
-	if err != nil {
+	_ = s.Apply(RegisterPos{PosID: "g", AccountID: "acc", Currency: "gold-g"})
+	if err := s.Apply(MoneyIn{
+		PosID: "g", PosCurrency: "gold-g", AccountIDR: 6_000_000, PosAmount: 5,
+	}); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	if s.Accounts["acc"] != 6_000_000 || s.Pos[PosKey{PosID: "g", Currency: "gold-g"}] != 5 {
-		t.Errorf("state mismatch: %+v", s)
+	if s.Accounts()["acc"] != 6_000_000 {
+		t.Errorf("derived account = %d, want 6_000_000", s.Accounts()["acc"])
+	}
+	if s.Pos[PosKey{PosID: "g", Currency: "gold-g"}] != 5 {
+		t.Errorf("pos = %d, want 5", s.Pos[PosKey{PosID: "g", Currency: "gold-g"}])
 	}
 }
 
 func TestMoneyIn_IDRPos_MismatchedAmountsRejected(t *testing.T) {
 	t.Parallel()
 	s := New()
+	_ = s.Apply(RegisterPos{PosID: "p", AccountID: "acc", Currency: IDR})
 	err := s.Apply(MoneyIn{
-		AccountID: "acc", AccountIDR: 100,
-		PosID: "p", PosCurrency: IDR, PosAmount: 50,
+		PosID: "p", PosCurrency: IDR, AccountIDR: 100, PosAmount: 50,
 	})
 	if !errors.Is(err, ErrIDRPosMismatch) {
 		t.Errorf("err = %v, want ErrIDRPosMismatch", err)
@@ -56,38 +59,92 @@ func TestMoneyIn_IDRPos_MismatchedAmountsRejected(t *testing.T) {
 func TestMoneyIn_NegativeOrZero_Rejected(t *testing.T) {
 	t.Parallel()
 	for _, e := range []MoneyIn{
-		{AccountIDR: 0, PosAmount: 1, PosCurrency: IDR},
-		{AccountIDR: -1, PosAmount: 1, PosCurrency: IDR},
-		{AccountIDR: 1, PosAmount: 0, PosCurrency: IDR},
+		{PosID: "p", PosCurrency: IDR, AccountIDR: 0, PosAmount: 1},
+		{PosID: "p", PosCurrency: IDR, AccountIDR: -1, PosAmount: 1},
+		{PosID: "p", PosCurrency: IDR, AccountIDR: 1, PosAmount: 0},
 	} {
 		s := New()
+		_ = s.Apply(RegisterPos{PosID: "p", AccountID: "acc", Currency: IDR})
 		if err := s.Apply(e); !errors.Is(err, ErrNonPositive) {
 			t.Errorf("input %+v: err = %v, want ErrNonPositive", e, err)
 		}
 	}
 }
 
+func TestMoneyIn_UnregisteredPos_Rejected(t *testing.T) {
+	t.Parallel()
+	s := New()
+	err := s.Apply(MoneyIn{PosID: "ghost", PosCurrency: IDR, AccountIDR: 100, PosAmount: 100})
+	if !errors.Is(err, ErrUnregisteredPos) {
+		t.Errorf("err = %v, want ErrUnregisteredPos", err)
+	}
+}
+
 func TestMoneyOut_SubtractsAndAllowsNegative(t *testing.T) {
 	t.Parallel()
 	s := New()
-	_ = s.Apply(MoneyOut{
-		AccountID: "acc", AccountIDR: 50_000,
-		PosID: "p", PosCurrency: IDR, PosAmount: 50_000,
-	})
-	if s.Accounts["acc"] != -50_000 {
-		t.Errorf("account = %d, want -50000 (negative permitted)", s.Accounts["acc"])
+	_ = s.Apply(RegisterPos{PosID: "p", AccountID: "acc", Currency: IDR})
+	_ = s.Apply(MoneyOut{PosID: "p", PosCurrency: IDR, AccountIDR: 50_000, PosAmount: 50_000})
+	if got := s.Accounts()["acc"]; got != -50_000 {
+		t.Errorf("account = %d, want -50000 (negative permitted)", got)
 	}
 	if s.Pos[PosKey{PosID: "p", Currency: IDR}] != -50_000 {
 		t.Errorf("pos = %d, want -50000", s.Pos[PosKey{PosID: "p", Currency: IDR}])
 	}
 }
 
+func TestReassign_RetroactivelyShiftsAccountAttribution(t *testing.T) {
+	t.Parallel()
+	// §5.6 snapshot semantics: changing pos.account_id rewrites
+	// historical account-side attribution. Σ(Pos.cash IDR) = Σ(Account)
+	// must hold before and after the reassignment.
+	s := New()
+	_ = s.Apply(RegisterPos{PosID: "p", AccountID: "old", Currency: IDR})
+	_ = s.Apply(MoneyIn{PosID: "p", PosCurrency: IDR, AccountIDR: 100_000, PosAmount: 100_000})
+	if s.Accounts()["old"] != 100_000 {
+		t.Fatalf("pre: old = %d, want 100000", s.Accounts()["old"])
+	}
+	if err := s.Apply(Reassign{PosID: "p", NewAccountID: "new"}); err != nil {
+		t.Fatalf("Reassign: %v", err)
+	}
+	got := s.Accounts()
+	if got["new"] != 100_000 {
+		t.Errorf("post: new = %d, want 100000", got["new"])
+	}
+	if got["old"] != 0 {
+		t.Errorf("post: old = %d, want 0 (reattributed away)", got["old"])
+	}
+	// §10.5 still holds.
+	if s.AccountTotal() != s.PosCashTotal(IDR) {
+		t.Errorf("§10.5 broken post-reassign: acc=%d pos=%d",
+			s.AccountTotal(), s.PosCashTotal(IDR))
+	}
+}
+
+func TestReassign_UnregisteredPos_Rejected(t *testing.T) {
+	t.Parallel()
+	s := New()
+	if err := s.Apply(Reassign{PosID: "ghost", NewAccountID: "acc"}); !errors.Is(err, ErrUnregisteredPos) {
+		t.Errorf("err = %v, want ErrUnregisteredPos", err)
+	}
+}
+
+func TestRegisterPos_Duplicate_Rejected(t *testing.T) {
+	t.Parallel()
+	s := New()
+	_ = s.Apply(RegisterPos{PosID: "p", AccountID: "a", Currency: IDR})
+	if err := s.Apply(RegisterPos{PosID: "p", AccountID: "b", Currency: IDR}); !errors.Is(err, ErrPosAlreadyKnown) {
+		t.Errorf("err = %v, want ErrPosAlreadyKnown", err)
+	}
+}
+
 func TestInterPos_ReallocatesWithinCurrency(t *testing.T) {
 	t.Parallel()
 	s := New()
-	// Seed both pos to 100k IDR.
-	_ = s.Apply(MoneyIn{AccountID: "a", AccountIDR: 100_000, PosID: "src", PosCurrency: IDR, PosAmount: 100_000})
-	_ = s.Apply(MoneyIn{AccountID: "a", AccountIDR: 100_000, PosID: "dst", PosCurrency: IDR, PosAmount: 100_000})
+	_ = s.Apply(RegisterPos{PosID: "src", AccountID: "a", Currency: IDR})
+	_ = s.Apply(RegisterPos{PosID: "dst", AccountID: "a", Currency: IDR})
+	_ = s.Apply(MoneyIn{PosID: "src", PosCurrency: IDR, AccountIDR: 100_000, PosAmount: 100_000})
+	_ = s.Apply(MoneyIn{PosID: "dst", PosCurrency: IDR, AccountIDR: 100_000, PosAmount: 100_000})
 	err := s.Apply(InterPos{
 		Mode: "reallocation",
 		Lines: []InterPosLine{
@@ -123,10 +180,6 @@ func TestInterPos_UnreconciledLines_Rejected(t *testing.T) {
 func TestInterPos_CrossCurrency_EachReconcilesIndependently(t *testing.T) {
 	t.Parallel()
 	s := New()
-	// Borrow: 6M IDR out from "rp_pool", 5g gold-g in to "school".
-	// §10.6 says cross-currency lines do NOT sum across; each must
-	// reconcile to itself. So this should FAIL because IDR has out=6M
-	// with no in, and gold-g has in=5 with no out.
 	err := s.Apply(InterPos{
 		Mode: "borrow",
 		Lines: []InterPosLine{
@@ -142,9 +195,8 @@ func TestInterPos_CrossCurrency_EachReconcilesIndependently(t *testing.T) {
 // --- Property tests for §10.5 / §10.6 invariants ---
 
 // TestProperty_IDRReconciliation_AfterRandomEvents drives random valid
-// money_in/money_out/inter_pos events on IDR-only accounts/pos and asserts
+// money_in/money_out/inter_pos events plus reassignments and asserts
 // after EVERY event that Σ(Account) = Σ(Pos.cash where currency=IDR).
-// This is the spec §10.5 invariant verbatim.
 func TestProperty_IDRReconciliation_AfterRandomEvents(t *testing.T) {
 	t.Parallel()
 	const seeds = 50
@@ -168,10 +220,6 @@ func TestProperty_IDRReconciliation_AfterRandomEvents(t *testing.T) {
 	}
 }
 
-// TestProperty_InterPosLines_ReconcilePerCurrency: §10.6 says for each
-// inter_pos and each currency in its lines, Σ(out) = Σ(in). We test the
-// negative space: feeding a generated unreconciled inter_pos always
-// rejects.
 func TestProperty_InterPosLines_ReconcilePerCurrency(t *testing.T) {
 	t.Parallel()
 	rng := rand.New(rand.NewSource(99))
@@ -185,30 +233,34 @@ func TestProperty_InterPosLines_ReconcilePerCurrency(t *testing.T) {
 }
 
 // genIDREventStream produces a random sequence of valid IDR-only events
-// across MULTIPLE accounts and pos. The multi-account spread is what
-// distinguishes "code correctly aggregates §10.5 across accounts" from
-// "code uses the only key it has." Beck Phase-6 R3.
+// across MULTIPLE accounts and pos, including periodic Pos
+// reassignments. Reassign retroactively shifts attribution; §10.5 must
+// hold throughout.
 func genIDREventStream(rng *rand.Rand, n int) []Event {
 	accountIDs := []string{"acc-1", "acc-2"}
 	const maxAmount = 1_000_000
 	posIDs := []string{"p-A", "p-B", "p-C"}
 
-	out := make([]Event, 0, n)
+	out := make([]Event, 0, n+len(posIDs))
+	// Register all pos up front against the first account.
+	for _, p := range posIDs {
+		out = append(out, RegisterPos{PosID: p, AccountID: accountIDs[0], Currency: IDR})
+	}
 	for i := 0; i < n; i++ {
-		switch rng.Intn(10) {
+		switch rng.Intn(11) {
 		case 0, 1, 2, 3, 4:
 			amount := int64(rng.Intn(maxAmount) + 1)
 			out = append(out, MoneyIn{
-				AccountID: accountIDs[rng.Intn(len(accountIDs))], AccountIDR: amount,
-				PosID: posIDs[rng.Intn(len(posIDs))], PosCurrency: IDR, PosAmount: amount,
+				PosID:       posIDs[rng.Intn(len(posIDs))],
+				PosCurrency: IDR, AccountIDR: amount, PosAmount: amount,
 			})
 		case 5, 6, 7:
 			amount := int64(rng.Intn(maxAmount) + 1)
 			out = append(out, MoneyOut{
-				AccountID: accountIDs[rng.Intn(len(accountIDs))], AccountIDR: amount,
-				PosID: posIDs[rng.Intn(len(posIDs))], PosCurrency: IDR, PosAmount: amount,
+				PosID:       posIDs[rng.Intn(len(posIDs))],
+				PosCurrency: IDR, AccountIDR: amount, PosAmount: amount,
 			})
-		default:
+		case 8, 9:
 			amount := int64(rng.Intn(maxAmount) + 1)
 			src := posIDs[rng.Intn(len(posIDs))]
 			dst := posIDs[rng.Intn(len(posIDs))]
@@ -219,17 +271,19 @@ func genIDREventStream(rng *rand.Rand, n int) []Event {
 					{PosID: dst, Currency: IDR, Direction: DirIn, Amount: amount},
 				},
 			})
+		default:
+			// Reassign — moves a Pos to a different account. The §10.5
+			// property must still hold because Σ over all accounts
+			// equals Σ over all pos regardless of attribution.
+			out = append(out, Reassign{
+				PosID:        posIDs[rng.Intn(len(posIDs))],
+				NewAccountID: accountIDs[rng.Intn(len(accountIDs))],
+			})
 		}
 	}
 	return out
 }
 
-// genUnreconciledInterPos produces an inter_pos whose per-currency totals
-// don't match. With 50% probability returns a single-currency mismatch;
-// the other 50% returns a TWO-currency event where one currency
-// reconciles and the other doesn't — the bug surface is "code that
-// aggregates across currencies" wouldn't catch the second form.
-// Beck Phase-6 R4.
 func genUnreconciledInterPos(rng *rand.Rand) InterPos {
 	if rng.Intn(2) == 0 {
 		out := int64(rng.Intn(10000) + 1)
@@ -241,16 +295,15 @@ func genUnreconciledInterPos(rng *rand.Rand) InterPos {
 			},
 		}
 	}
-	// Two-currency case: IDR reconciles (out=in=1000) but gold-g doesn't.
 	idrAmt := int64(rng.Intn(10000) + 1)
 	goldOut := int64(rng.Intn(10) + 1)
 	goldIn := goldOut + int64(rng.Intn(5)+1)
 	return InterPos{
 		Lines: []InterPosLine{
 			{PosID: "x1", Currency: IDR, Direction: DirOut, Amount: idrAmt},
-			{PosID: "y1", Currency: IDR, Direction: DirIn, Amount: idrAmt}, // IDR balances
+			{PosID: "y1", Currency: IDR, Direction: DirIn, Amount: idrAmt},
 			{PosID: "x2", Currency: "gold-g", Direction: DirOut, Amount: goldOut},
-			{PosID: "y2", Currency: "gold-g", Direction: DirIn, Amount: goldIn}, // gold-g doesn't
+			{PosID: "y2", Currency: "gold-g", Direction: DirIn, Amount: goldIn},
 		},
 	}
 }
