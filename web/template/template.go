@@ -1910,11 +1910,16 @@ const accountsBody = `<h1>Accounts</h1>
   </form>
 </td>
 <td>{{if .Archived}}<span class="chip">archived</span>{{else}}<span class="chip chip-in">active</span>{{end}}</td>
-<td>{{if not .Archived}}
-  <form method="post" action="/accounts/{{.ID}}/archive" onsubmit="return confirm('Archive this account? Existing Pos still pointing at it will keep working but the account will be hidden from default lists.');">
+<td><div style="display:flex; gap:6px; flex-wrap:wrap;">
+{{if not .Archived}}
+  <form method="post" action="/accounts/{{.ID}}/archive" onsubmit="return confirm('Archive this account? Existing Pos still pointing at it will keep working but the account will be hidden from default lists.');" style="display:inline;">
     <button type="submit">Archive</button>
   </form>
-{{else}}&mdash;{{end}}</td>
+{{end}}
+  <form method="post" action="/accounts/{{.ID}}/delete" onsubmit="return confirm('Delete this account permanently? Only succeeds if no Pos points at it.');" style="display:inline;">
+    <button type="submit">Delete</button>
+  </form>
+</div></td>
 </tr>
 {{end}}
 </tbody>
