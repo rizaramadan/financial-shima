@@ -683,7 +683,12 @@ const layoutOpen = `<!doctype html>
 ::selection { background: color-mix(in oklab, var(--primary) 25%, transparent); }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
-/* Mobile-first: base rules target narrow viewports; min-width queries
+/* Layout. Two body modes:
+ *   .signed-in → grid with sidebar (left) + main (right). Sidebar is
+ *      fixed-position on mobile and slid in via a CSS-only checkbox
+ *      toggle; at ≥768px it promotes to a static grid column.
+ *   default (login / verify) → single centered column, no sidebar.
+ * Mobile-first: base rules target narrow viewports; min-width queries
  * scale up for tablets (≥480px) and desktop (≥768px). */
 body {
   background: var(--bg-page);
@@ -694,6 +699,14 @@ body {
   font-size: var(--font-base); line-height: 1.5714;
   min-height: 100vh; display: grid;
   align-items: start; justify-items: center;
+  padding: 0;
+}
+body.signed-in {
+  /* Mobile: single column. Topbar row above main. */
+  grid-template-columns: 1fr;
+  grid-template-rows: auto 1fr;
+  grid-template-areas: "topbar" "main";
+  justify-items: stretch;
   padding: 0;
 }
 main {
@@ -716,16 +729,129 @@ main {
 }
 main.compact { max-width: 420px; }
 main.wide    { max-width: 920px; }
+/* Signed-in main fills the grid cell; .compact/.wide still cap form
+ * pages but they centre within the cell instead of the viewport. */
+body.signed-in > main {
+  grid-area: main;
+  max-width: none;
+  border: 0; border-radius: 0; box-shadow: none;
+}
+body.signed-in > main.compact { max-width: 420px; margin: 0 auto; }
+body.signed-in > main.wide    { max-width: 920px; margin: 0 auto; }
 @media (min-width: 480px) {
   body { padding: 16px; }
+  body.signed-in { padding: 0; }
   main { padding: 24px; border-radius: var(--radius-lg);
     border-left: 1px solid var(--border-secondary);
     border-right: 1px solid var(--border-secondary); }
+  body.signed-in > main { border: 0; border-radius: 0; }
 }
 @media (min-width: 768px) {
   body { padding: 24px; }
+  body.signed-in {
+    padding: 0;
+    grid-template-columns: 240px 1fr;
+    grid-template-rows: 1fr;
+    grid-template-areas: "sidebar main";
+  }
   main { padding: 32px; }
   main.compact { padding: 32px 28px; }
+  body.signed-in > main { padding: 32px 40px; }
+}
+
+/* ── Sidebar + topbar (signed-in only) ─────────────────────────────
+ * Markup order in layoutOpen (for the CSS sibling selectors to work):
+ *   <input #sidebar-toggle> .topbar .sidebar-overlay .sidebar <main>
+ * The checkbox is visually hidden; the hamburger label flips its
+ * :checked state, which CSS uses to translate the sidebar into view
+ * and reveal the overlay. Page nav is a full navigation (server
+ * rendered) so the checkbox resets on every link click — no JS needed
+ * to "auto-close" on navigation. */
+.sidebar-toggle { position: absolute; opacity: 0; pointer-events: none; }
+.topbar {
+  grid-area: topbar;
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 16px;
+  background: var(--bg-container);
+  border-bottom: 1px solid var(--border-secondary);
+  position: sticky; top: 0; z-index: 10;
+}
+.hamburger {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 22px; line-height: 1;
+  width: 40px; height: 40px;
+  border-radius: var(--radius);
+  cursor: pointer; color: var(--text);
+  user-select: none;
+  margin-left: -8px; /* tighten optical left edge against the bar */
+}
+.hamburger:hover { background: var(--bg-fill); }
+.hamburger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 25%, transparent);
+}
+.topbar-title { font-weight: 500; color: var(--text); }
+.topbar-badge {
+  margin-left: auto;
+}
+.sidebar {
+  grid-area: sidebar;
+  background: var(--bg-container);
+  border-right: 1px solid var(--border-secondary);
+  padding: 16px 12px;
+  display: flex; flex-direction: column; gap: 4px;
+  /* Mobile: drawer pinned to the viewport edge, hidden until toggled. */
+  position: fixed; top: 0; bottom: 0; left: 0; width: 260px;
+  transform: translateX(-100%);
+  transition: transform 0.2s ease;
+  z-index: 30;
+  overflow-y: auto;
+}
+.sidebar-toggle:checked ~ .sidebar { transform: translateX(0); }
+.sidebar-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 20;
+  cursor: pointer;
+}
+.sidebar-toggle:checked ~ .sidebar-overlay { display: block; }
+.sidebar-brand {
+  font-weight: 600; color: var(--text);
+  padding: 4px 12px 12px;
+  border-bottom: 1px solid var(--border-secondary);
+  margin: 0 0 8px;
+}
+.sidebar a, .sidebar form button {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; border-radius: var(--radius);
+  color: var(--text-secondary); text-decoration: none;
+  font-size: var(--font-base); white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.sidebar a:hover { background: var(--bg-fill); color: var(--primary); }
+.sidebar a[aria-current="page"] {
+  background: var(--primary-bg); color: var(--primary); font-weight: 500;
+}
+.sidebar-end { margin-top: auto; padding-top: 12px;
+  border-top: 1px solid var(--border-secondary); }
+.sidebar-end .linkbtn,
+.sidebar form button {
+  width: 100%;
+  background: transparent; border: 0; box-shadow: none;
+  color: var(--text-secondary);
+  text-align: left; padding: 10px 12px;
+  cursor: pointer; font: inherit;
+}
+.sidebar-end .linkbtn:hover,
+.sidebar form button:hover { background: var(--bg-fill); color: var(--primary); }
+@media (min-width: 768px) {
+  .topbar, .sidebar-overlay { display: none; }
+  .sidebar {
+    position: static; transform: none; transition: none;
+    width: auto; z-index: auto;
+  }
+  .sidebar-toggle:checked ~ .sidebar-overlay { display: none; }
 }
 h1 { font-size: var(--font-h3); font-weight: 600; line-height: 1.27;
   margin: 0 0 16px; color: var(--text); }
@@ -1050,22 +1176,32 @@ tr.totals td { font-weight: 600; }
 }
 </style>
 </head>
-<body>
-<main{{if .Compact}} class="compact"{{else if .Wide}} class="wide"{{end}}>
+<body{{if .SignedIn}} class="signed-in"{{end}}>
 {{if .SignedIn}}
-<nav class="nav" aria-label="Primary">
+<input type="checkbox" id="sidebar-toggle" class="sidebar-toggle" aria-hidden="true">
+<header class="topbar">
+<label for="sidebar-toggle" class="hamburger" role="button" tabindex="0" aria-label="Toggle navigation">☰</label>
+<span class="topbar-title">Shima &mdash; {{.Title}}</span>
+<a href="/notifications" class="topbar-badge" aria-label="{{.UnreadCount}} notifications"><span class="badge">{{if .UnreadCount}}{{.UnreadCount}}{{end}}</span></a>
+</header>
+<label for="sidebar-toggle" class="sidebar-overlay" aria-hidden="true"></label>
+<aside class="sidebar" aria-label="Primary">
+<p class="sidebar-brand">Shima</p>
 <a href="/"{{if eq .Route "home"}} aria-current="page"{{end}}>Home</a>
 <a href="/transactions"{{if eq .Route "transactions"}} aria-current="page"{{end}}>Transactions</a>
 <a href="/spending"{{if eq .Route "spending"}} aria-current="page"{{end}}>Spending</a>
 <a href="/income-templates"{{if eq .Route "income"}} aria-current="page"{{end}}>Income</a>
 <a href="/accounts"{{if eq .Route "accounts"}} aria-current="page"{{end}}>Accounts</a>
 <a href="/notifications"{{if eq .Route "notifications"}} aria-current="page"{{end}}>Notifications<span class="badge" aria-label="{{.UnreadCount}} unread">{{if .UnreadCount}}{{.UnreadCount}}{{end}}</span></a>
-<a href="/settings" class="nav-end"{{if eq .Route "settings"}} aria-current="page"{{end}} aria-label="Settings">⚙</a>
+<div class="sidebar-end">
+<a href="/settings"{{if eq .Route "settings"}} aria-current="page"{{end}}>⚙ Settings</a>
 <form method="post" action="/logout">
-<button type="submit" class="linkbtn">Sign out</button>
+<button type="submit">Sign out</button>
 </form>
-</nav>
+</div>
+</aside>
 {{end}}
+<main{{if .Compact}} class="compact"{{else if .Wide}} class="wide"{{end}}>
 `
 
 const layoutClose = `
