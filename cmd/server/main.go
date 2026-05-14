@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 
+	dbmigrate "github.com/rizaramadan/financial-shima/db"
 	"github.com/rizaramadan/financial-shima/db/dbq"
 	"github.com/rizaramadan/financial-shima/dependencies/assistant"
 	"github.com/rizaramadan/financial-shima/logic/auth"
@@ -85,17 +86,26 @@ func newServer() *echo.Echo {
 // newDBPool returns a pgxpool.Pool when DATABASE_URL is set; otherwise nil.
 // Handlers tolerate a nil pool by falling back to placeholder renders, so
 // the binary still boots in dev without a Postgres on disk.
+//
+// When DATABASE_URL is set, db.Migrate runs before the pool is returned.
+// Any migration failure is fatal — the binary refuses to serve traffic
+// against a schema it can't reason about. This is the single chokepoint
+// that closes the deploy-binary-without-running-migrations gap that broke
+// production after PR #20.
 func newDBPool() *pgxpool.Pool {
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
 		log.Print("DATABASE_URL not set; running without DB (home view shows placeholder)")
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
 		log.Fatalf("connect DATABASE_URL: %v", err)
+	}
+	if err := dbmigrate.Migrate(ctx, pool, url); err != nil {
+		log.Fatalf("migrate: %v", err)
 	}
 	return pool
 }
