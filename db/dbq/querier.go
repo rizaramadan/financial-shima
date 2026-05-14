@@ -19,6 +19,12 @@ type Querier interface {
 	CreateIncomeTemplate(ctx context.Context, arg CreateIncomeTemplateParams) (IncomeTemplate, error)
 	CreatePos(ctx context.Context, arg CreatePosParams) (Po, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
+	// Hard-delete an account if no Pos references it. Safe because
+	// transactions.account_id was dropped in 0005 (Pos now owns the
+	// account FK), so pos is the only inbound reference. Returns rows
+	// affected: 0 means the account is either missing or still has Pos —
+	// the caller disambiguates with a follow-up GetAccount.
+	DeleteAccountIfUnused(ctx context.Context, id pgtype.UUID) (int64, error)
 	DeleteIncomeTemplateLine(ctx context.Context, id pgtype.UUID) error
 	DeleteSession(ctx context.Context, token string) error
 	GetAccount(ctx context.Context, id pgtype.UUID) (Account, error)

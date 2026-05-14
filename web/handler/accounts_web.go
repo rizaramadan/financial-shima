@@ -139,6 +139,54 @@ func (h *Handlers) AccountRenamePost(c echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, "/accounts")
 }
 
+// AccountDeletePost hard-deletes an account when no Pos references it.
+// Distinct from AccountArchivePost: archive is the spec-required soft
+// delete (§10.3 forbids hard-delete of `transactions`, but accounts
+// have no inbound FK from transactions since 0005 — `pos.account_id`
+// is the only reference, so a Pos-free account is safe to drop).
+// The DB query is atomic (NOT EXISTS guard inside the DELETE), so no
+// TOCTOU race against a concurrent Pos creation.
+func (h *Handlers) AccountDeletePost(c echo.Context) error {
+	if _, ok := mw.CurrentUser(c); !ok {
+		return c.Redirect(http.StatusSeeOther, "/login")
+	}
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return c.Redirect(http.StatusSeeOther, "/accounts")
+	}
+	if h.DB == nil {
+		return c.Redirect(http.StatusSeeOther, "/accounts")
+	}
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 3*time.Second)
+	defer cancel()
+	q := dbq.New(h.DB)
+	uid := pgtype.UUID{Bytes: id, Valid: true}
+	rows, err := q.DeleteAccountIfUnused(ctx, uid)
+	if err != nil {
+		c.Logger().Errorf("DeleteAccountIfUnused: %v", err)
+		c.SetCookie(&http.Cookie{Name: "acct_error", Value: "Couldn’t delete the account.", Path: "/", MaxAge: 30})
+		return c.Redirect(http.StatusSeeOther, "/accounts")
+	}
+	if rows == 0 {
+		// Either the row never existed or a Pos still points at it.
+		// One follow-up read tells us which, so we can pick the
+		// right user-facing message.
+		if _, err := q.GetAccount(ctx, uid); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				c.SetCookie(&http.Cookie{Name: "acct_error", Value: "Account not found.", Path: "/", MaxAge: 30})
+			} else {
+				c.Logger().Errorf("DeleteAccountIfUnused lookup: %v", err)
+				c.SetCookie(&http.Cookie{Name: "acct_error", Value: "Couldn’t delete the account.", Path: "/", MaxAge: 30})
+			}
+			return c.Redirect(http.StatusSeeOther, "/accounts")
+		}
+		c.SetCookie(&http.Cookie{Name: "acct_error", Value: "Can’t delete: a Pos still points at this account. Reassign or archive its Pos first.", Path: "/", MaxAge: 30})
+		return c.Redirect(http.StatusSeeOther, "/accounts")
+	}
+	c.SetCookie(&http.Cookie{Name: "acct_flash", Value: "Account deleted.", Path: "/", MaxAge: 30})
+	return c.Redirect(http.StatusSeeOther, "/accounts")
+}
+
 // AccountArchivePost handles archive submission. Per spec §10.3, this is
 // a soft delete — the row is preserved.
 func (h *Handlers) AccountArchivePost(c echo.Context) error {

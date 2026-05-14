@@ -36,6 +36,25 @@ func (q *Queries) CreateAccount(ctx context.Context, name string) (Account, erro
 	return i, err
 }
 
+const deleteAccountIfUnused = `-- name: DeleteAccountIfUnused :execrows
+DELETE FROM accounts
+WHERE accounts.id = $1
+  AND NOT EXISTS (SELECT 1 FROM pos WHERE pos.account_id = accounts.id)
+`
+
+// Hard-delete an account if no Pos references it. Safe because
+// transactions.account_id was dropped in 0005 (Pos now owns the
+// account FK), so pos is the only inbound reference. Returns rows
+// affected: 0 means the account is either missing or still has Pos —
+// the caller disambiguates with a follow-up GetAccount.
+func (q *Queries) DeleteAccountIfUnused(ctx context.Context, id pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteAccountIfUnused, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getAccount = `-- name: GetAccount :one
 SELECT id, name, archived, created_at FROM accounts WHERE id = $1
 `
