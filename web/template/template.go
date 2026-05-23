@@ -1327,22 +1327,22 @@ const spendingBody = `<h1>Spending</h1>
 <table>
 <thead>
 <tr>
-<th>Month</th>
-{{range .Columns}}<th class="num"><a href="/pos/{{.PosID}}">{{.Name}}</a></th>{{end}}
-<th class="num">Row total</th>
+<th>Pos</th>
+{{range .Rows}}<th class="num">{{.Month}}</th>{{end}}
+<th class="num">Pos total</th>
 </tr>
 </thead>
 <tbody>
-{{range $row := .Rows}}
+{{range $i, $col := .Columns}}
 <tr>
-<td>{{$row.Month}}</td>
-{{range $i, $c := $row.Cells}}<td class="num">{{if $c}}{{money $c (index $.Columns $i).Currency}}{{else}}&mdash;{{end}}</td>{{end}}
-<td class="num">{{if $.MixedCurrency}}&mdash;{{else}}<strong>{{money $row.Total (index $.Columns 0).Currency}}</strong>{{end}}</td>
+<td><a href="/pos/{{$col.PosID}}">{{$col.Name}}</a></td>
+{{range $.Rows}}<td class="num">{{$c := index .Cells $i}}{{if $c}}{{money $c $col.Currency}}{{else}}&mdash;{{end}}</td>{{end}}
+<td class="num"><strong>{{money $col.Total $col.Currency}}</strong></td>
 </tr>
 {{end}}
 <tr class="totals">
-<td><strong>Pos total</strong></td>
-{{range .Columns}}<td class="num"><strong>{{money .Total .Currency}}</strong></td>{{end}}
+<td><strong>Month total</strong></td>
+{{range .Rows}}<td class="num">{{if $.MixedCurrency}}&mdash;{{else}}<strong>{{money .Total (index $.Columns 0).Currency}}</strong>{{end}}</td>{{end}}
 <td class="num">&mdash;</td>
 </tr>
 </tbody>
