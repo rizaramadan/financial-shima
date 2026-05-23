@@ -136,6 +136,7 @@ func newServerWithDeps(a *auth.Auth, ac assistant.Client, db *pgxpool.Pool) *ech
 	e.GET("/transactions", h.TransactionsGet)
 	e.GET("/transactions/new", h.TransactionNewGet)
 	e.POST("/transactions", h.TransactionNewPost)
+	e.GET("/pos", h.PosListGet)
 	e.GET("/pos/new", h.PosNewGet)
 	e.POST("/pos", h.PosNewPost)
 	e.GET("/pos/:id", h.PosGet)

@@ -18,6 +18,83 @@ import (
 	"github.com/rizaramadan/financial-shima/web/template"
 )
 
+// PosListGet renders /pos — the manage list view. Includes archived
+// Pos so the operator can see what's been retired. Each row carries
+// an inline change-account form that POSTs to /pos/:id/account with
+// back=list so the redirect returns here instead of the detail page.
+func (h *Handlers) PosListGet(c echo.Context) error {
+	u, ok := mw.CurrentUser(c)
+	if !ok {
+		return c.Redirect(http.StatusSeeOther, "/login")
+	}
+	data := template.PosListData{
+		Title:       "Pos",
+		DisplayName: u.DisplayName,
+	}
+	if flash, _ := c.Cookie("pos_list_flash"); flash != nil && flash.Value != "" {
+		data.Flash = flash.Value
+		c.SetCookie(&http.Cookie{Name: "pos_list_flash", Value: "", Path: "/", MaxAge: -1})
+	}
+	if errCookie, _ := c.Cookie("pos_list_error"); errCookie != nil && errCookie.Value != "" {
+		data.Error = errCookie.Value
+		c.SetCookie(&http.Cookie{Name: "pos_list_error", Value: "", Path: "/", MaxAge: -1})
+	}
+	if h.DB == nil {
+		data.Error = "Database is not configured."
+		return c.Render(http.StatusOK, "pos_list", data)
+	}
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 3*time.Second)
+	defer cancel()
+	q := dbq.New(h.DB)
+	poses, err := q.ListPosIncludingArchived(ctx)
+	if err != nil {
+		c.Logger().Errorf("ListPosIncludingArchived: %v", err)
+		data.Error = "Couldn’t load Pos."
+		return c.Render(http.StatusOK, "pos_list", data)
+	}
+	// Name map covers archived accounts too, so a Pos pointing at an
+	// archived account still renders its name.
+	accAll, err := q.ListAccountsIncludingArchived(ctx)
+	if err != nil {
+		c.Logger().Errorf("ListAccountsIncludingArchived: %v", err)
+		data.Error = "Couldn’t load accounts."
+		return c.Render(http.StatusOK, "pos_list", data)
+	}
+	nameByID := make(map[pgtype.UUID]string, len(accAll))
+	for _, a := range accAll {
+		nameByID[a.ID] = a.Name
+	}
+	accActive, err := q.ListAccounts(ctx)
+	if err != nil {
+		c.Logger().Errorf("ListAccounts: %v", err)
+		data.Error = "Couldn’t load accounts."
+		return c.Render(http.StatusOK, "pos_list", data)
+	}
+	for _, a := range accActive {
+		data.Accounts = append(data.Accounts, template.AccountOption{
+			ID:   uuid.UUID(a.ID.Bytes).String(),
+			Name: a.Name,
+		})
+	}
+	for _, p := range poses {
+		row := template.PosManageRow{
+			ID:          uuid.UUID(p.ID.Bytes).String(),
+			Name:        p.Name,
+			Currency:    p.Currency,
+			AccountID:   uuid.UUID(p.AccountID.Bytes).String(),
+			AccountName: nameByID[p.AccountID],
+			Archived:    p.Archived,
+		}
+		if p.Target != nil {
+			row.Target = *p.Target
+			row.HasTarget = true
+		}
+		data.Poses = append(data.Poses, row)
+	}
+	data.UnreadCount = h.loadBellCount(ctx, c, u.ID)
+	return c.Render(http.StatusOK, "pos_list", data)
+}
+
 // PosGet renders the §6.3 single-Pos detail view: name, currency, target,
 // receivables (Σ open obligations where this pos is creditor), payables
 // (Σ where this pos is debtor), open-obligation list, and a chronological
@@ -312,10 +389,19 @@ func (h *Handlers) PosUpdateAccountPost(c echo.Context) error {
 	if h.DB == nil {
 		return c.Redirect(http.StatusSeeOther, "/pos/"+c.Param("id"))
 	}
+	fromList := c.FormValue("back") == "list"
+	redirectTo := "/pos/" + posID.String()
+	flashName := "pos_account_flash"
+	errName := "pos_account_flash"
+	if fromList {
+		redirectTo = "/pos"
+		flashName = "pos_list_flash"
+		errName = "pos_list_error"
+	}
 	accountID, err := uuid.Parse(strings.TrimSpace(c.FormValue("account_id")))
 	if err != nil {
-		c.SetCookie(&http.Cookie{Name: "pos_account_flash", Value: "Invalid account.", Path: "/", MaxAge: 30})
-		return c.Redirect(http.StatusSeeOther, "/pos/"+posID.String())
+		c.SetCookie(&http.Cookie{Name: errName, Value: "Invalid account.", Path: "/", MaxAge: 30})
+		return c.Redirect(http.StatusSeeOther, redirectTo)
 	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 3*time.Second)
 	defer cancel()
@@ -325,9 +411,9 @@ func (h *Handlers) PosUpdateAccountPost(c echo.Context) error {
 		AccountID: pgtype.UUID{Bytes: accountID, Valid: true},
 	}); err != nil {
 		c.Logger().Errorf("UpdatePosAccount: %v", err)
-		c.SetCookie(&http.Cookie{Name: "pos_account_flash", Value: "Couldn’t move the Pos. Try again.", Path: "/", MaxAge: 30})
-		return c.Redirect(http.StatusSeeOther, "/pos/"+posID.String())
+		c.SetCookie(&http.Cookie{Name: errName, Value: "Couldn’t move the Pos. Try again.", Path: "/", MaxAge: 30})
+		return c.Redirect(http.StatusSeeOther, redirectTo)
 	}
-	c.SetCookie(&http.Cookie{Name: "pos_account_flash", Value: "Funding account updated. Per-account balances now reflect the change.", Path: "/", MaxAge: 30})
-	return c.Redirect(http.StatusSeeOther, "/pos/"+posID.String())
+	c.SetCookie(&http.Cookie{Name: flashName, Value: "Funding account updated. Per-account balances now reflect the change.", Path: "/", MaxAge: 30})
+	return c.Redirect(http.StatusSeeOther, redirectTo)
 }

@@ -46,6 +46,7 @@ func New() *Renderer {
 	template.Must(t.New("transactions").Parse(layoutOpen + transactionsBody + layoutClose))
 	template.Must(t.New("transaction_new").Parse(layoutOpen + transactionNewBody + layoutClose))
 	template.Must(t.New("pos").Parse(layoutOpen + posBody + layoutClose))
+	template.Must(t.New("pos_list").Parse(layoutOpen + posListBody + layoutClose))
 	template.Must(t.New("pos_new").Parse(layoutOpen + posNewBody + layoutClose))
 	template.Must(t.New("spending").Parse(layoutOpen + spendingBody + layoutClose))
 	template.Must(t.New("income_templates").Parse(layoutOpen + incomeTemplatesListBody + layoutClose))
@@ -1192,6 +1193,7 @@ tr.totals td { font-weight: 600; }
 <a href="/spending"{{if eq .Route "spending"}} aria-current="page"{{end}}>Spending</a>
 <a href="/income-templates"{{if eq .Route "income"}} aria-current="page"{{end}}>Income</a>
 <a href="/accounts"{{if eq .Route "accounts"}} aria-current="page"{{end}}>Accounts</a>
+<a href="/pos"{{if eq .Route "pos"}} aria-current="page"{{end}}>Pos</a>
 <a href="/notifications"{{if eq .Route "notifications"}} aria-current="page"{{end}}>Notifications<span class="badge" aria-label="{{.UnreadCount}} unread">{{if .UnreadCount}}{{.UnreadCount}}{{end}}</span></a>
 <div class="sidebar-end">
 <a href="/settings"{{if eq .Route "settings"}} aria-current="page"{{end}}>⚙ Settings</a>
@@ -1459,6 +1461,77 @@ const posBody = `{{if .NotFound}}
 {{else}}
 <p class="subtitle">No transactions for this Pos yet.</p>
 {{end}}
+{{end}}`
+
+// PosManageRow is a row on /pos (manage list). Drives the inline
+// change-account form; archived rows hide the archive button.
+type PosManageRow struct {
+	ID          string
+	Name        string
+	Currency    string
+	AccountID   string
+	AccountName string
+	HasTarget   bool
+	Target      int64
+	Archived    bool
+}
+
+// PosListData drives /pos — the manage list view.
+type PosListData struct {
+	Title       string
+	DisplayName string
+	UnreadCount int
+	Poses       []PosManageRow
+	Accounts    []AccountOption
+	Flash       string
+	Error       string
+}
+
+func (d PosListData) SignedIn() bool { return d.DisplayName != "" }
+func (d PosListData) Compact() bool  { return false }
+func (d PosListData) Wide() bool     { return false }
+func (d PosListData) HideBell() bool { return false }
+func (d PosListData) Route() string  { return "pos" }
+
+const posListBody = `<h1>Pos</h1>
+<p class="subtitle">Each Pos points at one funding Account. Reassigning has snapshot semantics (§5.6) — past balances re-attribute on next read.</p>
+{{if .Flash}}<p class="success" role="status">{{.Flash}}</p>{{end}}
+{{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
+<p class="aside"><a class="linkbtn" href="/pos/new">+ New Pos</a></p>
+{{if not .Poses}}
+<p class="subtitle">No Pos yet. Create one above.</p>
+{{else}}
+<div class="table-wrap">
+<table>
+<thead><tr><th>Name</th><th>Currency</th><th>Account</th><th>Status</th><th>Actions</th></tr></thead>
+<tbody>
+{{range .Poses}}
+<tr>
+<td><a href="/pos/{{.ID}}">{{.Name}}</a>{{if .HasTarget}} <span class="subtitle">&middot; target {{money .Target .Currency}}</span>{{end}}</td>
+<td>{{.Currency}}</td>
+<td>
+  <form method="post" action="/pos/{{.ID}}/account" style="display:flex; gap:8px; align-items:center; min-width:240px;">
+    <input type="hidden" name="back" value="list">
+    <select name="account_id" required style="flex:1 1 auto; min-width:0;">
+      {{$cur := .AccountID}}
+      {{range $.Accounts}}<option value="{{.ID}}"{{if eq .ID $cur}} selected{{end}}>{{.Name}}</option>{{end}}
+    </select>
+    <button type="submit" style="white-space:nowrap;">Save</button>
+  </form>
+</td>
+<td>{{if .Archived}}<span class="chip">archived</span>{{else}}<span class="chip chip-in">active</span>{{end}}</td>
+<td><div style="display:flex; gap:6px; flex-wrap:wrap;">
+{{if not .Archived}}
+  <form method="post" action="/pos/{{.ID}}/archive" onsubmit="return confirm('Archive this Pos? It will be hidden from default lists.');" style="display:inline;">
+    <button type="submit">Archive</button>
+  </form>
+{{end}}
+</div></td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</div>
 {{end}}`
 
 const posNewBody = `<h1>New Pos</h1>
