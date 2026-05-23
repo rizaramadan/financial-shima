@@ -508,6 +508,7 @@ type TransactionNewData struct {
 	EffectiveDate    string // YYYY-MM-DD
 	AccountID        string
 	PosID            string
+	PosLabel         string // typeahead input — name the user typed; server resolves to PosID
 	AmountRaw        string
 	CounterpartyName string
 	Note             string
@@ -1651,12 +1652,14 @@ const transactionNewBody = `<h1>{{.Title}}</h1>
 <input id="effective_date" name="effective_date" type="date" required value="{{.EffectiveDate}}">
 </div>
 <div class="field">
-<label for="pos_id">{{if .IsIncoming}}Destination Pos{{else}}Pos charged{{end}}</label>
-<select id="pos_id" name="pos_id" required>
-<option value="">— select —</option>
-{{range .PosOptions}}<option value="{{.ID}}"{{if eq .ID $.PosID}} selected{{end}}>{{.Name}} ({{.Currency}})</option>{{end}}
-</select>
-<p class="hint">The receiving / source account is the Pos's funding account (spec §4.2). IDR only here; cross-currency stays behind the API.</p>
+<label for="pos_label">{{if .IsIncoming}}Destination Pos{{else}}Pos charged{{end}}</label>
+<input id="pos_label" name="pos_label" type="text" required maxlength="80"
+  list="pos-options" autocomplete="off"
+  value="{{.PosLabel}}" placeholder="Type to filter…">
+<datalist id="pos-options">
+{{range .PosOptions}}<option value="{{.Name}}"></option>{{end}}
+</datalist>
+<p class="hint">Start typing to filter. Pick a suggestion or type the exact Pos name. IDR only here; cross-currency stays behind the API.</p>
 </div>
 <div class="field">
 <label for="amount">Amount (IDR, smallest unit)</label>

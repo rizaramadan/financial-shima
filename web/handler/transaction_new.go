@@ -69,7 +69,7 @@ func (h *Handlers) TransactionNewPost(c echo.Context) error {
 		DisplayName:      u.DisplayName,
 		Type:             strings.TrimSpace(c.FormValue("type")),
 		EffectiveDate:    strings.TrimSpace(c.FormValue("effective_date")),
-		PosID:            strings.TrimSpace(c.FormValue("pos_id")),
+		PosLabel:         strings.TrimSpace(c.FormValue("pos_label")),
 		AmountRaw:        strings.TrimSpace(c.FormValue("amount")),
 		CounterpartyName: strings.TrimSpace(c.FormValue("counterparty_name")),
 		Note:             strings.TrimSpace(c.FormValue("note")),
@@ -99,8 +99,7 @@ func (h *Handlers) TransactionNewPost(c echo.Context) error {
 	if err != nil {
 		return rerender([]string{"Effective date is required (YYYY-MM-DD)."})
 	}
-	posID, err := uuid.Parse(in.PosID)
-	if err != nil {
+	if in.PosLabel == "" {
 		return rerender([]string{"Pos is required."})
 	}
 	amount, err := strconv.ParseInt(in.AmountRaw, 10, 64)
@@ -119,14 +118,28 @@ func (h *Handlers) TransactionNewPost(c echo.Context) error {
 	defer cancel()
 	q := dbq.New(h.DB)
 
-	// Resolve pos and follow its account_id (§4.2/§5.6) so we can run
-	// §5.1 validation against real rows (currency, archived) before
-	// handing off to ledger.
-	pos, err := q.GetPos(ctx, pgtype.UUID{Bytes: posID, Valid: true})
+	// Resolve the typed Pos label → row. Web form is IDR-only and the
+	// (name, currency) UNIQUE index makes the name unambiguous within
+	// IDR. Match case-insensitively so the typeahead value doesn't have
+	// to round-trip exact casing.
+	posList, err := q.ListPos(ctx)
 	if err != nil {
-		c.Logger().Errorf("[FS-0271] new txn: GetPos: %v", err)
-		return rerender([]string{"Pos not found."})
+		c.Logger().Errorf("[FS-0276] new txn: ListPos: %v", err)
+		return rerender([]string{"Couldn’t look up Pos. Try again."})
 	}
+	var pos dbq.Po
+	var found bool
+	for _, p := range posList {
+		if p.Currency == "idr" && strings.EqualFold(p.Name, in.PosLabel) {
+			pos = p
+			found = true
+			break
+		}
+	}
+	if !found {
+		return rerender([]string{"Pos not found. Pick one from the suggestions."})
+	}
+	posID := uuid.UUID(pos.ID.Bytes)
 	account, err := q.GetAccount(ctx, pos.AccountID)
 	if err != nil {
 		c.Logger().Errorf("[FS-0270] new txn: GetAccount via pos: %v", err)
