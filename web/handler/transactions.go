@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -13,6 +14,30 @@ import (
 	mw "github.com/rizaramadan/financial-shima/web/middleware"
 	"github.com/rizaramadan/financial-shima/web/template"
 )
+
+var shortMonthsID = [...]string{
+	"", "Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des",
+}
+
+func rangeLabel(from, to string) string {
+	if from == "" && to == "" {
+		return "All time"
+	}
+	fmt2 := func(s string) string {
+		t, err := time.Parse(dateLayout, s)
+		if err != nil {
+			return s
+		}
+		return fmt.Sprintf("%d %s", t.Day(), shortMonthsID[t.Month()])
+	}
+	if from == "" {
+		return "until " + fmt2(to)
+	}
+	if to == "" {
+		return "since " + fmt2(from)
+	}
+	return fmt2(from) + " → " + fmt2(to)
+}
 
 const (
 	defaultTxnRangeDays = 30
@@ -38,14 +63,26 @@ func (h *Handlers) TransactionsGet(c echo.Context) error {
 	now := time.Now()
 	from := now.AddDate(0, 0, -defaultTxnRangeDays)
 	to := now
-	if v := c.QueryParam("from"); v != "" {
-		if t, err := time.Parse(dateLayout, v); err == nil {
-			from = t
+	switch c.QueryParam("preset") {
+	case "7d":
+		from = now.AddDate(0, 0, -7)
+		to = now
+	case "30d":
+		from = now.AddDate(0, 0, -30)
+		to = now
+	case "mtd":
+		from, _ = time.Parse(dateLayout, now.Format(dateLayout)[:8]+"01")
+		to = now
+	default:
+		if v := c.QueryParam("from"); v != "" {
+			if t, err := time.Parse(dateLayout, v); err == nil {
+				from = t
+			}
 		}
-	}
-	if v := c.QueryParam("to"); v != "" {
-		if t, err := time.Parse(dateLayout, v); err == nil {
-			to = t
+		if v := c.QueryParam("to"); v != "" {
+			if t, err := time.Parse(dateLayout, v); err == nil {
+				to = t
+			}
 		}
 	}
 
@@ -112,8 +149,35 @@ func (h *Handlers) TransactionsGet(c echo.Context) error {
 			ReversesID:       revID,
 		})
 	}
-	if data.LoadError == false && h.DB != nil {
-		// Bell badge — same one-shot pattern as Home.
+	var inflow, outflow int64
+	var days []template.DayGroup
+	var cur *template.DayGroup
+	for _, it := range data.Items {
+		switch it.Type {
+		case "money_in":
+			inflow += it.Amount
+		case "money_out":
+			outflow += it.Amount
+		}
+		if cur == nil || cur.Date != it.EffectiveDate {
+			days = append(days, template.DayGroup{Date: it.EffectiveDate})
+			cur = &days[len(days)-1]
+		}
+		cur.Items = append(cur.Items, it)
+		switch it.Type {
+		case "money_in":
+			cur.NetIn += it.Amount
+		case "money_out":
+			cur.NetOut += it.Amount
+		}
+	}
+	data.TotalIn = inflow
+	data.TotalOut = outflow
+	data.Net = inflow - outflow
+	data.Days = days
+	data.RangeLabel = rangeLabel(data.From, data.To)
+
+	if !data.LoadError && h.DB != nil {
 		data.UnreadCount = h.loadBellCount(ctx, c, u.ID)
 	}
 	return c.Render(http.StatusOK, "transactions", data)

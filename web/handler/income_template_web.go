@@ -92,8 +92,8 @@ func (h *Handlers) IncomeTemplateNewGet(c echo.Context) error {
 	return c.Render(http.StatusOK, "income_template_new", data)
 }
 
-// IncomeTemplateNewPost handles form submission. Reads up to 8 line
-// rows (`pos_id_0..pos_id_7` / `amount_0..amount_7`); empty rows are
+// IncomeTemplateNewPost handles form submission. Reads line rows
+// (`pos_id_0..pos_id_N` / `amount_0..amount_N`); empty rows are
 // ignored. On success redirects to the new template's view page.
 func (h *Handlers) IncomeTemplateNewPost(c echo.Context) error {
 	u, ok := mw.CurrentUser(c)
@@ -133,10 +133,16 @@ func (h *Handlers) IncomeTemplateNewPost(c echo.Context) error {
 	name := strings.TrimSpace(c.FormValue("name"))
 	leftover := strings.TrimSpace(c.FormValue("leftover_pos_id"))
 
-	const maxLines = 8
-	posIDs := make([]string, maxLines)
-	amounts := make([]string, maxLines)
-	for i := 0; i < maxLines; i++ {
+	lineCount, _ := strconv.Atoi(c.FormValue("line_count"))
+	if lineCount < 8 {
+		lineCount = 8
+	}
+	if lineCount > 200 {
+		lineCount = 200
+	}
+	posIDs := make([]string, lineCount)
+	amounts := make([]string, lineCount)
+	for i := 0; i < lineCount; i++ {
 		posIDs[i] = strings.TrimSpace(c.FormValue("pos_id_" + strconv.Itoa(i)))
 		amounts[i] = strings.TrimSpace(c.FormValue("amount_" + strconv.Itoa(i)))
 	}
@@ -152,7 +158,7 @@ func (h *Handlers) IncomeTemplateNewPost(c echo.Context) error {
 		Sort   int32
 	}
 	var parsedLines []lineParsed
-	for i := 0; i < maxLines; i++ {
+	for i := 0; i < lineCount; i++ {
 		if posIDs[i] == "" && amounts[i] == "" {
 			continue // empty row — skip
 		}
@@ -267,11 +273,14 @@ func (h *Handlers) IncomeTemplateGet(c echo.Context) error {
 	}
 	lineRows, _ := q.ListIncomeTemplateLines(ctx, tmpl.ID)
 	posByID := map[string]template.PosOption{}
+	var posOpts []template.PosOption
 	pos, _ := q.ListPos(ctx)
 	for _, p := range pos {
-		posByID[uuid.UUID(p.ID.Bytes).String()] = template.PosOption{
+		o := template.PosOption{
 			ID: uuid.UUID(p.ID.Bytes).String(), Name: p.Name, Currency: p.Currency,
 		}
+		posByID[o.ID] = o
+		posOpts = append(posOpts, o)
 	}
 	accounts, _ := q.ListAccounts(ctx)
 	var accountOpts []template.AccountOption
@@ -286,6 +295,7 @@ func (h *Handlers) IncomeTemplateGet(c echo.Context) error {
 		DisplayName: u.DisplayName,
 		ID:          uuid.UUID(tmpl.ID.Bytes).String(),
 		Name:        tmpl.Name,
+		Pos:         posOpts,
 		Accounts:    accountOpts,
 		UnreadCount: h.loadBellCount(ctx, c, u.ID),
 	}
@@ -298,7 +308,7 @@ func (h *Handlers) IncomeTemplateGet(c echo.Context) error {
 	for _, l := range lineRows {
 		opt := posByID[uuid.UUID(l.PosID.Bytes).String()]
 		data.Lines = append(data.Lines, template.IncomeTemplateLineRow{
-			PosName: opt.Name, PosCurrency: opt.Currency, Amount: l.Amount,
+			PosID: opt.ID, PosName: opt.Name, PosCurrency: opt.Currency, Amount: l.Amount,
 		})
 		data.LinesTotal += l.Amount
 	}
@@ -307,6 +317,141 @@ func (h *Handlers) IncomeTemplateGet(c echo.Context) error {
 		data.Flash = msg
 	}
 	return c.Render(http.StatusOK, "income_template_detail", data)
+}
+
+// IncomeTemplateEditPost updates an existing template's name, leftover
+// Pos, and lines. Deletes all existing lines and re-inserts from the
+// form. Empty rows are skipped.
+func (h *Handlers) IncomeTemplateEditPost(c echo.Context) error {
+	u, ok := mw.CurrentUser(c)
+	if !ok {
+		return c.Redirect(http.StatusSeeOther, "/login")
+	}
+	if h.DB == nil {
+		return c.String(http.StatusInternalServerError, "database not configured")
+	}
+	tmplID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return c.Redirect(http.StatusSeeOther, "/income-templates")
+	}
+
+	name := strings.TrimSpace(c.FormValue("name"))
+	leftover := strings.TrimSpace(c.FormValue("leftover_pos_id"))
+	lineCount, _ := strconv.Atoi(c.FormValue("line_count"))
+	if lineCount < 1 {
+		lineCount = 8
+	}
+	if lineCount > 200 {
+		lineCount = 200
+	}
+
+	var errs []string
+	if name == "" {
+		errs = append(errs, "Name is required.")
+	}
+
+	type lineParsed struct {
+		PosID  uuid.UUID
+		Amount int64
+		Sort   int32
+	}
+	var parsedLines []lineParsed
+	for i := 0; i < lineCount; i++ {
+		posStr := strings.TrimSpace(c.FormValue("pos_id_" + strconv.Itoa(i)))
+		amtStr := strings.TrimSpace(c.FormValue("amount_" + strconv.Itoa(i)))
+		if posStr == "" && amtStr == "" {
+			continue
+		}
+		if posStr == "" {
+			errs = append(errs, "Line "+strconv.Itoa(i+1)+": Pos is required.")
+			continue
+		}
+		if amtStr == "" {
+			errs = append(errs, "Line "+strconv.Itoa(i+1)+": Amount is required.")
+			continue
+		}
+		pid, err := uuid.Parse(posStr)
+		if err != nil {
+			errs = append(errs, "Line "+strconv.Itoa(i+1)+": invalid Pos.")
+			continue
+		}
+		amt, err := strconv.ParseInt(amtStr, 10, 64)
+		if err != nil || amt <= 0 {
+			errs = append(errs, "Line "+strconv.Itoa(i+1)+": amount must be a positive whole number.")
+			continue
+		}
+		parsedLines = append(parsedLines, lineParsed{PosID: pid, Amount: amt, Sort: int32(i)})
+	}
+	if len(parsedLines) == 0 && len(errs) == 0 {
+		errs = append(errs, "Add at least one line (Pos + amount).")
+	}
+
+	var leftoverParam pgtype.UUID
+	if leftover != "" {
+		id, err := uuid.Parse(leftover)
+		if err != nil {
+			errs = append(errs, "Leftover Pos: invalid id.")
+		} else {
+			leftoverParam = pgtype.UUID{Bytes: id, Valid: true}
+		}
+	}
+
+	if len(errs) > 0 {
+		return flashTo(c, tmplID, errs[0])
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
+	defer cancel()
+	tx, err := h.DB.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return flashTo(c, tmplID, "Database error. Try again.")
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	q := dbq.New(tx)
+
+	pgID := pgtype.UUID{Bytes: tmplID, Valid: true}
+	if err := q.UpdateIncomeTemplate(ctx, dbq.UpdateIncomeTemplateParams{
+		ID: pgID, Name: name, LeftoverPosID: leftoverParam,
+	}); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return flashTo(c, tmplID, "A template with that name already exists.")
+		}
+		c.Logger().Errorf("update template: %v", err)
+		return flashTo(c, tmplID, "Could not update template.")
+	}
+
+	if err := q.DeleteIncomeTemplateLinesByTemplate(ctx, pgID); err != nil {
+		c.Logger().Errorf("delete lines: %v", err)
+		return flashTo(c, tmplID, "Could not clear old lines.")
+	}
+	for _, l := range parsedLines {
+		if _, err := q.AddIncomeTemplateLine(ctx, dbq.AddIncomeTemplateLineParams{
+			TemplateID: pgID,
+			PosID:      pgtype.UUID{Bytes: l.PosID, Valid: true},
+			Amount:     l.Amount,
+			SortOrder:  l.Sort,
+		}); err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				return flashTo(c, tmplID, "Duplicate Pos in template lines.")
+			}
+			c.Logger().Errorf("add line: %v", err)
+			return flashTo(c, tmplID, "Could not save line.")
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return flashTo(c, tmplID, "Database error on commit.")
+	}
+	committed = true
+	_ = u
+	return c.Redirect(http.StatusSeeOther, "/income-templates/"+tmplID.String()+
+		"?flash="+enc("Template updated."))
 }
 
 // IncomeTemplatePreviewPost — Step 1 of the human-in-the-loop apply

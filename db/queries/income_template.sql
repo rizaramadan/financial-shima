@@ -35,3 +35,9 @@ WHERE template_id = $1;
 
 -- name: DeleteIncomeTemplateLine :exec
 DELETE FROM income_template_line WHERE id = $1;
+
+-- name: DeleteIncomeTemplateLinesByTemplate :exec
+DELETE FROM income_template_line WHERE template_id = $1;
+
+-- name: UpdateIncomeTemplate :exec
+UPDATE income_template SET name = $2, leftover_pos_id = $3 WHERE id = $1;

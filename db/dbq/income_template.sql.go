@@ -85,6 +85,15 @@ func (q *Queries) DeleteIncomeTemplateLine(ctx context.Context, id pgtype.UUID) 
 	return err
 }
 
+const deleteIncomeTemplateLinesByTemplate = `-- name: DeleteIncomeTemplateLinesByTemplate :exec
+DELETE FROM income_template_line WHERE template_id = $1
+`
+
+func (q *Queries) DeleteIncomeTemplateLinesByTemplate(ctx context.Context, templateID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteIncomeTemplateLinesByTemplate, templateID)
+	return err
+}
+
 const getIncomeTemplate = `-- name: GetIncomeTemplate :one
 SELECT id, name, leftover_pos_id, archived, created_at FROM income_template WHERE id = $1
 `
@@ -182,4 +191,19 @@ func (q *Queries) SumIncomeTemplateLines(ctx context.Context, templateID pgtype.
 	var total int64
 	err := row.Scan(&total)
 	return total, err
+}
+
+const updateIncomeTemplate = `-- name: UpdateIncomeTemplate :exec
+UPDATE income_template SET name = $2, leftover_pos_id = $3 WHERE id = $1
+`
+
+type UpdateIncomeTemplateParams struct {
+	ID            pgtype.UUID
+	Name          string
+	LeftoverPosID pgtype.UUID
+}
+
+func (q *Queries) UpdateIncomeTemplate(ctx context.Context, arg UpdateIncomeTemplateParams) error {
+	_, err := q.db.Exec(ctx, updateIncomeTemplate, arg.ID, arg.Name, arg.LeftoverPosID)
+	return err
 }
