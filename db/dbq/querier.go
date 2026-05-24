@@ -26,6 +26,7 @@ type Querier interface {
 	// the caller disambiguates with a follow-up GetAccount.
 	DeleteAccountIfUnused(ctx context.Context, id pgtype.UUID) (int64, error)
 	DeleteIncomeTemplateLine(ctx context.Context, id pgtype.UUID) error
+	DeleteIncomeTemplateLinesByTemplate(ctx context.Context, templateID pgtype.UUID) error
 	DeleteSession(ctx context.Context, token string) error
 	GetAccount(ctx context.Context, id pgtype.UUID) (Account, error)
 	GetIncomeTemplate(ctx context.Context, id pgtype.UUID) (IncomeTemplate, error)
@@ -111,6 +112,7 @@ type Querier interface {
 	// Rename an account. Account.name is free text per spec §4.1; no
 	// uniqueness constraint, so a rename to a clashing name is allowed.
 	UpdateAccountName(ctx context.Context, arg UpdateAccountNameParams) (Account, error)
+	UpdateIncomeTemplate(ctx context.Context, arg UpdateIncomeTemplateParams) error
 	// Reassign a Pos to a different Account. Snapshot semantics per spec
 	// §5.6: every historical money_in / money_out for this Pos is re-
 	// attributed to the new Account on the next balance read; no ledger

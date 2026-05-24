@@ -340,6 +340,8 @@ type NotificationRow struct {
 type HomeData struct {
 	Title         string
 	DisplayName   string
+	Today         string
+	TotalIDR      int64
 	Accounts      []AccountRow
 	PosByCurrency []PosCurrencyGroup
 	LoadError     bool
@@ -483,9 +485,21 @@ type TransactionsData struct {
 	DisplayName string
 	From        string // YYYY-MM-DD echoed back into the filter form
 	To          string
+	RangeLabel  string
+	TotalIn     int64
+	TotalOut    int64
+	Net         int64
 	Items       []TransactionRow
+	Days        []DayGroup
 	LoadError   bool
 	UnreadCount int
+}
+
+type DayGroup struct {
+	Date   string
+	NetIn  int64
+	NetOut int64
+	Items  []TransactionRow
 }
 
 // SignedIn for transactions list — only reachable post-auth.
@@ -545,12 +559,14 @@ type TransactionRow struct {
 type AccountRow struct {
 	Name       string
 	BalanceIDR int64 // smallest unit (rupiah cents); 0 when balance computation isn't wired
+	Bank       string
 }
 
 // PosCurrencyGroup groups Pos rows by their currency for §6.2 rendering.
 type PosCurrencyGroup struct {
-	Currency string
-	Items    []PosRow
+	Currency  string
+	TotalCash int64
+	Items     []PosRow
 }
 
 // PosRow is one row in a per-currency Pos table.
@@ -1176,6 +1192,314 @@ tr.totals td { font-weight: 600; }
   border-color: var(--primary);
   font-weight: 500;
 }
+
+:root {
+  --home-gradient:  linear-gradient(135deg, #14B8A6, #16A34A);
+  --home-font-mono: ui-monospace, "SF Mono", Menlo, Consolas,
+                    "Liberation Mono", "Courier New", monospace;
+  --home-row-stripe: rgba(0, 0, 0, 0.015);
+}
+:root[data-theme="dark"] {
+  --home-row-stripe: rgba(255, 255, 255, 0.025);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --home-row-stripe: rgba(255, 255, 255, 0.025); }
+}
+.home-greeting {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 12px; margin: 0 0 20px;
+}
+.home-greeting h1 { margin: 0; font-size: var(--font-h3); line-height: 1.2; }
+@media (min-width: 480px) {
+  .home-greeting h1 { font-size: var(--font-h2); line-height: 1.21; }
+}
+.home-eyebrow {
+  font-size: var(--font-sm); color: var(--text-tertiary);
+  margin: 0 0 4px;
+}
+.home-avatar {
+  width: 36px; height: 36px; border-radius: 99px;
+  background: var(--home-gradient);
+  color: #fff; font-weight: 700; font-size: 14px;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.balance-hero {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+  margin: 0 0 16px;
+  display: grid; gap: 14px;
+  position: relative; overflow: hidden;
+}
+.balance-hero::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--home-gradient);
+}
+.balance-hero-label {
+  font-family: var(--home-font-mono); font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-tertiary); margin: 0 0 6px;
+}
+.balance-hero-amount {
+  margin: 0; line-height: 1;
+  font-size: 30px; font-weight: 700; letter-spacing: -0.02em;
+  color: var(--text); font-variant-numeric: tabular-nums;
+}
+@media (min-width: 480px) {
+  .balance-hero-amount { font-size: 36px; }
+}
+.balance-hero-meta {
+  margin: 8px 0 0; font-size: var(--font-sm); color: var(--text-tertiary);
+}
+.balance-hero-meta strong {
+  color: var(--text-secondary); font-weight: 600;
+}
+.balance-hero-actions {
+  display: flex; flex-wrap: wrap; gap: 8px;
+}
+@media (min-width: 480px) {
+  .balance-hero { grid-template-columns: 1fr auto; align-items: end; }
+  .balance-hero-actions { justify-content: flex-end; }
+}
+.balance-hero-actions .pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 7px 12px; font-size: 12px; font-weight: 600;
+  color: var(--text); background: var(--bg-container);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  text-decoration: none; white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.balance-hero-actions .pill:hover {
+  color: var(--primary); border-color: var(--primary);
+}
+.balance-hero-actions .pill.primary {
+  color: #fff; background: var(--primary); border-color: var(--primary);
+}
+.balance-hero-actions .pill.primary:hover {
+  background: var(--primary-hover); border-color: var(--primary-hover);
+}
+.section-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-lg);
+  margin: 0 0 16px;
+  overflow: hidden;
+}
+.section-card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 12px 16px;
+  border-bottom: 1px solid var(--border-secondary);
+}
+.section-card-title {
+  font-size: var(--font-base); font-weight: 600; color: var(--text);
+}
+.section-card-meta {
+  font-family: var(--home-font-mono); font-size: 11px;
+  color: var(--text-tertiary); white-space: nowrap;
+}
+.section-card-head a.linkbtn { font-size: var(--font-sm); }
+.section-card table { margin: 0; }
+.section-card thead th {
+  background: var(--home-row-stripe);
+  font-family: var(--home-font-mono);
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-secondary);
+}
+.section-card tbody td { padding: 12px 16px; }
+.section-card tbody tr:first-child td { border-top: 0; }
+.bank-cell { display: inline-flex; align-items: center; gap: 10px; }
+.bank-dot {
+  width: 8px; height: 8px; border-radius: 2px;
+  background: var(--text-tertiary); flex-shrink: 0;
+}
+.bank-dot[data-bank="bca"]      { background: #0066B3; }
+.bank-dot[data-bank="mandiri"]  { background: #003D7A; }
+.bank-dot[data-bank="bni"]      { background: #F37021; }
+.bank-dot[data-bank="bri"]      { background: #00529C; }
+.bank-dot[data-bank="cimb"]     { background: #C8102E; }
+.bank-dot[data-bank="permata"]  { background: #00A19A; }
+.bank-dot[data-bank="cash"]     { background: var(--primary); }
+.target-cell { display: inline-flex; align-items: center; gap: 10px; justify-content: flex-end; }
+.target-cell .amt { font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+.progress-inline {
+  width: 64px; height: 4px;
+  background: var(--border-secondary);
+  border-radius: 99px; overflow: hidden; display: inline-block;
+}
+.progress-inline > span {
+  display: block; height: 100%;
+  background: var(--primary);
+  transition: width 0.3s ease;
+}
+.target-cell .dash { color: var(--text-tertiary); }
+.section-card .empty-state { padding: 32px 16px; margin: 0; }
+
+.page-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 12px; margin: 0 0 20px; flex-wrap: wrap;
+}
+.page-head h1 {
+  margin: 0; font-size: var(--font-h3); line-height: 1.2; font-weight: 600;
+}
+@media (min-width: 480px) {
+  .page-head h1 { font-size: var(--font-h2); line-height: 1.21; }
+}
+.page-head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.page-head-actions .pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 7px 12px; font-size: 12px; font-weight: 600;
+  color: var(--text); background: var(--bg-container);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  text-decoration: none; white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.page-head-actions .pill:hover { color: var(--primary); border-color: var(--primary); }
+.page-head-actions .pill.primary {
+  color: #fff; background: var(--primary); border-color: var(--primary);
+}
+.page-head-actions .pill.primary:hover {
+  background: var(--primary-hover); border-color: var(--primary-hover);
+}
+.stats-row {
+  display: grid; gap: 10px;
+  grid-template-columns: 1fr; margin: 0 0 16px;
+}
+@media (min-width: 480px) {
+  .stats-row { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+}
+.stat-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  position: relative; overflow: hidden;
+}
+.stat-card::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+}
+.stat-card.in::before  { background: var(--primary); }
+.stat-card.out::before { background: var(--error); }
+.stat-card.net::before { background: var(--home-gradient); }
+.stat-label {
+  font-family: var(--home-font-mono); font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-tertiary); margin: 0 0 6px;
+}
+.stat-amount {
+  margin: 0; font-size: 22px; font-weight: 700; line-height: 1;
+  letter-spacing: -0.01em; font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.stat-card.in  .stat-amount { color: #389E0D; }
+.stat-card.out .stat-amount { color: var(--error); }
+:root[data-theme="dark"] .stat-card.in .stat-amount { color: #95DE64; }
+.stat-meta { margin: 6px 0 0; font-size: 11px; color: var(--text-tertiary); }
+@media (min-width: 480px) {
+  .stat-amount { font-size: 24px; }
+}
+.txn-filter {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+  margin: 0 0 16px;
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: 10px;
+}
+.txn-filter-label {
+  font-family: var(--home-font-mono); font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+}
+.txn-filter-dates {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--bg-container);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  flex-wrap: wrap;
+}
+.txn-filter-dates input[type="date"] {
+  border: 0; padding: 2px 4px; background: transparent;
+  font-size: var(--font-base); color: var(--text); width: auto;
+  min-width: 110px;
+}
+.txn-filter-dates input[type="date"]:focus { box-shadow: none; outline: none; }
+.txn-filter-dates .sep { color: var(--text-tertiary); font-size: 12px; }
+.txn-filter button[type="submit"] {
+  width: auto; padding: 6px 14px; height: 34px;
+  font-size: 13px;
+}
+.txn-presets { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.txn-preset {
+  display: inline-flex; align-items: center;
+  padding: 5px 10px; font-size: 12px; font-weight: 500;
+  color: var(--text-secondary); background: var(--bg-container);
+  border: 1px solid var(--border-secondary); border-radius: 99px;
+  text-decoration: none;
+  transition: border-color 0.15s, color 0.15s;
+}
+.txn-preset:hover { color: var(--primary); border-color: var(--primary); }
+.txn-preset.active {
+  color: var(--primary); border-color: var(--primary); background: var(--primary-bg);
+}
+.section-card .col-date { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+.section-card .col-amount { font-variant-numeric: tabular-nums; }
+.day-strip td {
+  background: var(--home-row-stripe);
+  font-family: var(--home-font-mono); font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  padding: 8px 16px !important;
+  border-top: 1px solid var(--border-secondary);
+  border-bottom: 1px solid var(--border-secondary);
+}
+.day-strip .day-net { float: right; color: var(--text-secondary); }
+.day-strip .day-net.in  { color: #389E0D; }
+.day-strip .day-net.out { color: var(--error); }
+:root[data-theme="dark"] .day-strip .day-net.in { color: #95DE64; }
+.txn-list { display: none; padding: 4px; }
+.txn-item {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-secondary);
+  display: grid; gap: 6px;
+  grid-template-columns: 1fr auto;
+}
+.txn-item:last-child { border-bottom: 0; }
+.txn-item-top {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; gap: 8px; justify-content: space-between;
+}
+.txn-item-chip { display: inline-flex; align-items: center; gap: 8px; }
+.txn-item-date {
+  font-family: var(--home-font-mono); font-size: 11px; color: var(--text-tertiary);
+}
+.txn-item-amount {
+  font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.txn-item-amount.in  { color: #389E0D; }
+.txn-item-amount.out { color: var(--error); }
+:root[data-theme="dark"] .txn-item-amount.in { color: #95DE64; }
+.txn-item-amount.neutral { color: var(--text); }
+.txn-item-meta {
+  grid-column: 1 / -1;
+  font-size: 12px; color: var(--text-secondary);
+  display: flex; flex-wrap: wrap; gap: 4px 10px;
+}
+.txn-item-meta .sep { color: var(--text-tertiary); }
+.txn-item-note {
+  grid-column: 1 / -1; font-size: 12px; color: var(--text-tertiary);
+  font-style: italic;
+}
+@media (max-width: 479px) {
+  .section-card .table-wrap { display: none; }
+  .section-card .txn-list   { display: block; }
+}
 </style>
 </head>
 <body{{if .SignedIn}} class="signed-in"{{end}}>
@@ -1255,10 +1579,22 @@ const verifyBody = `<h1>Enter your code</h1>
 <a class="linkbtn" href="/login">Use a different identifier</a>
 </p>`
 
-const notificationsBody = `<h1>Notifications</h1>
+const notificationsBody = `<header class="page-head">
+  <div>
+    <p class="home-eyebrow">Activity</p>
+    <h1>Notifications</h1>
+  </div>
+  {{if .UnreadCount}}<div class="page-head-actions">
+    <form method="post" action="/notifications/mark-all-read">
+      <button type="submit" class="pill">Mark all read ({{.UnreadCount}})</button>
+    </form>
+  </div>{{end}}
+</header>
+
 {{if .LoadError}}
 <p class="alert" role="alert">Couldn&rsquo;t load notifications. Refresh in a moment.</p>
 {{else if not .Items}}
+<div class="section-card">
 <div class="empty-state">
 <svg viewBox="0 0 64 41" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
 <ellipse cx="32" cy="33" rx="32" ry="7" fill="currentColor" opacity="0.08"/>
@@ -1269,47 +1605,61 @@ const notificationsBody = `<h1>Notifications</h1>
 </svg>
 <p class="empty-state-text">Nothing to read.</p>
 </div>
-{{else}}
-{{if .UnreadCount}}
-<form method="post" action="/notifications/mark-all-read" class="aside">
-<button type="submit" class="linkbtn">Mark all read ({{.UnreadCount}})</button>
-</form>
-{{end}}
-<ul class="notifs">
-{{range .Items}}
-<li class="notif{{if not .IsRead}} unread{{end}}">
-{{if .HasRelated}}
-<a class="notif-link" href="/transactions/{{.RelatedTxnID}}">
-  <strong>{{.Title}}</strong>
-  {{if .Body}}<span class="notif-body">{{.Body}}</span>{{end}}
-  <span class="notif-time">{{relTime .CreatedAt}}</span>
-</a>
-{{else}}
-<div class="notif-link">
-  <strong>{{.Title}}</strong>
-  {{if .Body}}<span class="notif-body">{{.Body}}</span>{{end}}
-  <span class="notif-time">{{relTime .CreatedAt}}</span>
 </div>
-{{end}}
-{{if not .IsRead}}
-<form method="post" action="/notifications/{{.ID}}/read" class="notif-actions">
-<button type="submit" class="linkbtn">Mark read</button>
-</form>
-{{end}}
-</li>
-{{end}}
-</ul>
+{{else}}
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Recent</span>
+    <span class="section-card-meta">{{len .Items}} items</span>
+  </div>
+  <ul class="notifs">
+  {{range .Items}}
+  <li class="notif{{if not .IsRead}} unread{{end}}">
+  {{if .HasRelated}}
+  <a class="notif-link" href="/transactions/{{.RelatedTxnID}}">
+    <strong>{{.Title}}</strong>
+    {{if .Body}}<span class="notif-body">{{.Body}}</span>{{end}}
+    <span class="notif-time">{{relTime .CreatedAt}}</span>
+  </a>
+  {{else}}
+  <div class="notif-link">
+    <strong>{{.Title}}</strong>
+    {{if .Body}}<span class="notif-body">{{.Body}}</span>{{end}}
+    <span class="notif-time">{{relTime .CreatedAt}}</span>
+  </div>
+  {{end}}
+  {{if not .IsRead}}
+  <form method="post" action="/notifications/{{.ID}}/read" class="notif-actions">
+  <button type="submit" class="linkbtn">Mark read</button>
+  </form>
+  {{end}}
+  </li>
+  {{end}}
+  </ul>
+</section>
 {{end}}`
 
-const spendingBody = `<h1>Spending</h1>
-<form method="get" action="/spending" class="filter">
-<label>From <input type="date" name="from" value="{{.From}}"></label>
-<label>To <input type="date" name="to" value="{{.To}}"></label>
-<button type="submit">Filter</button>
+const spendingBody = `<header class="page-head">
+  <div>
+    <p class="home-eyebrow">Analytics</p>
+    <h1>Spending</h1>
+  </div>
+</header>
+
+<form method="get" action="/spending" class="txn-filter">
+  <span class="txn-filter-label">Range</span>
+  <span class="txn-filter-dates">
+    <input type="date" name="from" value="{{.From}}" aria-label="From">
+    <span class="sep">&rarr;</span>
+    <input type="date" name="to"   value="{{.To}}"   aria-label="To">
+  </span>
+  <button type="submit">Filter</button>
 </form>
+
 {{if .LoadError}}
 <p class="alert" role="alert">Couldn&rsquo;t load spending. Refresh in a moment.</p>
 {{else if not .Columns}}
+<div class="section-card">
 <div class="empty-state">
 <svg viewBox="0 0 64 41" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
 <ellipse cx="32" cy="33" rx="32" ry="7" fill="currentColor" opacity="0.08"/>
@@ -1322,33 +1672,39 @@ const spendingBody = `<h1>Spending</h1>
 <p class="empty-state-text">No spending in this range.</p>
 <p class="empty-state-hint">Adjust the filter or check back after the next sync.</p>
 </div>
-{{else}}
-<p class="subtitle">Top {{.TopN}} Pos by spending in this range.</p>
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>Pos</th>
-{{range .Rows}}<th class="num">{{.Month}}</th>{{end}}
-<th class="num">Pos total</th>
-</tr>
-</thead>
-<tbody>
-{{range $i, $col := .Columns}}
-<tr>
-<td><a href="/pos/{{$col.PosID}}">{{$col.Name}}</a></td>
-{{range $.Rows}}<td class="num">{{$c := index .Cells $i}}{{if $c}}{{money $c $col.Currency}}{{else}}&mdash;{{end}}</td>{{end}}
-<td class="num"><strong>{{money $col.Total $col.Currency}}</strong></td>
-</tr>
-{{end}}
-<tr class="totals">
-<td><strong>Month total</strong></td>
-{{range .Rows}}<td class="num">{{if $.MixedCurrency}}&mdash;{{else}}<strong>{{money .Total (index $.Columns 0).Currency}}</strong>{{end}}</td>{{end}}
-<td class="num">&mdash;</td>
-</tr>
-</tbody>
-</table>
 </div>
+{{else}}
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Top {{.TopN}} Pos</span>
+    <span class="section-card-meta">by spending in range</span>
+  </div>
+  <div class="table-wrap">
+  <table>
+  <thead>
+  <tr>
+  <th>Pos</th>
+  {{range .Rows}}<th class="num">{{.Month}}</th>{{end}}
+  <th class="num">Pos total</th>
+  </tr>
+  </thead>
+  <tbody>
+  {{range $i, $col := .Columns}}
+  <tr>
+  <td><a href="/pos/{{$col.PosID}}">{{$col.Name}}</a></td>
+  {{range $.Rows}}<td class="num">{{$c := index .Cells $i}}{{if $c}}{{money $c $col.Currency}}{{else}}&mdash;{{end}}</td>{{end}}
+  <td class="num"><strong>{{money $col.Total $col.Currency}}</strong></td>
+  </tr>
+  {{end}}
+  <tr class="totals">
+  <td><strong>Month total</strong></td>
+  {{range .Rows}}<td class="num">{{if $.MixedCurrency}}&mdash;{{else}}<strong>{{money .Total (index $.Columns 0).Currency}}</strong>{{end}}</td>{{end}}
+  <td class="num">&mdash;</td>
+  </tr>
+  </tbody>
+  </table>
+  </div>
+</section>
 {{end}}`
 
 const posBody = `{{if .NotFound}}
@@ -1494,45 +1850,63 @@ func (d PosListData) Wide() bool     { return false }
 func (d PosListData) HideBell() bool { return false }
 func (d PosListData) Route() string  { return "pos" }
 
-const posListBody = `<h1>Pos</h1>
-<p class="subtitle">Each Pos points at one funding Account. Reassigning has snapshot semantics (§5.6) — past balances re-attribute on next read.</p>
+const posListBody = `<header class="page-head">
+  <div>
+    <p class="home-eyebrow">Budget envelopes</p>
+    <h1>Pos</h1>
+  </div>
+  <div class="page-head-actions">
+    <a class="pill primary" href="/pos/new">+ New Pos</a>
+  </div>
+</header>
+
 {{if .Flash}}<p class="success" role="status">{{.Flash}}</p>{{end}}
 {{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
-<p class="aside"><a class="linkbtn" href="/pos/new">+ New Pos</a></p>
 {{if not .Poses}}
-<p class="subtitle">No Pos yet. Create one above.</p>
-{{else}}
-<div class="table-wrap">
-<table>
-<thead><tr><th>Name</th><th>Currency</th><th>Account</th><th>Status</th><th>Actions</th></tr></thead>
-<tbody>
-{{range .Poses}}
-<tr>
-<td><a href="/pos/{{.ID}}">{{.Name}}</a>{{if .HasTarget}} <span class="subtitle">&middot; target {{money .Target .Currency}}</span>{{end}}</td>
-<td>{{.Currency}}</td>
-<td>
-  <form method="post" action="/pos/{{.ID}}/account" style="display:flex; gap:8px; align-items:center; min-width:240px;">
-    <input type="hidden" name="back" value="list">
-    <select name="account_id" required style="flex:1 1 auto; min-width:0;">
-      {{$cur := .AccountID}}
-      {{range $.Accounts}}<option value="{{.ID}}"{{if eq .ID $cur}} selected{{end}}>{{.Name}}</option>{{end}}
-    </select>
-    <button type="submit" style="white-space:nowrap;">Save</button>
-  </form>
-</td>
-<td>{{if .Archived}}<span class="chip">archived</span>{{else}}<span class="chip chip-in">active</span>{{end}}</td>
-<td><div style="display:flex; gap:6px; flex-wrap:wrap;">
-{{if not .Archived}}
-  <form method="post" action="/pos/{{.ID}}/archive" onsubmit="return confirm('Archive this Pos? It will be hidden from default lists.');" style="display:inline;">
-    <button type="submit">Archive</button>
-  </form>
-{{end}}
-</div></td>
-</tr>
-{{end}}
-</tbody>
-</table>
+<div class="section-card">
+<div class="empty-state">
+<p class="empty-state-text">No Pos yet.</p>
+<p class="empty-state-hint">Create one to start budgeting.</p>
 </div>
+</div>
+{{else}}
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">All Pos</span>
+    <span class="section-card-meta">{{len .Poses}} items</span>
+  </div>
+  <div class="table-wrap">
+  <table>
+  <thead><tr><th>Name</th><th>Currency</th><th>Account</th><th>Status</th><th>Actions</th></tr></thead>
+  <tbody>
+  {{range .Poses}}
+  <tr>
+  <td><a href="/pos/{{.ID}}">{{.Name}}</a>{{if .HasTarget}} <span class="subtitle">&middot; target {{money .Target .Currency}}</span>{{end}}</td>
+  <td>{{.Currency}}</td>
+  <td>
+    <form method="post" action="/pos/{{.ID}}/account" style="display:flex; gap:8px; align-items:center; min-width:240px;">
+      <input type="hidden" name="back" value="list">
+      <select name="account_id" required style="flex:1 1 auto; min-width:0;">
+        {{$cur := .AccountID}}
+        {{range $.Accounts}}<option value="{{.ID}}"{{if eq .ID $cur}} selected{{end}}>{{.Name}}</option>{{end}}
+      </select>
+      <button type="submit" style="white-space:nowrap;">Save</button>
+    </form>
+  </td>
+  <td>{{if .Archived}}<span class="chip">archived</span>{{else}}<span class="chip chip-in">active</span>{{end}}</td>
+  <td><div style="display:flex; gap:6px; flex-wrap:wrap;">
+  {{if not .Archived}}
+    <form method="post" action="/pos/{{.ID}}/archive" onsubmit="return confirm('Archive this Pos? It will be hidden from default lists.');" style="display:inline;">
+      <button type="submit">Archive</button>
+    </form>
+  {{end}}
+  </div></td>
+  </tr>
+  {{end}}
+  </tbody>
+  </table>
+  </div>
+</section>
 {{end}}`
 
 const posNewBody = `<h1>New Pos</h1>
@@ -1582,20 +1956,57 @@ const posNewBody = `<h1>New Pos</h1>
 </form>
 <p class="aside"><a class="linkbtn" href="/">&larr; Cancel</a></p>`
 
-const transactionsBody = `<h1>Transactions</h1>
-<p class="aside" style="text-align:right; margin: -8px 0 8px;">
-<a class="linkbtn" href="/transactions/new?type=money_in">+ Income</a>
-&nbsp;·&nbsp;
-<a class="linkbtn" href="/transactions/new?type=money_out">+ Spending</a>
-</p>
-<form method="get" action="/transactions" class="filter">
-<label>From <input type="date" name="from" value="{{.From}}"></label>
-<label>To <input type="date" name="to" value="{{.To}}"></label>
-<button type="submit">Filter</button>
+const transactionsBody = `<header class="page-head">
+  <div>
+    <p class="home-eyebrow">Money &middot; ledger</p>
+    <h1>Transactions</h1>
+  </div>
+  <div class="page-head-actions">
+    <a class="pill primary" href="/transactions/new?type=money_in">+ Income</a>
+    <a class="pill" href="/transactions/new?type=money_out">+ Spending</a>
+  </div>
+</header>
+
+{{if .Items}}
+<div class="stats-row" aria-label="Range totals">
+  <div class="stat-card in">
+    <p class="stat-label">Inflow</p>
+    <p class="stat-amount">+{{money .TotalIn "IDR"}}</p>
+    <p class="stat-meta">{{.RangeLabel}}</p>
+  </div>
+  <div class="stat-card out">
+    <p class="stat-label">Outflow</p>
+    <p class="stat-amount">−{{money .TotalOut "IDR"}}</p>
+    <p class="stat-meta">{{.RangeLabel}}</p>
+  </div>
+  <div class="stat-card net">
+    <p class="stat-label">Net</p>
+    <p class="stat-amount">{{money .Net "IDR"}}</p>
+    <p class="stat-meta">{{len .Items}} transactions</p>
+  </div>
+</div>
+{{end}}
+
+<form method="get" action="/transactions" class="txn-filter">
+  <span class="txn-filter-label">Range</span>
+  <span class="txn-filter-dates">
+    <input type="date" name="from" value="{{.From}}" aria-label="From">
+    <span class="sep">→</span>
+    <input type="date" name="to"   value="{{.To}}"   aria-label="To">
+  </span>
+  <button type="submit">Filter</button>
+  <span class="txn-presets" aria-label="Quick ranges">
+    <a class="txn-preset" href="/transactions?preset=7d">Last 7 days</a>
+    <a class="txn-preset" href="/transactions?preset=30d">30 days</a>
+    <a class="txn-preset" href="/transactions?preset=mtd">This month</a>
+    <a class="txn-preset" href="/transactions">All</a>
+  </span>
 </form>
+
 {{if .LoadError}}
 <p class="alert" role="alert">Couldn&rsquo;t load transactions. Refresh in a moment.</p>
 {{else if not .Items}}
+<div class="section-card">
 <div class="empty-state">
 <svg viewBox="0 0 64 41" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
 <ellipse cx="32" cy="33" rx="32" ry="7" fill="currentColor" opacity="0.08"/>
@@ -1607,28 +2018,66 @@ const transactionsBody = `<h1>Transactions</h1>
 <p class="empty-state-text">No transactions in this range.</p>
 <p class="empty-state-hint">Try widening the date filter, or wait for the next sync.</p>
 </div>
-{{else}}
-<div class="table-wrap">
-<table>
-<thead><tr>
-<th>Date</th><th>Type</th><th class="num">Amount</th>
-<th>Account</th><th>Pos</th><th>Counterparty</th><th>Note</th>
-</tr></thead>
-<tbody>
-{{range .Items}}
-<tr{{if .IsReversal}} class="reversal"{{end}}>
-<td>{{.EffectiveDate}}</td>
-<td><span class="chip {{txnChip .Type}}">{{txnLabel .Type}}</span>{{if .IsReversal}} <a class="badge-rev" href="/transactions/{{.ReversesID}}">reverses</a>{{end}}</td>
-<td class="num {{txnAmt .Type}}">{{txnSign .Type}}{{money .Amount .Currency}}</td>
-<td>{{if .AccountName}}{{.AccountName}}{{else}}&mdash;{{end}}</td>
-<td>{{if .PosName}}{{.PosName}}{{else}}&mdash;{{end}}</td>
-<td>{{if .CounterpartyName}}{{.CounterpartyName}}{{else}}&mdash;{{end}}</td>
-<td>{{.Note}}</td>
-</tr>
-{{end}}
-</tbody>
-</table>
 </div>
+{{else}}
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Activity</span>
+    <span class="section-card-meta">{{len .Items}} items &middot; newest first</span>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Date</th><th>Type</th><th class="num">Amount</th>
+        <th>Account</th><th>Pos</th><th>Counterparty</th><th>Note</th>
+      </tr></thead>
+      <tbody>
+        {{range $g := .Days}}
+        <tr class="day-strip"><td colspan="7">
+          {{$g.Date}}
+          {{if $g.NetIn}}<span class="day-net in">+{{money $g.NetIn "IDR"}}</span>{{end}}
+          {{if $g.NetOut}}<span class="day-net out">−{{money $g.NetOut "IDR"}}</span>{{end}}
+        </td></tr>
+        {{range $g.Items}}
+        <tr{{if .IsReversal}} class="reversal"{{end}}>
+          <td class="col-date">{{.EffectiveDate}}</td>
+          <td><span class="chip {{txnChip .Type}}">{{txnLabel .Type}}</span>{{if .IsReversal}} <a class="badge-rev" href="/transactions/{{.ReversesID}}">reverses</a>{{end}}</td>
+          <td class="num col-amount {{txnAmt .Type}}">{{txnSign .Type}}{{money .Amount .Currency}}</td>
+          <td>{{if .AccountName}}<span class="bank-cell"><span class="bank-dot"></span><span>{{.AccountName}}</span></span>{{else}}&mdash;{{end}}</td>
+          <td>{{if .PosName}}{{.PosName}}{{else}}&mdash;{{end}}</td>
+          <td>{{if .CounterpartyName}}{{.CounterpartyName}}{{else}}&mdash;{{end}}</td>
+          <td>{{.Note}}</td>
+        </tr>
+        {{end}}
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="txn-list">
+    {{range $g := .Days}}
+    {{range $g.Items}}
+    <div class="txn-item">
+      <div class="txn-item-top">
+        <span class="txn-item-chip">
+          <span class="chip {{txnChip .Type}}">{{txnLabel .Type}}</span>
+          <span class="txn-item-date">{{.EffectiveDate}}</span>
+        </span>
+        <span class="txn-item-amount {{txnAmt .Type}}">{{txnSign .Type}}{{money .Amount .Currency}}</span>
+      </div>
+      <div class="txn-item-meta">
+        {{if .AccountName}}<span>{{.AccountName}}</span>{{end}}
+        {{if and .AccountName .PosName}}<span class="sep">·</span>{{end}}
+        {{if .PosName}}<span>{{.PosName}}</span>{{end}}
+        {{if .CounterpartyName}}<span class="sep">·</span><span>{{.CounterpartyName}}</span>{{end}}
+      </div>
+      {{if .Note}}<div class="txn-item-note">{{.Note}}</div>{{end}}
+    </div>
+    {{end}}
+    {{end}}
+  </div>
+</section>
 {{end}}`
 
 const transactionNewBody = `<h1>{{.Title}}</h1>
@@ -1681,7 +2130,14 @@ const transactionNewBody = `<h1>{{.Title}}</h1>
 </form>
 <p class="aside"><a class="linkbtn" href="/transactions">&larr; Cancel</a></p>`
 
-const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
+const homeBody = `<header class="home-greeting">
+  <div>
+    {{if .Today}}<p class="home-eyebrow">{{.Today}}</p>{{end}}
+    <h1>Hi, {{.DisplayName}}</h1>
+  </div>
+  <div class="home-avatar" aria-hidden="true">{{if .DisplayName}}{{slice .DisplayName 0 1}}{{end}}</div>
+</header>
+
 {{if .LoadError}}
 <p class="alert" role="alert">Couldn&rsquo;t load your accounts and pos right now. Refresh in a moment.</p>
 {{else if and (not .Accounts) (not .PosByCurrency)}}
@@ -1698,49 +2154,77 @@ const homeBody = `<h1>Hi, {{.DisplayName}}</h1>
 </div>
 {{end}}
 
+{{if or .Accounts .PosByCurrency}}
+<section class="balance-hero" aria-label="Total balance">
+  <div>
+    <p class="balance-hero-label">Total balance &middot; IDR</p>
+    <p class="balance-hero-amount">{{money .TotalIDR "IDR"}}</p>
+    <p class="balance-hero-meta">Across <strong>{{len .Accounts}} accounts</strong>{{if .PosByCurrency}} &middot; <strong>{{len (index .PosByCurrency 0).Items}} pos in IDR</strong>{{end}}</p>
+  </div>
+  <div class="balance-hero-actions">
+    <a class="pill primary" href="/transactions/new?type=money_in">+ Income</a>
+    <a class="pill" href="/transactions/new?type=money_out">+ Spending</a>
+    <a class="pill" href="/pos/new">+ New Pos</a>
+  </div>
+</section>
+{{end}}
+
 {{if .Accounts}}
-<section class="card">
-<h2>Accounts</h2>
-<div class="table-wrap">
-<table>
-<thead><tr><th>Name</th><th class="num">Balance</th></tr></thead>
-<tbody>
-{{range .Accounts}}
-<tr><td>{{.Name}}</td><td class="num{{if lt .BalanceIDR 0}} neg-cash{{end}}">{{money .BalanceIDR "IDR"}}</td></tr>
-{{end}}
-</tbody>
-</table>
-</div>
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Accounts</span>
+    <a class="linkbtn" href="/accounts">Manage &rarr;</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Name</th><th class="num">Balance</th></tr></thead>
+      <tbody>
+        {{range .Accounts}}
+        <tr>
+          <td>
+            <span class="bank-cell">
+              <span class="bank-dot"{{if .Bank}} data-bank="{{.Bank}}"{{end}}></span>
+              <span>{{.Name}}</span>
+            </span>
+          </td>
+          <td class="num{{if lt .BalanceIDR 0}} neg-cash{{end}}">{{money .BalanceIDR "IDR"}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
 </section>
 {{end}}
 
-{{if .PosByCurrency}}<p class="aside" style="text-align:right; margin: 0 0 -8px;">
-<a class="linkbtn" href="/transactions/new?type=money_in">+ Income</a>
-&nbsp;·&nbsp;
-<a class="linkbtn" href="/transactions/new?type=money_out">+ Spending</a>
-&nbsp;·&nbsp;
-<a class="linkbtn" href="/pos/new">+ New Pos</a>
-</p>{{end}}
 {{range $g := .PosByCurrency}}
-<section class="card">
-<h2>Pos &mdash; {{$g.Currency}}</h2>
-<div class="table-wrap">
-<table>
-<thead><tr><th>Name</th><th class="num">Cash</th><th class="num">Target</th></tr></thead>
-<tbody>
-{{range $g.Items}}
-<tr>
-  <td>{{if .ID}}<a href="/pos/{{.ID}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td>
-  <td class="num{{if lt .Cash 0}} neg-cash{{end}}">{{money .Cash $g.Currency}}</td>
-  <td class="num">{{if .HasTarget}}{{money .Target $g.Currency}}<span class="progress" aria-label="{{pct .Cash .Target}}% of target"><span class="progress-fill" style="width: {{pct .Cash .Target}}%"></span></span>{{else}}&mdash;{{end}}</td>
-</tr>
-{{end}}
-</tbody>
-</table>
-</div>
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Pos</span>
+    <span class="section-card-meta">{{$g.Currency}} &middot; {{len $g.Items}} items{{if $g.TotalCash}} &middot; {{money $g.TotalCash $g.Currency}} allocated{{end}}</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Name</th><th class="num">Cash</th><th class="num">Target</th></tr></thead>
+      <tbody>
+        {{range $g.Items}}
+        <tr>
+          <td>{{if .ID}}<a href="/pos/{{.ID}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td>
+          <td class="num{{if lt .Cash 0}} neg-cash{{end}}">{{money .Cash $g.Currency}}</td>
+          <td class="num">
+            {{if .HasTarget}}
+              <span class="target-cell">
+                <span class="amt">{{money .Target $g.Currency}}</span>
+                <span class="progress-inline" aria-label="{{pct .Cash .Target}}% of target"><span style="width: {{pct .Cash .Target}}%"></span></span>
+              </span>
+            {{else}}<span class="dash">&mdash;</span>{{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
 </section>
 {{end}}
-
 `
 
 // ─── Income templates ──────────────────────────────────────────────
@@ -1821,6 +2305,7 @@ type IncomeTemplateDetailData struct {
 	LeftoverPosID   string
 	LeftoverPosName string
 	HasLeftoverPos  bool
+	Pos             []PosOption
 	Accounts        []AccountOption
 	Flash           string // surfaced after apply
 }
@@ -1833,6 +2318,7 @@ func (d IncomeTemplateDetailData) Route() string  { return "income" }
 
 // IncomeTemplateLineRow is one allocation row on the detail page.
 type IncomeTemplateLineRow struct {
+	PosID       string
 	PosName     string
 	PosCurrency string
 	Amount      int64
@@ -1876,31 +2362,46 @@ type IncomeAllocationRow struct {
 	Amount   string // raw integer string so empty stays empty across re-renders
 }
 
-const incomeTemplatesListBody = `<h1>Income templates</h1>
-<p class="subtitle">Each template names an income type and the fixed allocation across Pos when it lands.</p>
-<p class="aside" style="text-align:right; margin: 0 0 -8px;"><a class="linkbtn" href="/income-templates/new">+ New template</a></p>
+const incomeTemplatesListBody = `<header class="page-head">
+  <div>
+    <p class="home-eyebrow">Allocation</p>
+    <h1>Income templates</h1>
+  </div>
+  <div class="page-head-actions">
+    <a class="pill primary" href="/income-templates/new">+ New template</a>
+  </div>
+</header>
+
 {{if .LoadError}}
 <p class="alert" role="alert">Couldn&rsquo;t load templates. Refresh in a moment.</p>
 {{else if not .Items}}
+<div class="section-card">
 <div class="empty-state">
 <p class="empty-state-text">No income templates yet.</p>
 <p class="empty-state-hint">Create one to fan-out a salary across Pos in one step.</p>
 </div>
-{{else}}
-<div class="table-wrap">
-<table>
-<thead><tr><th>Name</th><th class="num">Lines total</th></tr></thead>
-<tbody>
-{{range .Items}}
-<tr><td><a href="/income-templates/{{.ID}}">{{.Name}}</a></td><td class="num">{{money .Total "idr"}}</td></tr>
-{{end}}
-</tbody>
-</table>
 </div>
+{{else}}
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Templates</span>
+    <span class="section-card-meta">{{len .Items}} items</span>
+  </div>
+  <div class="table-wrap">
+  <table>
+  <thead><tr><th>Name</th><th class="num">Lines total</th></tr></thead>
+  <tbody>
+  {{range .Items}}
+  <tr><td><a href="/income-templates/{{.ID}}">{{.Name}}</a></td><td class="num">{{money .Total "idr"}}</td></tr>
+  {{end}}
+  </tbody>
+  </table>
+  </div>
+</section>
 {{end}}`
 
 const incomeTemplateNewBody = `<h1>New income template</h1>
-<p class="subtitle">Each line allocates a fixed amount to one Pos. Up to 8 lines.</p>
+<p class="subtitle">Each line allocates a fixed amount to one Pos.</p>
 {{if .Errors}}
 <div class="alert" role="alert">
 <strong>Couldn&rsquo;t save template:</strong>
@@ -1909,7 +2410,8 @@ const incomeTemplateNewBody = `<h1>New income template</h1>
 </ul>
 </div>
 {{end}}
-<form method="post" action="/income-templates">
+<form method="post" action="/income-templates" id="tpl-form">
+<input type="hidden" name="line_count" id="line-count" value="{{if .Lines}}{{len .Lines}}{{else}}8{{end}}">
 <div class="field">
 <label for="name">Name</label>
 <input id="name" name="name" type="text" value="{{.Name}}" required maxlength="80"
@@ -1927,7 +2429,7 @@ const incomeTemplateNewBody = `<h1>New income template</h1>
 <p class="hint">If set, any amount above the lines&rsquo; total lands here. Otherwise a too-large amount is rejected.</p>
 </div>
 <h2 style="font-size: var(--font-base); font-weight: 600; margin: 24px 0 12px;">Lines</h2>
-<div class="alloc">
+<div class="alloc" id="alloc-lines">
 {{range $i, $line := .Lines}}
 <div class="alloc-row">
 <select name="pos_id_{{$i}}" aria-label="Pos for line {{$i}}">
@@ -1951,54 +2453,107 @@ const incomeTemplateNewBody = `<h1>New income template</h1>
 {{end}}
 {{end}}
 </div>
+<p style="margin: 8px 0 0;"><a href="#" class="linkbtn" onclick="return addLine()">+ Add line</a></p>
 <button type="submit" style="margin-top: 16px;">Create template</button>
 </form>
+<script>
+function addLine(){var c=document.getElementById("alloc-lines"),n=c.children.length,
+lc=document.getElementById("line-count"),r=c.lastElementChild.cloneNode(true),
+s=r.querySelector("select"),inp=r.querySelector("input");
+s.name="pos_id_"+n;s.selectedIndex=0;inp.name="amount_"+n;inp.value="";
+c.appendChild(r);lc.value=n+1;return false}
+</script>
 <p class="aside"><a class="linkbtn" href="/income-templates">&larr; Back</a></p>`
 
-const incomeTemplateDetailBody = `<h1>{{.Name}}</h1>
-<p class="subtitle">Income template &middot; allocation total {{money .LinesTotal "idr"}}{{if .HasLeftoverPos}} &middot; leftover → <strong>{{.LeftoverPosName}}</strong>{{end}}</p>
+const incomeTemplateDetailBody = `<header class="page-head">
+  <div>
+    <p class="home-eyebrow">Income template</p>
+    <h1>{{.Name}}</h1>
+  </div>
+</header>
+<p class="subtitle">Allocation total {{money .LinesTotal "idr"}}{{if .HasLeftoverPos}} &middot; leftover → <strong>{{.LeftoverPosName}}</strong>{{end}}</p>
 {{if .Flash}}<div class="alert" role="status">{{.Flash}}</div>{{end}}
 
-<section class="card">
-<h2>Lines</h2>
-{{if .Lines}}
-<table>
-<thead><tr><th>Pos</th><th class="num">Amount</th></tr></thead>
-<tbody>
-{{range .Lines}}
-<tr><td>{{.PosName}}</td><td class="num">{{money .Amount .PosCurrency}}</td></tr>
-{{end}}
-<tr class="totals"><td><strong>Total</strong></td><td class="num"><strong>{{money .LinesTotal "idr"}}</strong></td></tr>
-</tbody>
-</table>
-{{else}}
-<p class="subtitle">No lines yet.</p>
-{{end}}
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Edit template</span>
+  </div>
+  <div style="padding: 16px;">
+  <form method="post" action="/income-templates/{{.ID}}/edit" id="edit-form">
+  <input type="hidden" name="line_count" id="edit-line-count" value="{{if .Lines}}{{len .Lines}}{{else}}1{{end}}">
+  <div class="field">
+  <label for="edit-name">Name</label>
+  <input id="edit-name" name="name" type="text" value="{{.Name}}" required maxlength="80">
+  </div>
+  <div class="field">
+  <label for="edit-leftover">Leftover Pos <span style="color:var(--text-tertiary); font-weight:400;">(optional)</span></label>
+  <select id="edit-leftover" name="leftover_pos_id">
+  <option value="">— none —</option>
+  {{range .Pos}}<option value="{{.ID}}"{{if eq .ID $.LeftoverPosID}} selected{{end}}>{{.Name}} ({{.Currency}})</option>{{end}}
+  </select>
+  </div>
+  <h3 style="font-size: var(--font-sm); font-weight: 600; margin: 16px 0 8px;">Lines</h3>
+  <div class="alloc" id="edit-alloc-lines">
+  {{if .Lines}}
+  {{range $i, $line := .Lines}}
+  <div class="alloc-row">
+  <select name="pos_id_{{$i}}">
+  <option value="">— remove —</option>
+  {{range $.Pos}}<option value="{{.ID}}"{{if eq .ID $line.PosID}} selected{{end}}>{{.Name}} ({{.Currency}})</option>{{end}}
+  </select>
+  <input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9]*" value="{{$line.Amount}}"
+    placeholder="e.g. 12000000">
+  </div>
+  {{end}}
+  {{else}}
+  <div class="alloc-row">
+  <select name="pos_id_0">
+  <option value="">— skip —</option>
+  {{range $.Pos}}<option value="{{.ID}}">{{.Name}} ({{.Currency}})</option>{{end}}
+  </select>
+  <input name="amount_0" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 12000000">
+  </div>
+  {{end}}
+  </div>
+  <p style="margin: 8px 0 0;"><a href="#" class="linkbtn" onclick="return addEditLine()">+ Add line</a></p>
+  <button type="submit" style="margin-top: 16px;">Save changes</button>
+  </form>
+  </div>
 </section>
 
-<section class="card">
-<h2>New incoming → preview allocation</h2>
-<p class="subtitle">Enter the details; the next step shows the suggested split (from this template) — you can adjust it before approving.</p>
-<form method="post" action="/income-templates/{{.ID}}/preview">
-<div class="field">
-<label for="amount">Incoming amount (IDR)</label>
-<input id="amount" name="amount" type="text" inputmode="numeric" pattern="[0-9]*" required
-  placeholder="e.g. 25000000">
-<p class="hint">Suggested allocation total: {{money .LinesTotal "idr"}}{{if .HasLeftoverPos}} (overflow → {{.LeftoverPosName}}){{end}}. You can override the split on the next page.</p>
-</div>
-<div class="field">
-<label for="effective_date">Effective date</label>
-<input id="effective_date" name="effective_date" type="date" required>
-</div>
-<div class="field">
-<label for="counterparty_name">Counterparty</label>
-<input id="counterparty_name" name="counterparty_name" type="text" required maxlength="80"
-  placeholder="e.g. PT Telkom">
-</div>
-<button type="submit">Preview allocation</button>
-</form>
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Apply &rarr; preview allocation</span>
+  </div>
+  <div style="padding: 16px;">
+  <p class="subtitle" style="margin: 0 0 12px;">Enter the details; the next step shows the suggested split — you can adjust it before approving.</p>
+  <form method="post" action="/income-templates/{{.ID}}/preview">
+  <div class="field">
+  <label for="amount">Incoming amount (IDR)</label>
+  <input id="amount" name="amount" type="text" inputmode="numeric" pattern="[0-9]*" required
+    placeholder="e.g. 25000000">
+  <p class="hint">Suggested allocation total: {{money .LinesTotal "idr"}}{{if .HasLeftoverPos}} (overflow → {{.LeftoverPosName}}){{end}}.</p>
+  </div>
+  <div class="field">
+  <label for="effective_date">Effective date</label>
+  <input id="effective_date" name="effective_date" type="date" required>
+  </div>
+  <div class="field">
+  <label for="counterparty_name">Counterparty</label>
+  <input id="counterparty_name" name="counterparty_name" type="text" required maxlength="80"
+    placeholder="e.g. PT Telkom">
+  </div>
+  <button type="submit">Preview allocation</button>
+  </form>
+  </div>
 </section>
-
+<script>
+function addEditLine(){var c=document.getElementById("edit-alloc-lines"),n=c.children.length,
+lc=document.getElementById("edit-line-count"),r=c.lastElementChild.cloneNode(true),
+s=r.querySelector("select"),inp=r.querySelector("input");
+s.name="pos_id_"+n;s.selectedIndex=0;inp.name="amount_"+n;inp.value="";
+c.appendChild(r);lc.value=n+1;return false}
+</script>
 <p class="aside"><a class="linkbtn" href="/income-templates">&larr; All templates</a></p>`
 
 const incomeTemplatePreviewBody = `<h1>Review allocation</h1>
@@ -2101,42 +2656,60 @@ func (d AccountNewData) Wide() bool     { return false }
 func (d AccountNewData) HideBell() bool { return false }
 func (d AccountNewData) Route() string  { return "accounts" }
 
-const accountsBody = `<h1>Accounts</h1>
-<p class="subtitle">An Account is an IDR purse — a real bank account, cash on hand, etc. Pos point at exactly one Account; reassigning a Pos has snapshot semantics (§5.6).</p>
+const accountsBody = `<header class="page-head">
+  <div>
+    <p class="home-eyebrow">Money &middot; purses</p>
+    <h1>Accounts</h1>
+  </div>
+  <div class="page-head-actions">
+    <a class="pill primary" href="/accounts/new">+ New Account</a>
+  </div>
+</header>
+
 {{if .Flash}}<p class="success" role="status">{{.Flash}}</p>{{end}}
 {{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
-<p class="aside"><a class="linkbtn" href="/accounts/new">+ New Account</a></p>
 {{if not .Accounts}}
-<p class="subtitle">No accounts yet. Create one above.</p>
-{{else}}
-<div class="table-wrap">
-<table>
-<thead><tr><th>Name</th><th>Status</th><th>Actions</th></tr></thead>
-<tbody>
-{{range .Accounts}}
-<tr>
-<td>
-  <form method="post" action="/accounts/{{.ID}}/rename" style="display:flex; gap:8px; align-items:center; min-width:280px;">
-    <input type="text" name="name" value="{{.Name}}" required maxlength="80" style="flex:1 1 auto; min-width:0; width:100%;">
-    <button type="submit" style="white-space:nowrap;">Rename</button>
-  </form>
-</td>
-<td>{{if .Archived}}<span class="chip">archived</span>{{else}}<span class="chip chip-in">active</span>{{end}}</td>
-<td><div style="display:flex; gap:6px; flex-wrap:wrap;">
-{{if not .Archived}}
-  <form method="post" action="/accounts/{{.ID}}/archive" onsubmit="return confirm('Archive this account? Existing Pos still pointing at it will keep working but the account will be hidden from default lists.');" style="display:inline;">
-    <button type="submit">Archive</button>
-  </form>
-{{end}}
-  <form method="post" action="/accounts/{{.ID}}/delete" onsubmit="return confirm('Delete this account permanently? Only succeeds if no Pos points at it.');" style="display:inline;">
-    <button type="submit">Delete</button>
-  </form>
-</div></td>
-</tr>
-{{end}}
-</tbody>
-</table>
+<div class="section-card">
+<div class="empty-state">
+<p class="empty-state-text">No accounts yet.</p>
+<p class="empty-state-hint">Create one to start tracking money.</p>
 </div>
+</div>
+{{else}}
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">All Accounts</span>
+    <span class="section-card-meta">{{len .Accounts}} items</span>
+  </div>
+  <div class="table-wrap">
+  <table>
+  <thead><tr><th>Name</th><th>Status</th><th>Actions</th></tr></thead>
+  <tbody>
+  {{range .Accounts}}
+  <tr>
+  <td>
+    <form method="post" action="/accounts/{{.ID}}/rename" style="display:flex; gap:8px; align-items:center; min-width:280px;">
+      <input type="text" name="name" value="{{.Name}}" required maxlength="80" style="flex:1 1 auto; min-width:0; width:100%;">
+      <button type="submit" style="white-space:nowrap;">Rename</button>
+    </form>
+  </td>
+  <td>{{if .Archived}}<span class="chip">archived</span>{{else}}<span class="chip chip-in">active</span>{{end}}</td>
+  <td><div style="display:flex; gap:6px; flex-wrap:wrap;">
+  {{if not .Archived}}
+    <form method="post" action="/accounts/{{.ID}}/archive" onsubmit="return confirm('Archive this account? Existing Pos still pointing at it will keep working but the account will be hidden from default lists.');" style="display:inline;">
+      <button type="submit">Archive</button>
+    </form>
+  {{end}}
+    <form method="post" action="/accounts/{{.ID}}/delete" onsubmit="return confirm('Delete this account permanently? Only succeeds if no Pos points at it.');" style="display:inline;">
+      <button type="submit">Delete</button>
+    </form>
+  </div></td>
+  </tr>
+  {{end}}
+  </tbody>
+  </table>
+  </div>
+</section>
 {{end}}`
 
 const accountNewBody = `<h1>New Account</h1>
@@ -2161,16 +2734,24 @@ const accountNewBody = `<h1>New Account</h1>
 </form>
 <p class="aside"><a class="linkbtn" href="/accounts">&larr; Cancel</a></p>`
 
-const settingsBody = `<h1>Settings</h1>
-<p class="subtitle">Display preferences for this device. Stored in a cookie.</p>
+const settingsBody = `<header class="page-head">
+  <div>
+    <p class="home-eyebrow">Preferences</p>
+    <h1>Settings</h1>
+  </div>
+</header>
 
-<section class="card">
-<h2>Theme</h2>
-<p class="subtitle">Choose how the app looks on this device. <strong>Auto</strong> follows your system preference.</p>
-<form method="post" action="/settings/theme" class="theme-switch">
-<button type="submit" name="theme" value="light"{{if eq .CurrentTheme "light"}} class="active"{{end}}>☀ Light</button>
-<button type="submit" name="theme" value="dark"{{if eq .CurrentTheme "dark"}} class="active"{{end}}>☾ Dark</button>
-<button type="submit" name="theme" value="auto"{{if eq .CurrentTheme "auto"}} class="active"{{end}}>◐ Auto (follow OS)</button>
-</form>
-<p class="hint">Currently selected: <strong>{{.CurrentTheme}}</strong>.</p>
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Theme</span>
+    <span class="section-card-meta">Currently: {{.CurrentTheme}}</span>
+  </div>
+  <div style="padding: 16px;">
+    <p class="subtitle" style="margin: 0 0 12px;">Choose how the app looks on this device. <strong>Auto</strong> follows your system preference.</p>
+    <form method="post" action="/settings/theme" class="theme-switch">
+    <button type="submit" name="theme" value="light"{{if eq .CurrentTheme "light"}} class="active"{{end}}>☀ Light</button>
+    <button type="submit" name="theme" value="dark"{{if eq .CurrentTheme "dark"}} class="active"{{end}}>☾ Dark</button>
+    <button type="submit" name="theme" value="auto"{{if eq .CurrentTheme "auto"}} class="active"{{end}}>◐ Auto (follow OS)</button>
+    </form>
+  </div>
 </section>`

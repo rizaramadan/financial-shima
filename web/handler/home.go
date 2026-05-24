@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"sort"
 	"time"
@@ -13,6 +14,14 @@ import (
 	mw "github.com/rizaramadan/financial-shima/web/middleware"
 	"github.com/rizaramadan/financial-shima/web/template"
 )
+
+var idDays = [...]string{"Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"}
+var idMonths = [...]string{"", "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+	"Juli", "Agustus", "September", "Oktober", "November", "Desember"}
+
+func indonesianDate(t time.Time) string {
+	return fmt.Sprintf("%s, %d %s", idDays[t.Weekday()], t.Day(), idMonths[t.Month()])
+}
 
 // HomeGet renders the post-sign-in home page (spec §6.2: current balances).
 //
@@ -33,6 +42,7 @@ func (h *Handlers) HomeGet(c echo.Context) error {
 	data := template.HomeData{
 		Title:       "Home",
 		DisplayName: u.DisplayName,
+		Today:       indonesianDate(time.Now()),
 	}
 
 	if h.DB != nil {
@@ -84,10 +94,12 @@ func (h *Handlers) loadHomeData(ctx context.Context, data *template.HomeData) er
 		return err
 	}
 	for _, a := range accounts {
-		data.Accounts = append(data.Accounts, template.AccountRow{
+		row := template.AccountRow{
 			Name:       a.Name,
 			BalanceIDR: accountBal[a.ID.Bytes],
-		})
+		}
+		data.Accounts = append(data.Accounts, row)
+		data.TotalIDR += row.BalanceIDR
 	}
 
 	pos, err := q.ListPos(ctx)
@@ -115,8 +127,11 @@ func (h *Handlers) loadHomeData(ctx context.Context, data *template.HomeData) er
 			Target: target, HasTarget: hasTarget,
 		})
 	}
-	// Pin IDR first; alpha for the rest. (Stable so IDR's position is
-	// deterministic when present.)
+	for i := range groups {
+		for _, it := range groups[i].Items {
+			groups[i].TotalCash += it.Cash
+		}
+	}
 	sort.SliceStable(groups, func(i, j int) bool {
 		if groups[i].Currency == "idr" {
 			return true
