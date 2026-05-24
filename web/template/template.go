@@ -1513,8 +1513,8 @@ tr.totals td { font-weight: 600; }
   font-style: italic;
 }
 @media (max-width: 479px) {
-  .section-card .table-wrap { display: none; }
-  .section-card .txn-list   { display: block; }
+  .section-card.has-card-list .table-wrap { display: none; }
+  .section-card.has-card-list .txn-list   { display: block; }
 }
 </style>
 </head>
@@ -2036,7 +2036,7 @@ const transactionsBody = `<header class="page-head">
 </div>
 </div>
 {{else}}
-<section class="section-card">
+<section class="section-card has-card-list">
   <div class="section-card-head">
     <span class="section-card-title">Activity</span>
     <span class="section-card-meta">{{len .Items}} items &middot; newest first</span>
