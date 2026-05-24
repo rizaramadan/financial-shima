@@ -175,7 +175,7 @@ func (h *Handlers) IncomeTemplateNewPost(c echo.Context) error {
 			errs = append(errs, "Line "+strconv.Itoa(i+1)+": invalid Pos.")
 			continue
 		}
-		amt, err := strconv.ParseInt(amounts[i], 10, 64)
+		amt, err := parseAmount(amounts[i])
 		if err != nil || amt <= 0 {
 			errs = append(errs, "Line "+strconv.Itoa(i+1)+": amount must be a positive whole number.")
 			continue
@@ -375,7 +375,7 @@ func (h *Handlers) IncomeTemplateEditPost(c echo.Context) error {
 			errs = append(errs, "Line "+strconv.Itoa(i+1)+": invalid Pos.")
 			continue
 		}
-		amt, err := strconv.ParseInt(amtStr, 10, 64)
+		amt, err := parseAmount(amtStr)
 		if err != nil || amt <= 0 {
 			errs = append(errs, "Line "+strconv.Itoa(i+1)+": amount must be a positive whole number.")
 			continue
@@ -479,10 +479,11 @@ func (h *Handlers) IncomeTemplatePreviewPost(c echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/income-templates")
 	}
 	rawAmount := strings.TrimSpace(c.FormValue("amount"))
-	amount, err := strconv.ParseInt(rawAmount, 10, 64)
+	amount, err := parseAmount(rawAmount)
 	if err != nil || amount <= 0 {
 		return flashTo(c, tmplID, "Amount must be a positive whole number.")
 	}
+	rawAmount = strconv.FormatInt(amount, 10)
 	effDateStr := strings.TrimSpace(c.FormValue("effective_date"))
 	effDate, err := time.Parse("2006-01-02", effDateStr)
 	if err != nil {
@@ -663,10 +664,11 @@ func (h *Handlers) IncomeTemplateApplyPost(c echo.Context) error {
 	}
 
 	rawAmount := strings.TrimSpace(c.FormValue("amount"))
-	amount, err := strconv.ParseInt(rawAmount, 10, 64)
+	amount, err := parseAmount(rawAmount)
 	if err != nil || amount <= 0 {
 		return flashTo(c, tmplID, "Amount must be a positive whole number.")
 	}
+	rawAmount = strconv.FormatInt(amount, 10)
 	effDate, err := time.Parse("2006-01-02", strings.TrimSpace(c.FormValue("effective_date")))
 	if err != nil {
 		return flashTo(c, tmplID, "Effective date is required (YYYY-MM-DD).")
@@ -706,7 +708,7 @@ func (h *Handlers) IncomeTemplateApplyPost(c echo.Context) error {
 		if err != nil {
 			return flashTo(c, tmplID, "Row "+strconv.Itoa(i+1)+": invalid Pos.")
 		}
-		amt, err := strconv.ParseInt(amtStr, 10, 64)
+		amt, err := parseAmount(amtStr)
 		if err != nil || amt <= 0 {
 			return flashTo(c, tmplID, "Row "+strconv.Itoa(i+1)+": amount must be a positive whole number.")
 		}
@@ -774,6 +776,11 @@ func enc(s string) string {
 		"?", "%3F",
 		"#", "%23",
 	).Replace(s)
+}
+
+func parseAmount(s string) (int64, error) {
+	s = strings.NewReplacer(".", "", ",", "", " ", "").Replace(s)
+	return strconv.ParseInt(s, 10, 64)
 }
 
 func parseOptUUID(s string) *uuid.UUID {

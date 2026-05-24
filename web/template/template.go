@@ -34,6 +34,7 @@ func New() *Renderer {
 		"txnAmt":   txnAmountClass,
 		"txnSign":  txnAmountSign,
 		"pct":      pctOf,
+		"fmtAmt":   fmtAmtDots,
 		"intRange": intRange,
 		// Default no-op; per-request themeAttr is wired in Render
 		// after Clone() so concurrent requests don't share state.
@@ -135,6 +136,21 @@ func fmtMoney(amount int64, currency string) string {
 	default:
 		return sign + groupThousands(abs, ',') + " " + strings.ToUpper(currency)
 	}
+}
+
+func fmtAmtDots(n int64) string {
+	if n == 0 {
+		return "0"
+	}
+	abs := n
+	if abs < 0 {
+		abs = -abs
+	}
+	s := groupThousands(abs, '.')
+	if n < 0 {
+		return "-" + s
+	}
+	return s
 }
 
 func groupThousands(n int64, sep byte) string {
@@ -1757,7 +1773,7 @@ const posBody = `{{if .NotFound}}
 </div>
 <div class="field">
 <label for="rename_target">Target <span style="color:var(--text-tertiary); font-weight:400;">(optional, smallest unit; leave blank to clear)</span></label>
-<input id="rename_target" name="target" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="16" value="{{if .HasTarget}}{{.Target}}{{end}}">
+<input id="rename_target" name="target" type="text" inputmode="numeric" pattern="[0-9.,]*" maxlength="16" value="{{if .HasTarget}}{{.Target}}{{end}}">
 </div>
 <p class="hint">Currency ({{.Currency}}) is fixed; archive and recreate this Pos to change it.</p>
 <button type="submit">Save changes</button>
@@ -1948,8 +1964,8 @@ const posNewBody = `<h1>New Pos</h1>
 <input id="target" name="target" type="text" inputmode="numeric"
   value="{{.TargetRaw}}"
   autocapitalize="off" autocorrect="off" spellcheck="false"
-  pattern="[0-9]*" maxlength="16"
-  placeholder="e.g. 12000000 for Rp 12.000.000">
+  pattern="[0-9.,]*" maxlength="16"
+  placeholder="e.g. 12.000.000">
 <p class="hint">Whole number in the smallest unit (rupiah for IDR, cents for USD). Leave blank for an open-ended Pos.</p>
 </div>
 <button type="submit">Create Pos</button>
@@ -2111,9 +2127,9 @@ const transactionNewBody = `<h1>{{.Title}}</h1>
 <p class="hint">Start typing to filter. Pick a suggestion or type the exact Pos name. IDR only here; cross-currency stays behind the API.</p>
 </div>
 <div class="field">
-<label for="amount">Amount (IDR, smallest unit)</label>
-<input id="amount" name="amount" type="text" inputmode="numeric" pattern="[0-9]*" required
-  value="{{.AmountRaw}}" placeholder="e.g. 250000 for Rp 250.000">
+<label for="amount">Amount (IDR)</label>
+<input id="amount" name="amount" type="text" inputmode="numeric" pattern="[0-9.,]*" required
+  value="{{.AmountRaw}}" placeholder="e.g. 250.000">
 </div>
 <div class="field">
 <label for="counterparty_name">Counterparty</label>
@@ -2436,8 +2452,8 @@ const incomeTemplateNewBody = `<h1>New income template</h1>
 <option value="">— skip —</option>
 {{range $.Pos}}<option value="{{.ID}}"{{if eq .ID $line.PosID}} selected{{end}}>{{.Name}} ({{.Currency}})</option>{{end}}
 </select>
-<input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9]*" value="{{$line.Amount}}"
-  placeholder="e.g. 12000000" aria-label="Amount for line {{$i}}">
+<input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9.,]*" value="{{$line.Amount}}"
+  placeholder="e.g. 12.000.000" aria-label="Amount for line {{$i}}">
 </div>
 {{end}}
 {{if not .Lines}}
@@ -2447,7 +2463,7 @@ const incomeTemplateNewBody = `<h1>New income template</h1>
 <option value="">— skip —</option>
 {{range $.Pos}}<option value="{{.ID}}">{{.Name}} ({{.Currency}})</option>{{end}}
 </select>
-<input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 12000000"
+<input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9.,]*" placeholder="e.g. 12.000.000"
   aria-label="Amount for line {{$i}}">
 </div>
 {{end}}
@@ -2501,8 +2517,8 @@ const incomeTemplateDetailBody = `<header class="page-head">
   <option value="">— remove —</option>
   {{range $.Pos}}<option value="{{.ID}}"{{if eq .ID $line.PosID}} selected{{end}}>{{.Name}} ({{.Currency}})</option>{{end}}
   </select>
-  <input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9]*" value="{{$line.Amount}}"
-    placeholder="e.g. 12000000">
+  <input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9.,]*" value="{{fmtAmt $line.Amount}}"
+    placeholder="e.g. 12.000.000">
   </div>
   {{end}}
   {{else}}
@@ -2511,7 +2527,7 @@ const incomeTemplateDetailBody = `<header class="page-head">
   <option value="">— skip —</option>
   {{range $.Pos}}<option value="{{.ID}}">{{.Name}} ({{.Currency}})</option>{{end}}
   </select>
-  <input name="amount_0" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 12000000">
+  <input name="amount_0" type="text" inputmode="numeric" pattern="[0-9.,]*" placeholder="e.g. 12.000.000">
   </div>
   {{end}}
   </div>
@@ -2530,8 +2546,8 @@ const incomeTemplateDetailBody = `<header class="page-head">
   <form method="post" action="/income-templates/{{.ID}}/preview">
   <div class="field">
   <label for="amount">Incoming amount (IDR)</label>
-  <input id="amount" name="amount" type="text" inputmode="numeric" pattern="[0-9]*" required
-    placeholder="e.g. 25000000">
+  <input id="amount" name="amount" type="text" inputmode="numeric" pattern="[0-9.,]*" required
+    placeholder="e.g. 25.000.000">
   <p class="hint">Suggested allocation total: {{money .LinesTotal "idr"}}{{if .HasLeftoverPos}} (overflow → {{.LeftoverPosName}}){{end}}.</p>
   </div>
   <div class="field">
@@ -2590,8 +2606,8 @@ const incomeTemplatePreviewBody = `<h1>Review allocation</h1>
 <option value="">— skip —</option>
 {{range $.PosOptions}}<option value="{{.ID}}"{{if eq .ID $row.PosID}} selected{{end}}>{{.Name}} ({{.Currency}})</option>{{end}}
 </select>
-<input name="alloc_amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9]*"
-  value="{{$row.Amount}}" placeholder="e.g. 12000000" aria-label="Amount for row {{$i}}">
+<input name="alloc_amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9.,]*"
+  value="{{$row.Amount}}" placeholder="e.g. 12.000.000" aria-label="Amount for row {{$i}}">
 </div>
 {{end}}
 <div class="alloc-total"><span>Salary total to allocate</span><strong>{{money .Amount "idr"}}</strong></div>

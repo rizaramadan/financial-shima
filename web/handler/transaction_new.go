@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -102,7 +101,7 @@ func (h *Handlers) TransactionNewPost(c echo.Context) error {
 	if in.PosLabel == "" {
 		return rerender([]string{"Pos is required."})
 	}
-	amount, err := strconv.ParseInt(in.AmountRaw, 10, 64)
+	amount, err := parseAmount(in.AmountRaw)
 	if err != nil || amount <= 0 {
 		return rerender([]string{"Amount must be a positive whole number (smallest unit, e.g. rupiah)."})
 	}
