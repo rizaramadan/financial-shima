@@ -58,6 +58,9 @@ func New() *Renderer {
 	template.Must(t.New("accounts").Parse(layoutOpen + accountsBody + layoutClose))
 	template.Must(t.New("account_new").Parse(layoutOpen + accountNewBody + layoutClose))
 	template.Must(t.New("search").Parse(layoutOpen + searchBody + layoutClose))
+	template.Must(t.New("loan_login").Parse(layoutOpen + loanLoginBody + layoutClose))
+	template.Must(t.New("loan_view").Parse(layoutOpen + loanViewBody + layoutClose))
+	template.Must(t.New("loan_setup").Parse(layoutOpen + loanSetupBody + layoutClose))
 	return &Renderer{t: t}
 }
 
@@ -440,6 +443,19 @@ type PosDetailData struct {
 	Transactions []PosTransactionRow
 	NotFound     bool
 	LoadError    bool
+
+	// Loan fields — populated only when the Pos is a loan (pos.is_loan).
+	IsLoan           bool
+	LoanRepaid       int64 // = Cash (fund+disburse net to 0; repayments climb)
+	LoanOutstanding  int64 // Target − LoanRepaid
+	LoanPctRepaid    int   // 0..100
+	HasBorrowerLogin bool
+	BorrowerUsername string
+	BorrowerLoginURL string // /loan/:id/login
+	LoanSubmissions  []LoanSubmissionRow
+	LoanPendingCount int
+	Flash            string // generic flash (loan approve/reject)
+	Error            string
 }
 
 // SignedIn — only authenticated users reach pos detail.
@@ -617,6 +633,84 @@ type SearchTxnRow struct {
 	Currency     string
 	Date         string
 }
+
+// ── Loan feature view models ──────────────────────────────────────────
+// Borrower-facing pages render with SignedIn()==false so they reuse the
+// minimal centered layout (no family sidebar/topbar). They never expose
+// any data beyond the one loan the borrower is authenticated against.
+
+// LoanLoginData drives the per-loan borrower sign-in form. PosID scopes the
+// form action to /loan/:id/login; nothing about the loan is revealed pre-auth.
+type LoanLoginData struct {
+	Title string
+	PosID string
+	Error string
+}
+
+func (d LoanLoginData) SignedIn() bool { return false }
+func (d LoanLoginData) Compact() bool  { return true }
+func (d LoanLoginData) Wide() bool     { return false }
+func (d LoanLoginData) HideBell() bool { return false }
+func (d LoanLoginData) Route() string  { return "" }
+
+// LoanViewData is the borrower's authenticated view of their single loan:
+// outstanding balance, repayment progress (0→target), a submit form, and
+// their own submission history.
+type LoanViewData struct {
+	Title        string
+	PosID        string
+	LoanName     string
+	BorrowerName string
+	Currency     string
+	Target       int64
+	Balance      int64 // repaid so far
+	Outstanding  int64 // target − balance
+	PctRepaid    int   // 0..100
+	TodayISO     string
+	Submissions  []LoanSubmissionRow
+	Flash        string
+	Error        string
+}
+
+func (d LoanViewData) SignedIn() bool { return false }
+func (d LoanViewData) Compact() bool  { return false }
+func (d LoanViewData) Wide() bool     { return false }
+func (d LoanViewData) HideBell() bool { return false }
+func (d LoanViewData) Route() string  { return "" }
+
+// LoanSubmissionRow is one repayment submission as shown to either side.
+type LoanSubmissionRow struct {
+	ID        string
+	PayerName string
+	Amount    int64
+	Date      string
+	Note      string
+	Status    string // pending | approved | rejected | cancelled
+	CanCancel bool   // borrower may cancel their own pending rows
+	Reason    string // reject reason, when status == rejected
+}
+
+// LoanSetupData drives the family-only "Set up loan" form (/loans/new),
+// which creates the Pos, funds + disburses it, and sets the borrower login.
+type LoanSetupData struct {
+	Title        string
+	DisplayName  string
+	UnreadCount  int
+	Accounts     []AccountOption
+	Name         string
+	BorrowerName string
+	AmountRaw    string
+	AccountID    string
+	FundedFrom   string
+	Username     string
+	Errors       []string
+}
+
+func (d LoanSetupData) SignedIn() bool { return d.DisplayName != "" }
+func (d LoanSetupData) Compact() bool  { return false }
+func (d LoanSetupData) Wide() bool     { return false }
+func (d LoanSetupData) HideBell() bool { return false }
+func (d LoanSetupData) Route() string  { return "" }
 
 // TransactionRow is one row in the list, pre-flattened from the SQL join.
 type TransactionRow struct {
@@ -1070,6 +1164,41 @@ body.signed-in > main.wide    { max-width: 920px; margin: 0 auto; }
   background: var(--bg-fill); border: 1px solid var(--border-secondary);
   border-radius: 999px; padding: 4px 12px;
 }
+/* Loan pages (borrower-facing + setup). */
+.loan-brand { display: inline-flex; align-items: center; gap: 8px;
+  font-weight: 700; font-size: 15px; color: var(--text); letter-spacing: -0.01em; }
+.loan-logo { display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 7px; color: #fff; font-size: 14px;
+  background: linear-gradient(135deg, var(--primary-hover), var(--primary)); }
+.loan-topline { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.loan-summary { background: var(--primary-bg); border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-lg); padding: 20px; margin-bottom: 20px; }
+.loan-summary-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.loan-summary-label { font-size: var(--font-sm); text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--text-tertiary); }
+.loan-summary-amt { font-size: var(--font-h3); font-weight: 700; color: var(--primary);
+  font-variant-numeric: tabular-nums; }
+.loan-progress { height: 8px; border-radius: 999px; background: var(--bg-fill);
+  overflow: hidden; margin: 14px 0 8px; }
+.loan-progress-bar { height: 100%; border-radius: 999px; background: var(--primary);
+  transition: width 0.3s ease; }
+.loan-summary-meta { font-size: var(--font-sm); color: var(--text-secondary); }
+.loan-card-body { padding: 16px; }
+.loan-sub { display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+  border-top: 1px solid var(--border-secondary); }
+.loan-sub-main { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.loan-sub-amt { font-weight: 600; font-variant-numeric: tabular-nums; }
+.loan-sub-meta { font-size: var(--font-sm); color: var(--text-tertiary); }
+.loan-sub-cancel { margin-left: 4px; }
+.loan-sub-cancel button { width: auto; padding: 4px 8px; }
+.loan-status { margin-left: auto; flex: none; font-size: var(--font-sm); font-weight: 600;
+  text-transform: capitalize; border-radius: 999px; padding: 2px 10px; }
+.loan-status-pending   { color: var(--warning); background: color-mix(in oklab, var(--warning) 14%, transparent); }
+.loan-status-approved  { color: var(--success); background: color-mix(in oklab, var(--success) 14%, transparent); }
+.loan-status-rejected  { color: var(--error);   background: var(--error-bg); }
+.loan-status-cancelled { color: var(--text-tertiary); background: var(--bg-fill); }
+.flash { margin: 0 0 16px; padding: 8px 12px; border-radius: var(--radius);
+  background: var(--primary-bg); color: var(--primary); border: 1px solid color-mix(in oklab, var(--primary) 25%, transparent); font-size: var(--font-base); }
 @media (min-width: 768px) {
   .topbar .hamburger { display: none; }
   .topbar-search { display: inline-flex; }
@@ -1846,6 +1975,102 @@ const searchBody = `<header class="page-head">
   <p class="subtitle">Type a term above to search across your accounts, pos, transactions, counterparties and income templates.</p>
 {{end}}`
 
+const loanLoginBody = `<div class="loan-brand"><span class="loan-logo">S</span> Shima Loans</div>
+<h1>Loan access</h1>
+<p class="subtitle">Sign in to view your loan balance and submit a payment.</p>
+{{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
+<form method="post" action="/loan/{{.PosID}}/login">
+<div class="field">
+<label for="username">Username</label>
+<input id="username" name="username" autocomplete="username"
+  autocapitalize="off" autocorrect="off" spellcheck="false" required autofocus>
+</div>
+<div class="field">
+<label for="password">Password</label>
+<input id="password" name="password" type="password" autocomplete="current-password" required>
+</div>
+<button type="submit">Sign in</button>
+</form>`
+
+const loanViewBody = `<div class="loan-topline">
+<div class="loan-brand"><span class="loan-logo">S</span> Shima Loans</div>
+<form method="post" action="/loan/{{.PosID}}/logout"><button type="submit" class="linkbtn">Sign out</button></form>
+</div>
+<header class="page-head"><div><p class="home-eyebrow">Loan</p><h1>{{.LoanName}}</h1></div></header>
+{{if .Flash}}<p class="flash" role="status">{{.Flash}}</p>{{end}}
+{{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
+
+<section class="loan-summary">
+  <div class="loan-summary-head">
+    <span class="loan-summary-label">Outstanding</span>
+    <span class="loan-summary-amt">{{money .Outstanding .Currency}}</span>
+  </div>
+  <div class="loan-progress"><div class="loan-progress-bar" style="width:{{.PctRepaid}}%"></div></div>
+  <div class="loan-summary-meta">{{money .Balance .Currency}} repaid of {{money .Target .Currency}} &middot; {{.PctRepaid}}%</div>
+</section>
+
+<section class="section-card">
+  <div class="section-card-head"><span class="section-card-title">Submit a payment</span></div>
+  <div class="loan-card-body">
+    <form method="post" action="/loan/{{.PosID}}/payments">
+      <div class="field"><label for="payer">Who paid</label>
+        <input id="payer" name="payer_name" value="{{.BorrowerName}}" required></div>
+      <div class="field"><label for="amount">Amount ({{.Currency}})</label>
+        <input id="amount" name="amount" inputmode="numeric" autocomplete="off" required></div>
+      <div class="field"><label for="date">Date</label>
+        <input id="date" name="date" type="date" value="{{.TodayISO}}" required></div>
+      <div class="field"><label for="note">Note (optional)</label>
+        <input id="note" name="note" autocomplete="off"></div>
+      <button type="submit">Submit for approval</button>
+    </form>
+  </div>
+</section>
+
+<section class="section-card">
+  <div class="section-card-head"><span class="section-card-title">Your submissions</span></div>
+  {{if .Submissions}}
+    {{range .Submissions}}
+    <div class="loan-sub">
+      <div class="loan-sub-main">
+        <span class="loan-sub-amt">{{money .Amount $.Currency}}</span>
+        <span class="loan-sub-meta">{{.PayerName}}{{if .Date}} &middot; {{.Date}}{{end}}{{if .Note}} &middot; {{.Note}}{{end}}{{if .Reason}} &middot; {{.Reason}}{{end}}</span>
+      </div>
+      <span class="loan-status loan-status-{{.Status}}">{{.Status}}</span>
+      {{if .CanCancel}}<form method="post" action="/loan/{{$.PosID}}/payments/{{.ID}}/cancel" class="loan-sub-cancel"><button type="submit" class="linkbtn">Cancel</button></form>{{end}}
+    </div>
+    {{end}}
+  {{else}}<div class="loan-card-body"><p class="subtitle">No submissions yet.</p></div>{{end}}
+</section>`
+
+const loanSetupBody = `<header class="page-head"><div><p class="home-eyebrow">New</p><h1>Set up a loan</h1></div></header>
+<p class="subtitle">Creates a loan Pos, funds &amp; disburses it, and sets the borrower login &mdash; in one step.</p>
+{{range .Errors}}<p class="alert" role="alert">{{.}}</p>{{end}}
+<form method="post" action="/loans/new">
+<div class="field"><label for="name">Loan name</label>
+  <input id="name" name="name" value="{{.Name}}" required autofocus></div>
+<div class="field"><label for="borrower">Borrower name</label>
+  <input id="borrower" name="borrower_name" value="{{.BorrowerName}}" required>
+  <p class="hint">Counterparty on the disbursement, and the default payer on repayments.</p></div>
+<div class="field"><label for="amount">Loan amount (IDR)</label>
+  <input id="amount" name="amount" inputmode="numeric" value="{{.AmountRaw}}" required>
+  <p class="hint">Becomes the loan target. Balance climbs from 0 to here as it's repaid.</p></div>
+<div class="field"><label for="account">Cash account</label>
+  <select id="account" name="account_id" required>
+    <option value="">Choose an account&hellip;</option>
+    {{range .Accounts}}<option value="{{.ID}}"{{if eq .ID $.AccountID}} selected{{end}}>{{.Name}}</option>{{end}}
+  </select>
+  <p class="hint">The account the cash flows through (funded in, disbursed out).</p></div>
+<div class="field"><label for="funded">Funded from</label>
+  <input id="funded" name="funded_from" value="{{.FundedFrom}}" placeholder="e.g. transfer from BCA, or a lender's name" required>
+  <p class="hint">Counterparty for the funding entry &mdash; your transfer in, or who you borrowed from.</p></div>
+<div class="field"><label for="lusername">Borrower username</label>
+  <input id="lusername" name="username" value="{{.Username}}" autocapitalize="off" autocorrect="off" spellcheck="false" required></div>
+<div class="field"><label for="lpassword">Borrower password</label>
+  <input id="lpassword" name="password" type="password" required>
+  <p class="hint">Share this with the borrower along with the loan link.</p></div>
+<button type="submit">Create loan</button>
+</form>`
+
 const loginBody = `<h1>Sign in</h1>
 {{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
 <form method="post" action="/login">
@@ -2042,6 +2267,48 @@ const posBody = `{{if .NotFound}}
 </table>
 </section>
 
+{{if .IsLoan}}
+<section class="card">
+<h2>Loan</h2>
+{{if .Flash}}<p class="success" role="status">{{.Flash}}</p>{{end}}
+{{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
+<div class="loan-summary">
+  <div class="loan-summary-head">
+    <span class="loan-summary-label">Outstanding</span>
+    <span class="loan-summary-amt">{{money .LoanOutstanding .Currency}}</span>
+  </div>
+  <div class="loan-progress"><div class="loan-progress-bar" style="width:{{.LoanPctRepaid}}%"></div></div>
+  <div class="loan-summary-meta">{{money .LoanRepaid .Currency}} repaid of {{money .Target .Currency}} &middot; {{.LoanPctRepaid}}%</div>
+</div>
+<p class="subtitle">Borrower portal: <a href="{{.BorrowerLoginURL}}">{{.BorrowerLoginURL}}</a>{{if .HasBorrowerLogin}} &middot; username <strong>{{.BorrowerUsername}}</strong>{{else}} &middot; <em>no borrower login set yet</em>{{end}}</p>
+</section>
+
+<section class="card">
+<h2>Repayment submissions{{if .LoanPendingCount}} <span class="badge">{{.LoanPendingCount}}</span>{{end}}</h2>
+{{if .LoanSubmissions}}
+<table>
+<thead><tr><th>Payer</th><th class="num">Amount</th><th>Date</th><th>Status</th><th></th></tr></thead>
+<tbody>
+{{range .LoanSubmissions}}
+<tr>
+<td>{{.PayerName}}{{if .Note}}<br><span class="hint">{{.Note}}</span>{{end}}</td>
+<td class="num">{{money .Amount $.Currency}}</td>
+<td>{{.Date}}</td>
+<td><span class="loan-status loan-status-{{.Status}}">{{.Status}}</span></td>
+<td class="num">
+{{if eq .Status "pending"}}
+<form method="post" action="/loan-submissions/{{.ID}}/approve" style="display:inline"><button type="submit" class="pill">Approve</button></form>
+<form method="post" action="/loan-submissions/{{.ID}}/reject" style="display:inline"><button type="submit" class="linkbtn">Reject</button></form>
+{{end}}
+</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}<p class="subtitle">No repayment submissions yet.</p>{{end}}
+</section>
+{{end}}
+
 <section class="card">
 <h2>Funding account</h2>
 {{if .AccountFlash}}<p class="success" role="status">{{.AccountFlash}}</p>{{end}}
@@ -2166,6 +2433,7 @@ const posListBody = `<header class="page-head">
     <h1>Pos</h1>
   </div>
   <div class="page-head-actions">
+    <a class="pill" href="/loans/new">+ Set up a loan</a>
     <a class="pill primary" href="/pos/new">+ New Pos</a>
   </div>
 </header>

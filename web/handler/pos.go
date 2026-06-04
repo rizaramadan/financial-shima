@@ -276,6 +276,49 @@ func (h *Handlers) PosGet(c echo.Context) error {
 		})
 	}
 
+	// Loan section — only when this Pos is a loan. Cash already holds the
+	// repaid-so-far balance (fund + disburse net to zero at setup).
+	if pos.IsLoan {
+		data.IsLoan = true
+		data.BorrowerLoginURL = "/loan/" + data.ID + "/login"
+		data.LoanRepaid = data.Cash
+		if data.LoanRepaid < 0 {
+			data.LoanRepaid = 0
+		}
+		data.LoanOutstanding = data.Target - data.LoanRepaid
+		if data.LoanOutstanding < 0 {
+			data.LoanOutstanding = 0
+		}
+		if data.Target > 0 {
+			pct := int(data.LoanRepaid * 100 / data.Target)
+			if pct > 100 {
+				pct = 100
+			}
+			data.LoanPctRepaid = pct
+		}
+		if access, err := q.GetLoanAccessByPos(ctx, pgtype.UUID{Bytes: id, Valid: true}); err == nil {
+			data.HasBorrowerLogin = true
+			data.BorrowerUsername = access.Username
+		}
+		if subs, err := q.ListLoanSubmissionsByPos(ctx, pgtype.UUID{Bytes: id, Valid: true}); err == nil {
+			for _, s := range subs {
+				row := loanSubmissionRow(s)
+				if row.Status == "pending" {
+					data.LoanPendingCount++
+				}
+				data.LoanSubmissions = append(data.LoanSubmissions, row)
+			}
+		}
+		if flash, _ := c.Cookie("pos_flash"); flash != nil && flash.Value != "" {
+			data.Flash = flash.Value
+			c.SetCookie(&http.Cookie{Name: "pos_flash", Value: "", Path: "/", MaxAge: -1})
+		}
+		if cerr, _ := c.Cookie("pos_error"); cerr != nil && cerr.Value != "" {
+			data.Error = cerr.Value
+			c.SetCookie(&http.Cookie{Name: "pos_error", Value: "", Path: "/", MaxAge: -1})
+		}
+	}
+
 	data.UnreadCount = h.loadBellCount(ctx, c, u.ID)
 	return c.Render(http.StatusOK, "pos", data)
 }

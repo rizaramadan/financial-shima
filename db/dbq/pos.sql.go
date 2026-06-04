@@ -23,7 +23,7 @@ func (q *Queries) ArchivePos(ctx context.Context, id pgtype.UUID) error {
 const createPos = `-- name: CreatePos :one
 INSERT INTO pos (name, currency, account_id, target)
 VALUES ($1, $2, $3, $4)
-RETURNING id, name, currency, target, archived, created_at, account_id
+RETURNING id, name, currency, target, archived, created_at, account_id, is_loan
 `
 
 type CreatePosParams struct {
@@ -49,12 +49,13 @@ func (q *Queries) CreatePos(ctx context.Context, arg CreatePosParams) (Po, error
 		&i.Archived,
 		&i.CreatedAt,
 		&i.AccountID,
+		&i.IsLoan,
 	)
 	return i, err
 }
 
 const getPos = `-- name: GetPos :one
-SELECT id, name, currency, target, archived, created_at, account_id FROM pos WHERE id = $1
+SELECT id, name, currency, target, archived, created_at, account_id, is_loan FROM pos WHERE id = $1
 `
 
 func (q *Queries) GetPos(ctx context.Context, id pgtype.UUID) (Po, error) {
@@ -68,12 +69,13 @@ func (q *Queries) GetPos(ctx context.Context, id pgtype.UUID) (Po, error) {
 		&i.Archived,
 		&i.CreatedAt,
 		&i.AccountID,
+		&i.IsLoan,
 	)
 	return i, err
 }
 
 const listPos = `-- name: ListPos :many
-SELECT id, name, currency, target, archived, created_at, account_id FROM pos WHERE NOT archived ORDER BY currency, name, id
+SELECT id, name, currency, target, archived, created_at, account_id, is_loan FROM pos WHERE NOT archived ORDER BY currency, name, id
 `
 
 func (q *Queries) ListPos(ctx context.Context) ([]Po, error) {
@@ -93,6 +95,7 @@ func (q *Queries) ListPos(ctx context.Context) ([]Po, error) {
 			&i.Archived,
 			&i.CreatedAt,
 			&i.AccountID,
+			&i.IsLoan,
 		); err != nil {
 			return nil, err
 		}
@@ -105,7 +108,7 @@ func (q *Queries) ListPos(ctx context.Context) ([]Po, error) {
 }
 
 const listPosIncludingArchived = `-- name: ListPosIncludingArchived :many
-SELECT id, name, currency, target, archived, created_at, account_id FROM pos ORDER BY currency, name, id
+SELECT id, name, currency, target, archived, created_at, account_id, is_loan FROM pos ORDER BY currency, name, id
 `
 
 func (q *Queries) ListPosIncludingArchived(ctx context.Context) ([]Po, error) {
@@ -125,6 +128,7 @@ func (q *Queries) ListPosIncludingArchived(ctx context.Context) ([]Po, error) {
 			&i.Archived,
 			&i.CreatedAt,
 			&i.AccountID,
+			&i.IsLoan,
 		); err != nil {
 			return nil, err
 		}
@@ -137,7 +141,7 @@ func (q *Queries) ListPosIncludingArchived(ctx context.Context) ([]Po, error) {
 }
 
 const searchPos = `-- name: SearchPos :many
-SELECT id, name, currency, target, archived, created_at, account_id FROM pos
+SELECT id, name, currency, target, archived, created_at, account_id, is_loan FROM pos
 WHERE NOT archived
   AND lower(name) LIKE '%' || lower($1) || '%'
 ORDER BY currency, name
@@ -163,6 +167,7 @@ func (q *Queries) SearchPos(ctx context.Context, lower string) ([]Po, error) {
 			&i.Archived,
 			&i.CreatedAt,
 			&i.AccountID,
+			&i.IsLoan,
 		); err != nil {
 			return nil, err
 		}
@@ -176,7 +181,7 @@ func (q *Queries) SearchPos(ctx context.Context, lower string) ([]Po, error) {
 
 const updatePosAccount = `-- name: UpdatePosAccount :one
 UPDATE pos SET account_id = $2 WHERE id = $1
-RETURNING id, name, currency, target, archived, created_at, account_id
+RETURNING id, name, currency, target, archived, created_at, account_id, is_loan
 `
 
 type UpdatePosAccountParams struct {
@@ -199,13 +204,14 @@ func (q *Queries) UpdatePosAccount(ctx context.Context, arg UpdatePosAccountPara
 		&i.Archived,
 		&i.CreatedAt,
 		&i.AccountID,
+		&i.IsLoan,
 	)
 	return i, err
 }
 
 const updatePosNameAndTarget = `-- name: UpdatePosNameAndTarget :one
 UPDATE pos SET name = $2, target = $3 WHERE id = $1
-RETURNING id, name, currency, target, archived, created_at, account_id
+RETURNING id, name, currency, target, archived, created_at, account_id, is_loan
 `
 
 type UpdatePosNameAndTargetParams struct {
@@ -230,6 +236,7 @@ func (q *Queries) UpdatePosNameAndTarget(ctx context.Context, arg UpdatePosNameA
 		&i.Archived,
 		&i.CreatedAt,
 		&i.AccountID,
+		&i.IsLoan,
 	)
 	return i, err
 }
