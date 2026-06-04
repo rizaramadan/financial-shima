@@ -12,11 +12,22 @@ import (
 
 type Querier interface {
 	AddIncomeTemplateLine(ctx context.Context, arg AddIncomeTemplateLineParams) (IncomeTemplateLine, error)
+	// Flip pending → approved and link the appended money_in. Guarded on
+	// status = 'pending' so a double-approve is a no-op (0 rows affected). The
+	// caller wraps this with the transaction insert in a single DB tx.
+	ApproveLoanSubmission(ctx context.Context, arg ApproveLoanSubmissionParams) (int64, error)
 	ArchiveAccount(ctx context.Context, id pgtype.UUID) error
 	ArchiveIncomeTemplate(ctx context.Context, id pgtype.UUID) error
 	ArchivePos(ctx context.Context, id pgtype.UUID) error
+	// Borrower-initiated cancel: only their own Pos's pending rows. pos_id is
+	// passed (not just id) so a borrower can't cancel another loan's submission.
+	CancelLoanSubmission(ctx context.Context, arg CancelLoanSubmissionParams) (int64, error)
+	CountPendingLoanSubmissionsByPos(ctx context.Context, posID pgtype.UUID) (int64, error)
 	CreateAccount(ctx context.Context, name string) (Account, error)
 	CreateIncomeTemplate(ctx context.Context, arg CreateIncomeTemplateParams) (IncomeTemplate, error)
+	CreateLoanAccess(ctx context.Context, arg CreateLoanAccessParams) (LoanAccess, error)
+	CreateLoanSession(ctx context.Context, arg CreateLoanSessionParams) (LoanSession, error)
+	CreateLoanSubmission(ctx context.Context, arg CreateLoanSubmissionParams) (LoanPaymentSubmission, error)
 	CreatePos(ctx context.Context, arg CreatePosParams) (Po, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	// Hard-delete an account if no Pos references it. Safe because
@@ -27,9 +38,15 @@ type Querier interface {
 	DeleteAccountIfUnused(ctx context.Context, id pgtype.UUID) (int64, error)
 	DeleteIncomeTemplateLine(ctx context.Context, id pgtype.UUID) error
 	DeleteIncomeTemplateLinesByTemplate(ctx context.Context, templateID pgtype.UUID) error
+	DeleteLoanSession(ctx context.Context, token string) error
 	DeleteSession(ctx context.Context, token string) error
 	GetAccount(ctx context.Context, id pgtype.UUID) (Account, error)
 	GetIncomeTemplate(ctx context.Context, id pgtype.UUID) (IncomeTemplate, error)
+	GetLoanAccessByPos(ctx context.Context, posID pgtype.UUID) (LoanAccess, error)
+	GetLoanAccessByUsername(ctx context.Context, username string) (LoanAccess, error)
+	// Live (unexpired) borrower session. Caller checks pos_id == route :id.
+	GetLoanSession(ctx context.Context, token string) (LoanSession, error)
+	GetLoanSubmission(ctx context.Context, id pgtype.UUID) (LoanPaymentSubmission, error)
 	// Insert or return existing by case-insensitive name match.
 	// name_lower is generated; the unique constraint on it dedupes.
 	GetOrCreateCounterparty(ctx context.Context, name string) (Counterparty, error)
@@ -57,11 +74,14 @@ type Querier interface {
 	// tiebreaker). Caller folds these into the apply allocation.
 	ListIncomeTemplateLines(ctx context.Context, templateID pgtype.UUID) ([]IncomeTemplateLine, error)
 	ListIncomeTemplates(ctx context.Context) ([]IncomeTemplate, error)
+	ListLoanPos(ctx context.Context) ([]Po, error)
+	ListLoanSubmissionsByPos(ctx context.Context, posID pgtype.UUID) ([]LoanPaymentSubmission, error)
 	ListNotificationsForUser(ctx context.Context, userID pgtype.UUID) ([]Notification, error)
 	// Open obligations where this pos is creditor (money it's owed) or
 	// debtor (money it owes). Counts toward Pos.receivables and
 	// Pos.payables on the detail view per spec §4.2.
 	ListObligationsForPos(ctx context.Context, creditorPosID pgtype.UUID) ([]PosObligation, error)
+	ListPendingLoanSubmissionsByPos(ctx context.Context, posID pgtype.UUID) ([]LoanPaymentSubmission, error)
 	ListPos(ctx context.Context) ([]Po, error)
 	ListPosIncludingArchived(ctx context.Context) ([]Po, error)
 	// Account-side feed via pos.account_id (§5.6 snapshot semantics).
@@ -82,7 +102,9 @@ type Querier interface {
 	ListUsers(ctx context.Context) ([]User, error)
 	MarkAllNotificationsRead(ctx context.Context, userID pgtype.UUID) (int64, error)
 	MarkNotificationRead(ctx context.Context, arg MarkNotificationReadParams) error
+	PurgeExpiredLoanSessions(ctx context.Context) (int64, error)
 	PurgeExpiredSessions(ctx context.Context) (int64, error)
+	RejectLoanSubmission(ctx context.Context, arg RejectLoanSubmissionParams) (int64, error)
 	// Case-insensitive substring search by name for the global search box.
 	// Active accounts only; capped so one entity can't flood the results.
 	SearchAccounts(ctx context.Context, lower string) ([]Account, error)
@@ -100,6 +122,7 @@ type Querier interface {
 	// the pos/account/counterparty context. Account is the Pos's *current*
 	// account (§5.6 snapshot). Capped for the results panel.
 	SearchTransactions(ctx context.Context, lower string) ([]SearchTransactionsRow, error)
+	SetPosIsLoan(ctx context.Context, arg SetPosIsLoanParams) error
 	// Per-account balance: signed sum of money_in / money_out account_amount
 	// contributions, attributed via the Pos's current account_id (§5.6
 	// snapshot view). LEFT JOINs keep zero-balance accounts in the result
@@ -129,6 +152,7 @@ type Querier interface {
 	// uniqueness constraint, so a rename to a clashing name is allowed.
 	UpdateAccountName(ctx context.Context, arg UpdateAccountNameParams) (Account, error)
 	UpdateIncomeTemplate(ctx context.Context, arg UpdateIncomeTemplateParams) error
+	UpdateLoanAccessPassword(ctx context.Context, arg UpdateLoanAccessPasswordParams) error
 	// Reassign a Pos to a different Account. Snapshot semantics per spec
 	// §5.6: every historical money_in / money_out for this Pos is re-
 	// attributed to the new Account on the next balance read; no ledger

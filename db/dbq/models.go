@@ -11,6 +11,50 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type LoanSubmissionStatus string
+
+const (
+	LoanSubmissionStatusPending   LoanSubmissionStatus = "pending"
+	LoanSubmissionStatusApproved  LoanSubmissionStatus = "approved"
+	LoanSubmissionStatusRejected  LoanSubmissionStatus = "rejected"
+	LoanSubmissionStatusCancelled LoanSubmissionStatus = "cancelled"
+)
+
+func (e *LoanSubmissionStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = LoanSubmissionStatus(s)
+	case string:
+		*e = LoanSubmissionStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for LoanSubmissionStatus: %T", src)
+	}
+	return nil
+}
+
+type NullLoanSubmissionStatus struct {
+	LoanSubmissionStatus LoanSubmissionStatus
+	Valid                bool // Valid is true if LoanSubmissionStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullLoanSubmissionStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.LoanSubmissionStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.LoanSubmissionStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullLoanSubmissionStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.LoanSubmissionStatus), nil
+}
+
 type NotificationType string
 
 const (
@@ -169,6 +213,36 @@ type IncomeTemplateLine struct {
 	CreatedAt  pgtype.Timestamptz
 }
 
+type LoanAccess struct {
+	ID           pgtype.UUID
+	PosID        pgtype.UUID
+	Username     string
+	PasswordHash string
+	CreatedAt    pgtype.Timestamptz
+}
+
+type LoanPaymentSubmission struct {
+	ID            pgtype.UUID
+	PosID         pgtype.UUID
+	PayerName     string
+	Amount        int64
+	EffectiveDate pgtype.Date
+	Note          *string
+	Status        LoanSubmissionStatus
+	SubmittedAt   pgtype.Timestamptz
+	DecidedAt     pgtype.Timestamptz
+	DecidedBy     pgtype.UUID
+	RejectReason  *string
+	TransactionID pgtype.UUID
+}
+
+type LoanSession struct {
+	Token     string
+	PosID     pgtype.UUID
+	IssuedAt  pgtype.Timestamptz
+	ExpiresAt pgtype.Timestamptz
+}
+
 type Notification struct {
 	ID                   pgtype.UUID
 	UserID               pgtype.UUID
@@ -188,6 +262,7 @@ type Po struct {
 	Archived  bool
 	CreatedAt pgtype.Timestamptz
 	AccountID pgtype.UUID
+	IsLoan    bool
 }
 
 type PosObligation struct {

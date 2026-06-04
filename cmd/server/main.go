@@ -161,6 +161,21 @@ func newServerWithDeps(a *auth.Auth, ac assistant.Client, db *pgxpool.Pool) *ech
 	e.GET("/settings", h.SettingsGet)
 	e.POST("/settings/theme", h.SettingsThemePost)
 
+	// Loans — family-only setup + approval (these read the family session).
+	e.GET("/loans/new", h.LoanSetupGet)
+	e.POST("/loans/new", h.LoanSetupPost)
+	e.POST("/loan-submissions/:sid/approve", h.LoanApprovePost)
+	e.POST("/loan-submissions/:sid/reject", h.LoanRejectPost)
+
+	// Borrower-facing loan portal — its own per-loan session (loan_session
+	// cookie), every route scoped to and re-checked against :id.
+	e.GET("/loan/:id/login", h.LoanLoginGet)
+	e.POST("/loan/:id/login", h.LoanLoginPost)
+	e.POST("/loan/:id/logout", h.LoanLogoutPost)
+	e.GET("/loan/:id", h.LoanViewGet)
+	e.POST("/loan/:id/payments", h.LoanPaymentPost)
+	e.POST("/loan/:id/payments/:sid/cancel", h.LoanCancelPost)
+
 	// /api/v1 — LLM JSON API per spec §7.2. APIKey middleware reads
 	// LLM_API_KEY at boot; the apikey package panics if it's empty
 	// (deploy-time fail-loud), so production deploys must set it. In
