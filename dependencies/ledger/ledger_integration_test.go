@@ -72,8 +72,9 @@ func seedFixtures(t *testing.T, ctx context.Context, pool *pgxpool.Pool) fixture
 		t.Fatalf("CreateAccount: %v", err)
 	}
 	pos, err := q.CreatePos(ctx, dbq.CreatePosParams{
-		Name:     "Pos " + stamp,
-		Currency: "idr",
+		Name:      "Pos " + stamp,
+		Currency:  "idr",
+		AccountID: acc.ID, // pos.account_id is NOT NULL since migration 0005
 	})
 	if err != nil {
 		t.Fatalf("CreatePos: %v", err)

@@ -157,6 +157,7 @@ func newServerWithDeps(a *auth.Auth, ac assistant.Client, db *pgxpool.Pool) *ech
 	e.POST("/income-templates/:id/edit", h.IncomeTemplateEditPost)
 	e.POST("/income-templates/:id/preview", h.IncomeTemplatePreviewPost)
 	e.POST("/income-templates/:id/apply", h.IncomeTemplateApplyPost)
+	e.GET("/search", h.SearchGet)
 	e.GET("/settings", h.SettingsGet)
 	e.POST("/settings/theme", h.SettingsThemePost)
 
