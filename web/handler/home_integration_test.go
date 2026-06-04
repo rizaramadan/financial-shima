@@ -116,11 +116,17 @@ func TestIntegration_HomeGet_ArchivedRowsFiltered(t *testing.T) {
 	archAcc := "Archived Acct " + stamp
 	archPos := "Archived Pos " + stamp
 
-	if _, err := pool.Exec(ctx, `INSERT INTO accounts (name, archived) VALUES ($1, true)`, archAcc); err != nil {
+	var archAccID string
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO accounts (name, archived) VALUES ($1, true) RETURNING id`, archAcc,
+	).Scan(&archAccID); err != nil {
 		t.Fatalf("insert archived account: %v", err)
 	}
+	// pos.account_id is NOT NULL since migration 0005 (Pos owns the account
+	// FK), so the archived pos must reference the account inserted above.
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO pos (name, currency, archived) VALUES ($1, 'idr', true)`, archPos,
+		`INSERT INTO pos (name, currency, archived, account_id) VALUES ($1, 'idr', true, $2)`,
+		archPos, archAccID,
 	); err != nil {
 		t.Fatalf("insert archived pos: %v", err)
 	}

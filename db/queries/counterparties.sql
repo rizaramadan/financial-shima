@@ -15,3 +15,11 @@ SELECT * FROM counterparties
 WHERE name_lower LIKE lower($1) || '%'
 ORDER BY name_lower
 LIMIT 20;
+
+-- name: SearchCounterpartiesContains :many
+-- Substring (not prefix) match for the global search box. SearchCounterparties
+-- stays prefix-only for the transaction-form typeahead; this one is broader.
+SELECT * FROM counterparties
+WHERE name_lower LIKE '%' || lower($1) || '%'
+ORDER BY name_lower
+LIMIT 10;

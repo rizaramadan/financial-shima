@@ -28,3 +28,12 @@ WHERE accounts.id = $1
 -- uniqueness constraint, so a rename to a clashing name is allowed.
 UPDATE accounts SET name = $2 WHERE id = $1
 RETURNING *;
+
+-- name: SearchAccounts :many
+-- Case-insensitive substring search by name for the global search box.
+-- Active accounts only; capped so one entity can't flood the results.
+SELECT * FROM accounts
+WHERE NOT archived
+  AND lower(name) LIKE '%' || lower($1) || '%'
+ORDER BY name
+LIMIT 10;

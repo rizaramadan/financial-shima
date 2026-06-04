@@ -57,6 +57,7 @@ func New() *Renderer {
 	template.Must(t.New("settings").Parse(layoutOpen + settingsBody + layoutClose))
 	template.Must(t.New("accounts").Parse(layoutOpen + accountsBody + layoutClose))
 	template.Must(t.New("account_new").Parse(layoutOpen + accountNewBody + layoutClose))
+	template.Must(t.New("search").Parse(layoutOpen + searchBody + layoutClose))
 	return &Renderer{t: t}
 }
 
@@ -555,6 +556,68 @@ func (d TransactionNewData) HideBell() bool { return false }
 func (d TransactionNewData) Route() string  { return "transactions" }
 func (d TransactionNewData) IsIncoming() bool { return d.Type == "money_in" }
 
+// SearchData backs /search — the global search results page driven by the
+// top-bar box. Each entity slice is pre-capped by its SQL query so the
+// results panel stays balanced. Total lets the template branch between the
+// results view and the "no matches" empty state without re-summing.
+type SearchData struct {
+	Title           string
+	DisplayName     string
+	UnreadCount     int
+	Error           string
+	Query           string
+	Accounts        []SearchAccountRow
+	Pos             []SearchPosRow
+	Transactions    []SearchTxnRow
+	Counterparties  []SearchCounterpartyRow
+	IncomeTemplates []SearchIncomeRow
+	Total           int
+}
+
+func (d SearchData) SignedIn() bool { return d.DisplayName != "" }
+func (d SearchData) Compact() bool  { return false }
+func (d SearchData) Wide() bool     { return false }
+func (d SearchData) HideBell() bool { return false }
+
+// Route returns "" so no sidebar item is marked current — search has no
+// dedicated nav entry; it lives in the top bar.
+func (d SearchData) Route() string { return "" }
+
+type SearchAccountRow struct {
+	ID   string
+	Name string
+}
+
+type SearchPosRow struct {
+	ID       string
+	Name     string
+	Currency string
+}
+
+type SearchIncomeRow struct {
+	ID   string
+	Name string
+}
+
+type SearchCounterpartyRow struct {
+	Name string
+}
+
+// SearchTxnRow is a flattened transaction hit. The handler resolves the
+// nullable joined columns into plain fields; Amount/Currency stay raw so the
+// template formats them with the shared money func. Label is the note, or the
+// counterparty name when the note is blank.
+type SearchTxnRow struct {
+	PosID        string
+	Label        string
+	PosName      string
+	Counterparty string
+	Type         string
+	Amount       int64
+	Currency     string
+	Date         string
+}
+
 // TransactionRow is one row in the list, pre-flattened from the SQL join.
 type TransactionRow struct {
 	ID               string
@@ -601,6 +664,9 @@ const layoutOpen = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Shima &mdash; {{.Title}}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 /* Ant Design v5 design tokens — adapted for plain CSS (no React).
  * Source: https://ant.design/docs/spec/colors and Seed Tokens reference.
@@ -727,10 +793,11 @@ html, body { margin: 0; padding: 0; }
 body {
   background: var(--bg-page);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
                "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB",
                "Microsoft YaHei", sans-serif;
   font-size: var(--font-base); line-height: 1.5714;
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
   min-height: 100vh; display: grid;
   align-items: start; justify-items: center;
   padding: 0;
@@ -784,9 +851,11 @@ body.signed-in > main.wide    { max-width: 920px; margin: 0 auto; }
   body { padding: 24px; }
   body.signed-in {
     padding: 0;
-    grid-template-columns: 240px 1fr;
-    grid-template-rows: 1fr;
-    grid-template-areas: "sidebar main";
+    grid-template-columns: 248px 1fr;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      "topbar topbar"
+      "sidebar main";
   }
   main { padding: 32px; }
   main.compact { padding: 32px 28px; }
@@ -802,13 +871,14 @@ body.signed-in > main.wide    { max-width: 920px; margin: 0 auto; }
  * rendered) so the checkbox resets on every link click — no JS needed
  * to "auto-close" on navigation. */
 .sidebar-toggle { position: absolute; opacity: 0; pointer-events: none; }
+/* Top bar — persistent EventCatalog-style header spanning the full width. */
 .topbar {
   grid-area: topbar;
-  display: flex; align-items: center; gap: 12px;
-  padding: 8px 16px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 16px; height: 56px;
   background: var(--bg-container);
   border-bottom: 1px solid var(--border-secondary);
-  position: sticky; top: 0; z-index: 10;
+  position: sticky; top: 0; z-index: 40;
 }
 .hamburger {
   display: inline-flex; align-items: center; justify-content: center;
@@ -824,18 +894,67 @@ body.signed-in > main.wide    { max-width: 920px; margin: 0 auto; }
   outline: none;
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 25%, transparent);
 }
-.topbar-title { font-weight: 500; color: var(--text); }
-.topbar-badge {
-  margin-left: auto;
+/* Brand lockup: green rounded logo tile + wordmark. */
+.topbar-brand {
+  display: inline-flex; align-items: center; gap: 10px;
+  text-decoration: none; color: var(--text);
+  font-weight: 700; font-size: 15px; letter-spacing: -0.01em;
 }
+.topbar-brand .logo {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 7px;
+  background: linear-gradient(135deg, var(--primary-hover), var(--primary));
+  color: #fff; font-size: 15px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+}
+/* Cosmetic command-palette-style search trigger (visual only, like
+ * EventCatalog's ⌘K). Not wired to a search backend yet. */
+.topbar-search {
+  display: none; align-items: center; gap: 8px; margin: 0 0 0 12px;
+  min-width: 0; flex: 0 1 320px;
+  padding: 6px 10px; border-radius: var(--radius);
+  border: 1px solid var(--border); background: var(--bg-fill);
+  color: var(--text-tertiary); font-size: 13px; cursor: text;
+}
+.topbar-search:focus-within {
+  border-color: var(--primary); background: var(--bg-container);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 18%, transparent);
+}
+.topbar-search input {
+  flex: 1 1 auto; min-width: 0;
+  border: 0; outline: none; padding: 0; margin: 0;
+  background: transparent; color: var(--text);
+  font: inherit; font-size: 13px;
+}
+.topbar-search input::placeholder { color: var(--text-tertiary); }
+.topbar-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
+.topbar-search kbd {
+  margin-left: auto;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px; color: var(--text-tertiary);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 1px 5px; background: var(--bg-container);
+}
+.topbar-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; }
+.topbar-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px; border-radius: var(--radius);
+  color: var(--text-secondary); text-decoration: none; position: relative;
+  font-size: 18px;
+}
+.topbar-icon:hover { background: var(--bg-fill); color: var(--primary); }
+.topbar-icon .badge {
+  position: absolute; top: 5px; right: 4px;
+}
+
 .sidebar {
   grid-area: sidebar;
   background: var(--bg-container);
   border-right: 1px solid var(--border-secondary);
-  padding: 16px 12px;
-  display: flex; flex-direction: column; gap: 4px;
+  padding: 12px 12px 16px;
+  display: flex; flex-direction: column; gap: 2px;
   /* Mobile: drawer pinned to the viewport edge, hidden until toggled. */
-  position: fixed; top: 0; bottom: 0; left: 0; width: 260px;
+  position: fixed; top: 0; bottom: 0; left: 0; width: 264px;
   transform: translateX(-100%);
   transition: transform 0.2s ease;
   z-index: 30;
@@ -850,23 +969,40 @@ body.signed-in > main.wide    { max-width: 920px; margin: 0 auto; }
   cursor: pointer;
 }
 .sidebar-toggle:checked ~ .sidebar-overlay { display: block; }
+/* Mobile drawer keeps a brand row; desktop hides it (brand lives in topbar). */
 .sidebar-brand {
-  font-weight: 600; color: var(--text);
-  padding: 4px 12px 12px;
+  font-weight: 700; color: var(--text);
+  padding: 6px 12px 12px;
   border-bottom: 1px solid var(--border-secondary);
   margin: 0 0 8px;
 }
+/* Grouped navigation with small uppercase section labels. */
+.nav-group { display: flex; flex-direction: column; gap: 2px; }
+.nav-group-label {
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text-tertiary);
+  padding: 0 12px; margin: 16px 0 4px;
+}
+.nav-group:first-of-type .nav-group-label { margin-top: 4px; }
 .sidebar a, .sidebar form button {
-  display: flex; align-items: center; gap: 8px;
-  padding: 10px 12px; border-radius: var(--radius);
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-radius: var(--radius);
   color: var(--text-secondary); text-decoration: none;
   font-size: var(--font-base); white-space: nowrap;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
 }
+.nav-ico {
+  flex: none; width: 18px; text-align: center;
+  font-size: 15px; line-height: 1; opacity: 0.85;
+}
+.sidebar a .badge { margin-left: auto; }
 .sidebar a:hover { background: var(--bg-fill); color: var(--primary); }
+.sidebar a:hover .nav-ico { opacity: 1; }
 .sidebar a[aria-current="page"] {
-  background: var(--primary-bg); color: var(--primary); font-weight: 500;
+  background: var(--primary-bg); color: var(--primary); font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--primary);
 }
+.sidebar a[aria-current="page"] .nav-ico { opacity: 1; }
 .sidebar-end { margin-top: auto; padding-top: 12px;
   border-top: 1px solid var(--border-secondary); }
 .sidebar-end .linkbtn,
@@ -874,16 +1010,75 @@ body.signed-in > main.wide    { max-width: 920px; margin: 0 auto; }
   width: 100%;
   background: transparent; border: 0; box-shadow: none;
   color: var(--text-secondary);
-  text-align: left; padding: 10px 12px;
+  text-align: left; padding: 8px 12px;
   cursor: pointer; font: inherit;
 }
 .sidebar-end .linkbtn:hover,
 .sidebar form button:hover { background: var(--bg-fill); color: var(--primary); }
+/* Breadcrumb row at the top of content (EventCatalog-style). */
+.breadcrumb {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: var(--font-sm); color: var(--text-tertiary);
+  margin: 0 0 16px;
+}
+.breadcrumb a { color: var(--text-tertiary); text-decoration: none; }
+.breadcrumb a:hover { color: var(--primary); }
+.breadcrumb .sep { opacity: 0.6; }
+.breadcrumb .crumb-current { color: var(--text-secondary); font-weight: 500; }
+/* Search results page. */
+.search-page-form {
+  display: flex; gap: 8px; align-items: stretch; margin: 0 0 24px;
+}
+.search-page-form input { flex: 1 1 auto; }
+.search-page-form button { width: auto; flex: none; padding: 8px 20px; }
+.search-group { margin-bottom: 16px; padding: 0; }
+.search-count {
+  margin-left: auto; font-size: var(--font-sm); font-weight: 600;
+  color: var(--text-tertiary);
+  background: var(--bg-fill); border-radius: 999px; padding: 1px 9px;
+}
+.search-result {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px; text-decoration: none; color: var(--text);
+  border-top: 1px solid var(--border-secondary);
+  transition: background 0.12s;
+}
+.search-result:hover { background: var(--bg-fill); }
+.search-result-ico {
+  flex: none; width: 22px; text-align: center; font-size: 16px; opacity: 0.9;
+}
+.search-result-main { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.search-result-title {
+  font-size: var(--font-base); font-weight: 500; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.search-result-sub { font-size: var(--font-sm); color: var(--text-tertiary); }
+.search-result-tag {
+  margin-left: auto; flex: none; font-size: var(--font-sm);
+  color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em;
+}
+.search-result-amt {
+  margin-left: auto; flex: none; font-weight: 600; font-size: var(--font-base);
+  font-variant-numeric: tabular-nums;
+}
+.search-result-amt.amt-in { color: var(--success); }
+:root[data-theme="dark"] .search-result-amt.amt-in { color: #95DE64; }
+.search-result-amt.amt-out { color: var(--text); }
+.search-chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px; }
+.search-chip {
+  font-size: var(--font-sm); color: var(--text-secondary);
+  background: var(--bg-fill); border: 1px solid var(--border-secondary);
+  border-radius: 999px; padding: 4px 12px;
+}
 @media (min-width: 768px) {
-  .topbar, .sidebar-overlay { display: none; }
+  .topbar .hamburger { display: none; }
+  .topbar-search { display: inline-flex; }
+  .sidebar-overlay { display: none; }
+  .sidebar-brand { display: none; }
   .sidebar {
-    position: static; transform: none; transition: none;
+    position: sticky; top: 56px; transform: none; transition: none;
     width: auto; z-index: auto;
+    height: calc(100vh - 56px); align-self: start;
   }
   .sidebar-toggle:checked ~ .sidebar-overlay { display: none; }
 }
@@ -1523,21 +1718,39 @@ tr.totals td { font-weight: 600; }
 <input type="checkbox" id="sidebar-toggle" class="sidebar-toggle" aria-hidden="true">
 <header class="topbar">
 <label for="sidebar-toggle" class="hamburger" role="button" tabindex="0" aria-label="Toggle navigation">☰</label>
-<span class="topbar-title">Shima &mdash; {{.Title}}</span>
-<a href="/notifications" class="topbar-badge" aria-label="{{.UnreadCount}} notifications"><span class="badge">{{if .UnreadCount}}{{.UnreadCount}}{{end}}</span></a>
+<a href="/" class="topbar-brand"><span class="logo">S</span><span>Shima</span></a>
+<form class="topbar-search" action="/search" method="get" role="search">
+<input id="topbar-q" name="q" type="search" placeholder="Search&hellip;" aria-label="Search" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+<kbd>&#8984;K</kbd>
+</form>
+<div class="topbar-actions">
+<a href="/notifications" class="topbar-icon" aria-label="{{.UnreadCount}} notifications">&#128276;<span class="badge">{{if .UnreadCount}}{{.UnreadCount}}{{end}}</span></a>
+</div>
 </header>
 <label for="sidebar-toggle" class="sidebar-overlay" aria-hidden="true"></label>
 <aside class="sidebar" aria-label="Primary">
 <p class="sidebar-brand">Shima</p>
-<a href="/"{{if eq .Route "home"}} aria-current="page"{{end}}>Home</a>
-<a href="/transactions"{{if eq .Route "transactions"}} aria-current="page"{{end}}>Transactions</a>
-<a href="/spending"{{if eq .Route "spending"}} aria-current="page"{{end}}>Spending</a>
-<a href="/income-templates"{{if eq .Route "income"}} aria-current="page"{{end}}>Income</a>
-<a href="/accounts"{{if eq .Route "accounts"}} aria-current="page"{{end}}>Accounts</a>
-<a href="/pos"{{if eq .Route "pos"}} aria-current="page"{{end}}>Pos</a>
-<a href="/notifications"{{if eq .Route "notifications"}} aria-current="page"{{end}}>Notifications<span class="badge" aria-label="{{.UnreadCount}} unread">{{if .UnreadCount}}{{.UnreadCount}}{{end}}</span></a>
+<nav class="nav-group">
+<p class="nav-group-label">Overview</p>
+<a href="/"{{if eq .Route "home"}} aria-current="page"{{end}}><span class="nav-ico">&#127968;</span>Home</a>
+</nav>
+<nav class="nav-group">
+<p class="nav-group-label">Money</p>
+<a href="/transactions"{{if eq .Route "transactions"}} aria-current="page"{{end}}><span class="nav-ico">&#128184;</span>Transactions</a>
+<a href="/spending"{{if eq .Route "spending"}} aria-current="page"{{end}}><span class="nav-ico">&#128202;</span>Spending</a>
+<a href="/accounts"{{if eq .Route "accounts"}} aria-current="page"{{end}}><span class="nav-ico">&#127974;</span>Accounts</a>
+</nav>
+<nav class="nav-group">
+<p class="nav-group-label">Planning</p>
+<a href="/income-templates"{{if eq .Route "income"}} aria-current="page"{{end}}><span class="nav-ico">&#128203;</span>Income</a>
+<a href="/pos"{{if eq .Route "pos"}} aria-current="page"{{end}}><span class="nav-ico">&#128193;</span>Pos</a>
+</nav>
+<nav class="nav-group">
+<p class="nav-group-label">Activity</p>
+<a href="/notifications"{{if eq .Route "notifications"}} aria-current="page"{{end}}><span class="nav-ico">&#128276;</span>Notifications<span class="badge" aria-label="{{.UnreadCount}} unread">{{if .UnreadCount}}{{.UnreadCount}}{{end}}</span></a>
+</nav>
 <div class="sidebar-end">
-<a href="/settings"{{if eq .Route "settings"}} aria-current="page"{{end}}>⚙ Settings</a>
+<a href="/settings"{{if eq .Route "settings"}} aria-current="page"{{end}}><span class="nav-ico">&#9881;</span>Settings</a>
 <form method="post" action="/logout">
 <button type="submit">Sign out</button>
 </form>
@@ -1545,12 +1758,93 @@ tr.totals td { font-weight: 600; }
 </aside>
 {{end}}
 <main{{if .Compact}} class="compact"{{else if .Wide}} class="wide"{{end}}>
+{{if .SignedIn}}<nav class="breadcrumb" aria-label="Breadcrumb"><a href="/">Shima</a><span class="sep">/</span><span class="crumb-current">{{.Title}}</span></nav>{{end}}
 `
 
 const layoutClose = `
 </main>
+<script>
+/* Progressive enhancement: focus the top-bar search on Cmd/Ctrl+K or "/".
+ * The form still works without JS (Enter submits to /search). */
+(function(){
+  var input = document.getElementById('topbar-q');
+  if (!input) return;
+  document.addEventListener('keydown', function(e){
+    if ((e.key === 'k' || e.key === 'K') && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault(); input.focus(); input.select();
+    } else if (e.key === '/' && document.activeElement !== input) {
+      var tag = (document.activeElement && document.activeElement.tagName) || '';
+      if (!/^(INPUT|TEXTAREA|SELECT)$/.test(tag)) { e.preventDefault(); input.focus(); }
+    }
+  });
+})();
+</script>
 </body>
 </html>`
+
+const searchBody = `<header class="page-head">
+  <div>
+    <p class="home-eyebrow">Search</p>
+    <h1>{{if .Query}}Results for &ldquo;{{.Query}}&rdquo;{{else}}Search{{end}}</h1>
+  </div>
+</header>
+<form method="get" action="/search" class="search-page-form" role="search">
+  <input type="search" name="q" value="{{.Query}}" autofocus
+    placeholder="Search accounts, pos, transactions, counterparties&hellip;"
+    autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+    aria-label="Search">
+  <button type="submit">Search</button>
+</form>
+{{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
+{{if .Query}}
+  {{if .Total}}
+    {{if .Accounts}}<section class="section-card search-group">
+      <div class="section-card-head"><span class="section-card-title">Accounts</span><span class="search-count">{{len .Accounts}}</span></div>
+      {{range .Accounts}}<a class="search-result" href="/accounts">
+        <span class="search-result-ico">&#127974;</span>
+        <span class="search-result-main"><span class="search-result-title">{{.Name}}</span></span>
+        <span class="search-result-tag">Account</span>
+      </a>{{end}}
+    </section>{{end}}
+    {{if .Pos}}<section class="section-card search-group">
+      <div class="section-card-head"><span class="section-card-title">Pos</span><span class="search-count">{{len .Pos}}</span></div>
+      {{range .Pos}}<a class="search-result" href="/pos/{{.ID}}">
+        <span class="search-result-ico">&#128193;</span>
+        <span class="search-result-main"><span class="search-result-title">{{.Name}}</span></span>
+        <span class="search-result-tag">{{.Currency}}</span>
+      </a>{{end}}
+    </section>{{end}}
+    {{if .Transactions}}<section class="section-card search-group">
+      <div class="section-card-head"><span class="section-card-title">Transactions</span><span class="search-count">{{len .Transactions}}</span></div>
+      {{range .Transactions}}<a class="search-result" href="{{if .PosID}}/pos/{{.PosID}}{{else}}/transactions{{end}}">
+        <span class="search-result-ico">&#128184;</span>
+        <span class="search-result-main">
+          <span class="search-result-title">{{.Label}}</span>
+          <span class="search-result-sub">{{txnLabel .Type}}{{if .PosName}} &middot; {{.PosName}}{{end}}{{if .Date}} &middot; {{.Date}}{{end}}</span>
+        </span>
+        <span class="search-result-amt {{txnAmt .Type}}">{{txnSign .Type}}{{money .Amount .Currency}}</span>
+      </a>{{end}}
+    </section>{{end}}
+    {{if .IncomeTemplates}}<section class="section-card search-group">
+      <div class="section-card-head"><span class="section-card-title">Income templates</span><span class="search-count">{{len .IncomeTemplates}}</span></div>
+      {{range .IncomeTemplates}}<a class="search-result" href="/income-templates/{{.ID}}">
+        <span class="search-result-ico">&#128203;</span>
+        <span class="search-result-main"><span class="search-result-title">{{.Name}}</span></span>
+        <span class="search-result-tag">Income</span>
+      </a>{{end}}
+    </section>{{end}}
+    {{if .Counterparties}}<section class="section-card search-group">
+      <div class="section-card-head"><span class="section-card-title">Counterparties</span><span class="search-count">{{len .Counterparties}}</span></div>
+      <div class="search-chips">{{range .Counterparties}}<span class="search-chip">{{.Name}}</span>{{end}}</div>
+    </section>{{end}}
+  {{else}}
+    <div class="section-card">
+      <div class="empty-state"><p class="empty-state-text">No matches for &ldquo;{{.Query}}&rdquo;.</p></div>
+    </div>
+  {{end}}
+{{else}}
+  <p class="subtitle">Type a term above to search across your accounts, pos, transactions, counterparties and income templates.</p>
+{{end}}`
 
 const loginBody = `<h1>Sign in</h1>
 {{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}

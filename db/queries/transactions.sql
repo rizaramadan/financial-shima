@@ -197,3 +197,26 @@ WHERE user_id = $1 AND read_at IS NULL;
 -- name: UnreadCount :one
 SELECT count(*) FROM notifications
 WHERE user_id = $1 AND read_at IS NULL;
+
+-- name: SearchTransactions :many
+-- Global search box: match on the free-text note or the counterparty
+-- name. Joined like ListTransactionsByDateRange so results can render
+-- the pos/account/counterparty context. Account is the Pos's *current*
+-- account (§5.6 snapshot). Capped for the results panel.
+SELECT
+    t.id, t.type, t.effective_date,
+    t.account_amount, t.pos_amount, t.note,
+    t.created_at,
+    t.pos_id,
+    p.name  AS pos_name,
+    p.currency AS pos_currency,
+    a.name  AS account_name,
+    cp.name AS counterparty_name
+FROM transactions t
+LEFT JOIN pos            p  ON p.id  = t.pos_id
+LEFT JOIN accounts       a  ON a.id  = p.account_id
+LEFT JOIN counterparties cp ON cp.id = t.counterparty_id
+WHERE lower(COALESCE(t.note, ''))    LIKE '%' || lower($1) || '%'
+   OR lower(COALESCE(cp.name, ''))   LIKE '%' || lower($1) || '%'
+ORDER BY t.effective_date DESC, t.created_at DESC
+LIMIT 10;

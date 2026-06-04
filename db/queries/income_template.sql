@@ -41,3 +41,11 @@ DELETE FROM income_template_line WHERE template_id = $1;
 
 -- name: UpdateIncomeTemplate :exec
 UPDATE income_template SET name = $2, leftover_pos_id = $3 WHERE id = $1;
+
+-- name: SearchIncomeTemplates :many
+-- Case-insensitive substring search by name for the global search box.
+SELECT * FROM income_template
+WHERE NOT archived
+  AND lower(name) LIKE '%' || lower($1) || '%'
+ORDER BY name
+LIMIT 10;

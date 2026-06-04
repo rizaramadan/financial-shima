@@ -31,3 +31,12 @@ RETURNING *;
 -- different currency archive this Pos and create a new one.
 UPDATE pos SET name = $2, target = $3 WHERE id = $1
 RETURNING *;
+
+-- name: SearchPos :many
+-- Case-insensitive substring search by name for the global search box.
+-- Active Pos only; capped to keep the results panel balanced.
+SELECT * FROM pos
+WHERE NOT archived
+  AND lower(name) LIKE '%' || lower($1) || '%'
+ORDER BY currency, name
+LIMIT 10;
