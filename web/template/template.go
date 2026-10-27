@@ -762,43 +762,44 @@ const layoutOpen = `<!doctype html>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-/* Ant Design v5 design tokens — adapted for plain CSS (no React).
- * Source: https://ant.design/docs/spec/colors and Seed Tokens reference.
- * Primary palette: Polar Green, shifted to green-8 so primary text on
- * white meets WCAG AA (≥4.5:1). Success stays at green-6 to keep the
- * tokens semantically distinct.
- * Functional: success #52C41A, warning #FAAD14, error #FF4D4F.
+/* shadcn-style design tokens — adapted for plain CSS (no Tailwind).
+ * Neutral scale follows shadcn's zinc; the primary is green (green-700
+ * in light mode so primary text on white meets WCAG AA ≥4.5:1,
+ * green-400 in dark mode) instead of shadcn's default near-black.
+ * Functional: success green-600, warning amber-600, error red-600.
  */
 :root {
-  /* Brand / interactive — Polar Green (deep, for legibility on white) */
-  --primary:        #237804;  /* colorPrimary  (green-8, ~6.0:1 vs white) */
-  --primary-hover:  #389E0D;  /* colorPrimaryHover (green-7) */
-  --primary-active: #135200;  /* colorPrimaryActive (green-9) */
-  --primary-bg:     #F6FFED;  /* colorPrimaryBg (green-1) */
+  /* Brand / interactive — green-700 (light) so primary text on white
+   * meets WCAG AA; green-400 in dark mode. */
+  --primary:        #15803D;
+  --primary-hover:  #166534;
+  --primary-active: #14532D;
+  --primary-bg:     #F0FDF4;
+  --primary-foreground: #FFFFFF;
 
   /* Functional */
-  --success: #52C41A;
-  --warning: #FAAD14;
-  --error:   #FF4D4F;
-  --error-bg:#FFF1F0;
-  --error-border:#FFCCC7;
+  --success: #16A34A;
+  --warning: #D97706;
+  --error:   #DC2626;
+  --error-bg:#FEF2F2;
+  --error-border:#FECACA;
 
-  /* Neutral text + surfaces (light mode; rgba alphas per AntD v5) */
-  --text:           rgba(0, 0, 0, 0.88);  /* colorText */
-  --text-secondary: rgba(0, 0, 0, 0.65);  /* colorTextSecondary */
-  --text-tertiary:  rgba(0, 0, 0, 0.45);  /* colorTextTertiary */
-  --border:         #D9D9D9;              /* colorBorder */
-  --border-secondary:#F0F0F0;             /* colorBorderSecondary (table dividers) */
-  --bg-container:   #FFFFFF;              /* colorBgContainer */
-  --bg-page:        #F5F5F5;              /* colorBgLayout */
-  --bg-elevated:    #FFFFFF;              /* colorBgElevated */
-  --bg-fill:        rgba(0, 0, 0, 0.02);  /* colorFillQuaternary — softer than bg-page */
+  /* Neutral text + surfaces (light mode; zinc scale à la shadcn) */
+  --text:           #09090B;
+  --text-secondary: #52525B;
+  --text-tertiary:  #A1A1AA;
+  --border:         #E4E4E7;
+  --border-secondary:#F4F4F5;
+  --bg-container:   #FFFFFF;
+  --bg-page:        #FAFAFA;
+  --bg-elevated:    #FFFFFF;
+  --bg-fill:        #F4F4F5;
 
-  --radius:    6px;   /* borderRadius */
-  --radius-sm: 4px;   /* borderRadiusSM */
-  --radius-lg: 8px;   /* borderRadiusLG */
+  --radius:    8px;
+  --radius-sm: 6px;
+  --radius-lg: 12px;
 
-  --shadow-sm: 0 1px 2px 0 rgba(0,0,0,0.03), 0 1px 6px -1px rgba(0,0,0,0.02), 0 2px 4px 0 rgba(0,0,0,0.02);
+  --shadow-sm: 0 1px 2px 0 rgb(0, 0, 0, 0.05);
 
   --font-sm: 12px; --font-base: 14px; --font-lg: 16px;
   --font-h5: 16px; --font-h4: 20px; --font-h3: 24px; --font-h2: 30px; --font-h1: 38px;
@@ -810,70 +811,85 @@ const layoutOpen = `<!doctype html>
  * a custom-property block we can re-apply. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --primary:        #6ABE39;
-    --primary-hover:  #8FD460;
-    --primary-active: #49AA19;
-    --primary-bg:     #162312;
+    --primary:        #4ADE80;
+    --primary-hover:  #86EFAC;
+    --primary-active: #22C55E;
+    --primary-bg:     #0F2A1A;
+    --primary-foreground: #052E16;
 
-    --error:    #DC4446;
+    --success: #4ADE80;
+    --warning: #FBBF24;
+    --error:    #F87171;
     --error-bg: #2C1618;
     --error-border:#5C2223;
 
-    --text:           rgba(255, 255, 255, 0.85);
-    --text-secondary: rgba(255, 255, 255, 0.65);
-    --text-tertiary:  rgba(255, 255, 255, 0.45);
-    --border:         #424242;
-    --border-secondary:#303030;
-    --bg-container:   #141414;
-    --bg-page:        #000000;
-    --bg-elevated:    #1F1F1F;
-    --bg-fill:        rgba(255, 255, 255, 0.04);
+    --text:           #FAFAF9;
+    --text-secondary: #A1A1AA;
+    --text-tertiary:  #71717A;
+    --border:         #27272A;
+    --border-secondary:#1F1F23;
+    --bg-container:   #18181B;
+    --bg-page:        #09090B;
+    --bg-elevated:    #18181B;
+    --bg-fill:        #27272A;
   }
+  .chip-in       { color: #4ADE80; background: rgba(74,222,128,0.12); border-color: rgba(74,222,128,0.30); }
+  .chip-out      { color: #F87171; background: rgba(248,113,113,0.12); border-color: rgba(248,113,113,0.30); }
+  .chip-transfer { color: #93C5FD; background: rgba(147,197,253,0.12); border-color: rgba(147,197,253,0.30); }
 }
 /* Explicit user choice — beats the @media query.
  *   data-theme="light"  forces light even when OS prefers dark
  *   data-theme="dark"   forces dark even when OS prefers light
  *   no attribute        falls through to @media (= "auto" / OS) */
 :root[data-theme="light"] {
-  --primary:        #237804;
-  --primary-hover:  #389E0D;
-  --primary-active: #135200;
-  --primary-bg:     #F6FFED;
+  --primary:        #15803D;
+  --primary-hover:  #166534;
+  --primary-active: #14532D;
+  --primary-bg:     #F0FDF4;
+  --primary-foreground: #FFFFFF;
 
-  --error:    #FF4D4F;
-  --error-bg: #FFF1F0;
-  --error-border:#FFCCC7;
+  --success: #16A34A;
+  --warning: #D97706;
+  --error:    #DC2626;
+  --error-bg: #FEF2F2;
+  --error-border:#FECACA;
 
-  --text:           rgba(0, 0, 0, 0.88);
-  --text-secondary: rgba(0, 0, 0, 0.65);
-  --text-tertiary:  rgba(0, 0, 0, 0.45);
-  --border:         #D9D9D9;
-  --border-secondary:#F0F0F0;
+  --text:           #09090B;
+  --text-secondary: #52525B;
+  --text-tertiary:  #A1A1AA;
+  --border:         #E4E4E7;
+  --border-secondary:#F4F4F5;
   --bg-container:   #FFFFFF;
-  --bg-page:        #F5F5F5;
+  --bg-page:        #FAFAFA;
   --bg-elevated:    #FFFFFF;
-  --bg-fill:        rgba(0, 0, 0, 0.02);
+  --bg-fill:        #F4F4F5;
 }
 :root[data-theme="dark"] {
-  --primary:        #6ABE39;
-  --primary-hover:  #8FD460;
-  --primary-active: #49AA19;
-  --primary-bg:     #162312;
+  --primary:        #4ADE80;
+  --primary-hover:  #86EFAC;
+  --primary-active: #22C55E;
+  --primary-bg:     #0F2A1A;
+  --primary-foreground: #052E16;
 
-  --error:    #DC4446;
+  --success: #4ADE80;
+  --warning: #FBBF24;
+  --error:    #F87171;
   --error-bg: #2C1618;
   --error-border:#5C2223;
 
-  --text:           rgba(255, 255, 255, 0.85);
-  --text-secondary: rgba(255, 255, 255, 0.65);
-  --text-tertiary:  rgba(255, 255, 255, 0.45);
-  --border:         #424242;
-  --border-secondary:#303030;
-  --bg-container:   #141414;
-  --bg-page:        #000000;
-  --bg-elevated:    #1F1F1F;
-  --bg-fill:        rgba(255, 255, 255, 0.04);
+  --text:           #FAFAF9;
+  --text-secondary: #A1A1AA;
+  --text-tertiary:  #71717A;
+  --border:         #27272A;
+  --border-secondary:#1F1F23;
+  --bg-container:   #18181B;
+  --bg-page:        #09090B;
+  --bg-elevated:    #18181B;
+  --bg-fill:        #27272A;
 }
+:root[data-theme="dark"] .chip-in       { color: #4ADE80; background: rgba(74,222,128,0.12); border-color: rgba(74,222,128,0.30); }
+:root[data-theme="dark"] .chip-out      { color: #F87171; background: rgba(248,113,113,0.12); border-color: rgba(248,113,113,0.30); }
+:root[data-theme="dark"] .chip-transfer { color: #93C5FD; background: rgba(147,197,253,0.12); border-color: rgba(147,197,253,0.30); }
 ::selection { background: color-mix(in oklab, var(--primary) 25%, transparent); }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
@@ -1093,8 +1109,8 @@ body.signed-in > main.wide    { max-width: 920px; margin: 0 auto; }
 .sidebar a:hover { background: var(--bg-fill); color: var(--primary); }
 .sidebar a:hover .nav-ico { opacity: 1; }
 .sidebar a[aria-current="page"] {
-  background: var(--primary-bg); color: var(--primary); font-weight: 600;
-  box-shadow: inset 3px 0 0 var(--primary);
+  background: color-mix(in oklab, var(--primary) 12%, transparent);
+  color: var(--primary); font-weight: 500;
 }
 .sidebar a[aria-current="page"] .nav-ico { opacity: 1; }
 .sidebar-end { margin-top: auto; padding-top: 12px;
@@ -1156,7 +1172,7 @@ body.signed-in > main.wide    { max-width: 920px; margin: 0 auto; }
   font-variant-numeric: tabular-nums;
 }
 .search-result-amt.amt-in { color: var(--success); }
-:root[data-theme="dark"] .search-result-amt.amt-in { color: #95DE64; }
+:root[data-theme="dark"] .search-result-amt.amt-in { color: #4ADE80; }
 .search-result-amt.amt-out { color: var(--text); }
 .search-chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px; }
 .search-chip {
@@ -1212,6 +1228,7 @@ body.signed-in > main.wide    { max-width: 920px; margin: 0 auto; }
   .sidebar-toggle:checked ~ .sidebar-overlay { display: none; }
 }
 h1 { font-size: var(--font-h3); font-weight: 600; line-height: 1.27;
+  letter-spacing: -0.025em;
   margin: 0 0 16px; color: var(--text); }
 @media (min-width: 480px) {
   h1 { font-size: var(--font-h2); line-height: 1.21; }
@@ -1238,14 +1255,15 @@ input:focus, input:focus-visible {
 }
 input::placeholder { color: var(--text-tertiary); }
 
-/* AntD primary Button */
+/* Primary button — shadcn-style: medium weight, subtle shadow,
+ * ring on focus, no offset "3D" shadow. */
 button {
   width: 100%; padding: 8px 16px; font: inherit; font-size: var(--font-base);
-  font-weight: 400; line-height: 1.5714;
-  color: #FFFFFF; background: var(--primary);
+  font-weight: 500; line-height: 1.5714;
+  color: var(--primary-foreground); background: var(--primary);
   border: 1px solid var(--primary); border-radius: var(--radius);
   cursor: pointer; transition: background 0.2s, border-color 0.2s;
-  box-shadow: 0 2px 0 rgba(35, 120, 4, 0.12);
+  box-shadow: 0 1px 2px 0 rgb(0, 0, 0, 0.05);
 }
 button:not(.linkbtn):hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
 button:not(.linkbtn):active:not(:disabled) { background: var(--primary-active); border-color: var(--primary-active); }
@@ -1348,7 +1366,7 @@ tbody tr:hover { background: color-mix(in oklab, var(--primary) 4%, transparent)
   flex: 1 1 140px; }
 .filter input { width: 100%; height: 40px; padding: 8px 12px; }
 .filter button { width: 100%; height: 40px; padding: 0 16px;
-  box-shadow: 0 2px 0 rgba(35, 120, 4, 0.12); }
+  box-shadow: none; }
 @media (min-width: 480px) {
   .filter label { flex: 0 0 auto; }
   .filter input { width: auto; min-width: 144px; height: 32px; padding: 4px 11px; }
@@ -1410,22 +1428,22 @@ tbody tr:hover { background: color-mix(in oklab, var(--primary) 4%, transparent)
   border: 1px solid var(--border-secondary);
 }
 
-/* AntD Tag — used for transaction type and obligation direction chips. */
+/* Badge — shadcn-style soft tones on tinted backgrounds. */
 .chip {
   display: inline-block; padding: 0 8px;
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
   font-size: var(--font-sm); font-weight: 500; line-height: 22px;
   border: 1px solid transparent;
   white-space: nowrap;
 }
-.chip-in       { color: #389E0D; background: #F6FFED; border-color: #B7EB8F; }
-.chip-out      { color: #CF1322; background: #FFF1F0; border-color: #FFA39E; }
-.chip-transfer { color: #0958D9; background: #E6F4FF; border-color: #91CAFF; }
+.chip-in       { color: #15803D; background: #F0FDF4; border-color: #BBF7D0; }
+.chip-out      { color: #B91C1C; background: #FEF2F2; border-color: #FECACA; }
+.chip-transfer { color: #1D4ED8; background: #EFF6FF; border-color: #BFDBFE; }
 .chip-neutral  { color: var(--text-secondary); background: var(--bg-fill); border-color: var(--border-secondary); }
 
 /* Colored amounts in transaction listings — fintech standard:
  * income green (` + `), expense default (chip carries red), transfers muted. */
-.amt-in      { color: #389E0D; font-weight: 500; }
+.amt-in      { color: var(--success); font-weight: 500; }
 .amt-out     { color: var(--text); font-weight: 500; }
 .amt-neutral { color: var(--text-secondary); }
 
@@ -1528,13 +1546,13 @@ tr.totals td { font-weight: 600; }
   border-color: var(--primary); color: var(--primary); background: var(--bg-container);
 }
 .theme-switch button.active {
-  background: var(--primary); color: #fff;
+  background: var(--primary); color: var(--primary-foreground);
   border-color: var(--primary);
   font-weight: 500;
 }
 
 :root {
-  --home-gradient:  linear-gradient(135deg, #14B8A6, #16A34A);
+  --home-gradient:  linear-gradient(135deg, #22C55E, #15803D);
   --home-font-mono: ui-monospace, "SF Mono", Menlo, Consolas,
                     "Liberation Mono", "Courier New", monospace;
   --home-row-stripe: rgba(0, 0, 0, 0.015);
@@ -1615,7 +1633,7 @@ tr.totals td { font-weight: 600; }
   color: var(--primary); border-color: var(--primary);
 }
 .balance-hero-actions .pill.primary {
-  color: #fff; background: var(--primary); border-color: var(--primary);
+  color: var(--primary-foreground); background: var(--primary); border-color: var(--primary);
 }
 .balance-hero-actions .pill.primary:hover {
   background: var(--primary-hover); border-color: var(--primary-hover);
@@ -1626,6 +1644,7 @@ tr.totals td { font-weight: 600; }
   border-radius: var(--radius-lg);
   margin: 0 0 16px;
   overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 .section-card-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -1685,6 +1704,7 @@ tr.totals td { font-weight: 600; }
 }
 .page-head h1 {
   margin: 0; font-size: var(--font-h3); line-height: 1.2; font-weight: 600;
+  letter-spacing: -0.025em;
 }
 @media (min-width: 480px) {
   .page-head h1 { font-size: var(--font-h2); line-height: 1.21; }
@@ -1700,7 +1720,7 @@ tr.totals td { font-weight: 600; }
 }
 .page-head-actions .pill:hover { color: var(--primary); border-color: var(--primary); }
 .page-head-actions .pill.primary {
-  color: #fff; background: var(--primary); border-color: var(--primary);
+  color: var(--primary-foreground); background: var(--primary); border-color: var(--primary);
 }
 .page-head-actions .pill.primary:hover {
   background: var(--primary-hover); border-color: var(--primary-hover);
@@ -1718,6 +1738,7 @@ tr.totals td { font-weight: 600; }
   border-radius: var(--radius-lg);
   padding: 14px 16px;
   position: relative; overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 .stat-card::before {
   content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
@@ -1735,9 +1756,9 @@ tr.totals td { font-weight: 600; }
   letter-spacing: -0.01em; font-variant-numeric: tabular-nums;
   color: var(--text);
 }
-.stat-card.in  .stat-amount { color: #389E0D; }
+.stat-card.in  .stat-amount { color: var(--success); }
 .stat-card.out .stat-amount { color: var(--error); }
-:root[data-theme="dark"] .stat-card.in .stat-amount { color: #95DE64; }
+:root[data-theme="dark"] .stat-card.in .stat-amount { color: #4ADE80; }
 .stat-meta { margin: 6px 0 0; font-size: 11px; color: var(--text-tertiary); }
 @media (min-width: 480px) {
   .stat-amount { font-size: 24px; }
@@ -1800,9 +1821,9 @@ tr.totals td { font-weight: 600; }
   border-bottom: 1px solid var(--border-secondary);
 }
 .day-strip .day-net { float: right; color: var(--text-secondary); }
-.day-strip .day-net.in  { color: #389E0D; }
+.day-strip .day-net.in  { color: var(--success); }
 .day-strip .day-net.out { color: var(--error); }
-:root[data-theme="dark"] .day-strip .day-net.in { color: #95DE64; }
+:root[data-theme="dark"] .day-strip .day-net.in { color: #4ADE80; }
 .txn-list { display: none; padding: 4px; }
 .txn-item {
   padding: 12px 14px;

@@ -9,9 +9,9 @@ A two-user family financial manager. Telegram OTP login, multi-currency
 Pos envelope budgeting (IDR + USD + gold-g), and an append-only ledger
 with inter-Pos obligations.
 
-The visual layer is **Ant Design v5** with the **Polar Green** palette
-(primary `#237804` — green-8, AA-clear on white at ~6:1; success
-remains green-6 to keep the two semantic tokens distinct).
+The visual layer is **shadcn-style** (zinc neutrals, soft borders, subtle
+shadows) with a **green primary** instead of shadcn's default near-black.
+(primary green-700 `#15803D` in light mode, green-400 `#4ADE80` in dark.)
 
 Every authenticated screenshot below is rendered through the
 real handler → Postgres → template path against the seeded data in
