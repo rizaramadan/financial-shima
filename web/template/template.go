@@ -50,6 +50,8 @@ func New() *Renderer {
 	template.Must(t.New("pos_list").Parse(layoutOpen + posListBody + layoutClose))
 	template.Must(t.New("pos_new").Parse(layoutOpen + posNewBody + layoutClose))
 	template.Must(t.New("spending").Parse(layoutOpen + spendingBody + layoutClose))
+	template.Must(t.New("debts").Parse(layoutOpen + debtsBody + layoutClose))
+	template.Must(t.New("recap").Parse(layoutOpen + recapBody + layoutClose))
 	template.Must(t.New("income_templates").Parse(layoutOpen + incomeTemplatesListBody + layoutClose))
 	template.Must(t.New("income_template_new").Parse(layoutOpen + incomeTemplateNewBody + layoutClose))
 	template.Must(t.New("income_template_detail").Parse(layoutOpen + incomeTemplateDetailBody + layoutClose))
@@ -419,6 +421,93 @@ type SpendingRow struct {
 	Total int64
 }
 
+// DebtsData drives the "Sisa Hutang" page: every open inter-Pos
+// obligation with its outstanding remainder, plus per-currency totals.
+// LoadError is the transient-DB-failure state; empty Items is the
+// legitimate all-repaid case.
+type DebtsData struct {
+	Title       string
+	DisplayName string
+	UnreadCount int
+	Items       []DebtRow
+	Totals      []DebtTotal
+	LoadError   bool
+}
+
+func (d DebtsData) SignedIn() bool { return d.DisplayName != "" }
+func (d DebtsData) Compact() bool  { return false }
+func (d DebtsData) Wide() bool     { return false }
+func (d DebtsData) HideBell() bool { return false }
+func (d DebtsData) Route() string  { return "debts" }
+
+// DebtRow is one open obligation: DebtorPos owes CreditorPos.
+type DebtRow struct {
+	ID          string
+	CreditorPos string
+	DebtorPos   string
+	Currency    string
+	Owed        int64
+	Repaid      int64
+	Outstanding int64
+	CreatedAt   time.Time
+}
+
+// DebtTotal is the outstanding remainder summed per currency.
+type DebtTotal struct {
+	Currency    string
+	Outstanding int64
+}
+
+// RecapData drives the adjustable "Rekap" page: bucketed money_in /
+// money_out sums per currency. Bucket is week|month|year; From/To are
+// YYYY-MM-DD. Errors re-renders with messages (human page, never 400).
+type RecapData struct {
+	Title       string
+	DisplayName string
+	UnreadCount int
+	Bucket      string
+	From        string
+	To          string
+	Totals      []RecapTotal // one per currency, each carrying its rows
+	Errors      []string
+	LoadError   bool
+}
+
+func (d RecapData) SignedIn() bool { return d.DisplayName != "" }
+func (d RecapData) Compact() bool  { return false }
+func (d RecapData) Wide() bool     { return true }
+func (d RecapData) HideBell() bool { return false }
+func (d RecapData) Route() string  { return "recap" }
+
+// TotalByCurrency returns the Totals entry for currency, appending a
+// fresh one on first use. Handlers accumulate into it directly.
+func (d *RecapData) TotalByCurrency(currency string) *RecapTotal {
+	for i := range d.Totals {
+		if d.Totals[i].Currency == currency {
+			return &d.Totals[i]
+		}
+	}
+	d.Totals = append(d.Totals, RecapTotal{Currency: currency})
+	return &d.Totals[len(d.Totals)-1]
+}
+
+// RecapTotal is one currency section: totals plus newest-first rows.
+type RecapTotal struct {
+	Currency string
+	Inflow   int64
+	Outflow  int64
+	Net      int64
+	Rows     []RecapRow
+}
+
+// RecapRow is one bucket (week start / "Jan 2006" / "2006").
+type RecapRow struct {
+	Period  string
+	Inflow  int64
+	Outflow int64
+	Net     int64
+}
+
 // PosDetailData drives the §6.3 single-Pos view. NotFound triggers a
 // distinct "no such Pos" render; LoadError is the transient-DB-failure
 // state. Empty Obligations + Transactions is the legitimate empty case.
@@ -562,6 +651,7 @@ type TransactionNewData struct {
 	IdempotencyKey   string
 	Accounts         []AccountOption
 	PosOptions       []PosOption
+	Templates        []IncomeTemplateOption // monthly-income shortcut (money_in only)
 	Errors           []string
 }
 
@@ -1888,7 +1978,9 @@ tr.totals td { font-weight: 600; }
 <p class="nav-group-label">Money</p>
 <a href="/transactions"{{if eq .Route "transactions"}} aria-current="page"{{end}}><span class="nav-ico">&#128184;</span>Transactions</a>
 <a href="/spending"{{if eq .Route "spending"}} aria-current="page"{{end}}><span class="nav-ico">&#128202;</span>Spending</a>
+<a href="/recap"{{if eq .Route "recap"}} aria-current="page"{{end}}><span class="nav-ico">&#128200;</span>Rekap</a>
 <a href="/accounts"{{if eq .Route "accounts"}} aria-current="page"{{end}}><span class="nav-ico">&#127974;</span>Accounts</a>
+<a href="/debts"{{if eq .Route "debts"}} aria-current="page"{{end}}><span class="nav-ico">&#128179;</span>Sisa Hutang</a>
 </nav>
 <nav class="nav-group">
 <p class="nav-group-label">Planning</p>
@@ -2193,6 +2285,125 @@ const notificationsBody = `<header class="page-head">
   {{end}}
   </ul>
 </section>
+{{end}}`
+
+const debtsBody = `<header class="page-head">
+  <div>
+    <p class="home-eyebrow">Money</p>
+    <h1>Sisa Hutang</h1>
+  </div>
+</header>
+
+{{if .LoadError}}
+<p class="alert" role="alert">Couldn&rsquo;t load debts. Refresh in a moment.</p>
+{{else if not .Items}}
+<div class="section-card">
+<div class="empty-state">
+<svg viewBox="0 0 64 41" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<ellipse cx="32" cy="33" rx="32" ry="7" fill="currentColor" opacity="0.08"/>
+<rect x="14" y="6" width="36" height="24" rx="2" stroke="currentColor" stroke-width="1" fill="none" opacity="0.5"/>
+<path d="M20 22h24" stroke="currentColor" stroke-width="2" opacity="0.5"/>
+</svg>
+<p class="empty-state-text">No open debts.</p>
+<p class="empty-state-hint">Every inter-Pos borrow is fully repaid.</p>
+</div>
+</div>
+{{else}}
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Open obligations</span>
+    <span class="section-card-meta">{{len .Items}} items</span>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Debtor &rarr; Creditor</th><th class="num">Outstanding</th><th class="num">Owed</th><th class="num">Repaid</th><th>Since</th></tr></thead>
+    <tbody>
+    {{range .Items}}<tr>
+      <td>{{.DebtorPos}} &rarr; {{.CreditorPos}}</td>
+      <td class="num"><strong>{{money .Outstanding .Currency}}</strong></td>
+      <td class="num">{{money .Owed .Currency}}</td>
+      <td class="num">{{money .Repaid .Currency}}</td>
+      <td>{{relTime .CreatedAt}}</td>
+    </tr>{{end}}
+    </tbody>
+  </table></div>
+</section>
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Totals outstanding</span>
+  </div>
+  <div class="table-wrap"><table>
+    <tbody>
+    {{range .Totals}}<tr>
+      <td>{{.Currency}}</td>
+      <td class="num"><strong>{{money .Outstanding .Currency}}</strong></td>
+    </tr>{{end}}
+    </tbody>
+  </table></div>
+</section>
+{{end}}`
+
+const recapBody = `<header class="page-head">
+  <div>
+    <p class="home-eyebrow">Analytics</p>
+    <h1>Rekap</h1>
+  </div>
+</header>
+
+<form method="get" action="/recap" class="txn-filter">
+  <span class="txn-filter-label">Bucket</span>
+  <span class="txn-presets">
+    <a class="txn-preset{{if eq .Bucket "week"}} active{{end}}" href="/recap?bucket=week&amp;from={{.From}}&amp;to={{.To}}">Week</a>
+    <a class="txn-preset{{if eq .Bucket "month"}} active{{end}}" href="/recap?bucket=month&amp;from={{.From}}&amp;to={{.To}}">Month</a>
+    <a class="txn-preset{{if eq .Bucket "year"}} active{{end}}" href="/recap?bucket=year&amp;from={{.From}}&amp;to={{.To}}">Year</a>
+  </span>
+  <span class="txn-filter-dates">
+    <input type="date" name="from" value="{{.From}}" aria-label="From">
+    <span class="sep">&rarr;</span>
+    <input type="date" name="to"   value="{{.To}}"   aria-label="To">
+  </span>
+  <input type="hidden" name="bucket" value="{{.Bucket}}">
+  <button type="submit">Filter</button>
+</form>
+
+{{range .Errors}}<p class="alert" role="alert">{{.}}</p>{{end}}
+
+{{if .LoadError}}
+<p class="alert" role="alert">Couldn&rsquo;t load recap. Refresh in a moment.</p>
+{{else if not .Totals}}
+<div class="section-card">
+<div class="empty-state">
+<svg viewBox="0 0 64 41" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<ellipse cx="32" cy="33" rx="32" ry="7" fill="currentColor" opacity="0.08"/>
+<rect x="14" y="6" width="36" height="24" rx="2" stroke="currentColor" stroke-width="1" fill="none" opacity="0.5"/>
+<rect x="20" y="20" width="4" height="6" fill="currentColor" opacity="0.25"/>
+<rect x="28" y="14" width="4" height="12" fill="currentColor" opacity="0.25"/>
+<rect x="36" y="10" width="4" height="16" fill="currentColor" opacity="0.25"/>
+<rect x="44" y="22" width="4" height="4" fill="currentColor" opacity="0.25"/>
+</svg>
+<p class="empty-state-text">No movement in this range.</p>
+<p class="empty-state-hint">Adjust the bucket or the dates.</p>
+</div>
+</div>
+{{else}}
+{{range $t := .Totals}}
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">{{$t.Currency}} &middot; in {{money $t.Inflow $t.Currency}} &middot; out {{money $t.Outflow $t.Currency}}</span>
+    <span class="section-card-meta">net {{money $t.Net $t.Currency}}</span>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Period</th><th class="num">In</th><th class="num">Out</th><th class="num">Net</th></tr></thead>
+    <tbody>
+    {{range $t.Rows}}<tr>
+      <td>{{.Period}}</td>
+      <td class="num amt-in">+{{money .Inflow $t.Currency}}</td>
+      <td class="num">{{money .Outflow $t.Currency}}</td>
+      <td class="num"><strong>{{money .Net $t.Currency}}</strong></td>
+    </tr>{{end}}
+    </tbody>
+  </table></div>
+</section>
+{{end}}
 {{end}}`
 
 const spendingBody = `<header class="page-head">
@@ -2727,6 +2938,17 @@ const transactionNewBody = `<h1>{{.Title}}</h1>
 </div>
 <button type="submit">{{if .IsIncoming}}Record income{{else}}Record spending{{end}}</button>
 </form>
+{{if and .IsIncoming .Templates}}
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Or monthly income in one go</span>
+    <span class="section-card-meta">{{len .Templates}} templates</span>
+  </div>
+  <ul class="notifs">
+  {{range .Templates}}<li class="notif"><a class="notif-link" href="/income-templates/{{.ID}}"><strong>{{.Name}}</strong><span class="notif-body">Preview the split, enter the amount, apply once.</span></a></li>{{end}}
+  </ul>
+</section>
+{{end}}
 <p class="aside"><a class="linkbtn" href="/transactions">&larr; Cancel</a></p>`
 
 const homeBody = `<header class="home-greeting">
@@ -2839,6 +3061,14 @@ type PosOption struct {
 
 // AccountOption is one account shown in a <select> on the apply form.
 type AccountOption struct {
+	ID   string
+	Name string
+}
+
+// IncomeTemplateOption is one template in the monthly-income shortcut
+// on the new-transaction page (money_in only). The link lands on the
+// template detail page where preview + one-click apply live.
+type IncomeTemplateOption struct {
 	ID   string
 	Name string
 }

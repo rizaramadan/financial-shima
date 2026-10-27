@@ -209,6 +209,18 @@ func (h *Handlers) loadTransactionNewOptions(ctx context.Context, c echo.Context
 	} else {
 		c.Logger().Errorf("[FS-0275] new txn: ListPos: %v", err)
 	}
+	if data.Type == "money_in" {
+		if tmpls, err := q.ListIncomeTemplates(ctx); err == nil {
+			for _, t := range tmpls {
+				data.Templates = append(data.Templates, template.IncomeTemplateOption{
+					ID:   uuid.UUID(t.ID.Bytes).String(),
+					Name: t.Name,
+				})
+			}
+		} else {
+			c.Logger().Errorf("[FS-0276] new txn: ListIncomeTemplates: %v", err)
+		}
+	}
 }
 
 func newTxnTitle(t string) string {

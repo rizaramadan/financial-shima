@@ -150,6 +150,8 @@ func newServerWithDeps(a *auth.Auth, ac assistant.Client, db *pgxpool.Pool) *ech
 	e.POST("/accounts/:id/archive", h.AccountArchivePost)
 	e.POST("/accounts/:id/delete", h.AccountDeletePost)
 	e.GET("/spending", h.SpendingGet)
+	e.GET("/debts", h.DebtsGet)
+	e.GET("/recap", h.RecapGet)
 	e.GET("/income-templates", h.IncomeTemplatesGet)
 	e.GET("/income-templates/new", h.IncomeTemplateNewGet)
 	e.POST("/income-templates", h.IncomeTemplateNewPost)

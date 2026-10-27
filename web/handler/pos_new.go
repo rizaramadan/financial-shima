@@ -57,7 +57,8 @@ func loadAccountOptions(c echo.Context, h *Handlers) []template.AccountOption {
 
 // PosNewPost handles form submission. Validates via logic/pos.Validate
 // (inside the shared createPos path), inserts via dbq.CreatePos, then
-// redirects to the new Pos's detail page. Validation failures
+// redirects back to the Pos list so the user can immediately create
+// the next Pos. Validation failures
 // re-render the form with the user's input and the list of error
 // messages.
 //
@@ -135,7 +136,7 @@ func (h *Handlers) PosNewPost(c echo.Context) error {
 	// Shared create path (pos_service.go): normalize → validate via
 	// logic/pos → insert. Transport-only parsing (target number,
 	// account UUID) stays here so form wording never changes.
-	result, violations, err := createPos(ctx, h.DB, PosCreateInput{
+	_, violations, err := createPos(ctx, h.DB, PosCreateInput{
 		Name:      rawName,
 		Currency:  rawCurrency,
 		AccountID: accountUUID,
@@ -155,5 +156,5 @@ func (h *Handlers) PosNewPost(c echo.Context) error {
 		return rerender(violations)
 	}
 
-	return c.Redirect(http.StatusSeeOther, "/pos/"+result.ID)
+	return c.Redirect(http.StatusSeeOther, "/pos")
 }
