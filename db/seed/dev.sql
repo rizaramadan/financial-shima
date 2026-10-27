@@ -20,12 +20,17 @@ SELECT 'Mandiri Shima'
 WHERE NOT EXISTS (SELECT 1 FROM accounts WHERE name = 'Mandiri Shima');
 
 -- Sample Pos (envelopes). UPSERT by (name, currency) — already UNIQUE.
-INSERT INTO pos (name, currency, target) VALUES
-    ('Belanja Bulanan', 'idr', 5000000),
-    ('Tabungan Mobil',  'idr', 50000000),
-    ('Tabungan Emas',   'gold-g', 100),
-    ('Dapur Darurat',   'idr', NULL)
-ON CONFLICT (name, currency) DO UPDATE SET target = EXCLUDED.target;
+-- Per spec §4.2/§5.6 each Pos belongs to exactly one Account (migration
+-- 0005 made pos.account_id NOT NULL); account chosen per Pos. Re-runs
+-- backfill account_id only when currently NULL so operator moves survive.
+INSERT INTO pos (name, currency, account_id, target) VALUES
+    ('Belanja Bulanan', 'idr',    (SELECT id FROM accounts WHERE name = 'Mandiri Shima'), 5000000),
+    ('Tabungan Mobil',  'idr',    (SELECT id FROM accounts WHERE name = 'BCA Riza'),     50000000),
+    ('Tabungan Emas',   'gold-g', (SELECT id FROM accounts WHERE name = 'BCA Riza'),          100),
+    ('Dapur Darurat',   'idr',    (SELECT id FROM accounts WHERE name = 'Mandiri Shima'),     NULL)
+ON CONFLICT (name, currency) DO UPDATE SET
+    target = EXCLUDED.target,
+    account_id = COALESCE(pos.account_id, EXCLUDED.account_id);
 
 -- Sample counterparties. name_lower is generated; UPSERT by it.
 INSERT INTO counterparties (name) VALUES
