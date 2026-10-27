@@ -12,15 +12,16 @@ import (
 )
 
 const addIncomeTemplateLine = `-- name: AddIncomeTemplateLine :one
-INSERT INTO income_template_line (template_id, pos_id, amount, sort_order)
-VALUES ($1, $2, $3, $4)
-RETURNING id, template_id, pos_id, amount, sort_order, created_at
+INSERT INTO income_template_line (template_id, pos_id, amount, percent_bps, sort_order)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, template_id, pos_id, amount, sort_order, created_at, percent_bps
 `
 
 type AddIncomeTemplateLineParams struct {
 	TemplateID pgtype.UUID
 	PosID      pgtype.UUID
 	Amount     int64
+	PercentBps *int32
 	SortOrder  int32
 }
 
@@ -29,6 +30,7 @@ func (q *Queries) AddIncomeTemplateLine(ctx context.Context, arg AddIncomeTempla
 		arg.TemplateID,
 		arg.PosID,
 		arg.Amount,
+		arg.PercentBps,
 		arg.SortOrder,
 	)
 	var i IncomeTemplateLine
@@ -39,6 +41,7 @@ func (q *Queries) AddIncomeTemplateLine(ctx context.Context, arg AddIncomeTempla
 		&i.Amount,
 		&i.SortOrder,
 		&i.CreatedAt,
+		&i.PercentBps,
 	)
 	return i, err
 }
@@ -112,7 +115,7 @@ func (q *Queries) GetIncomeTemplate(ctx context.Context, id pgtype.UUID) (Income
 }
 
 const listIncomeTemplateLines = `-- name: ListIncomeTemplateLines :many
-SELECT id, template_id, pos_id, amount, sort_order, created_at FROM income_template_line
+SELECT id, template_id, pos_id, amount, sort_order, created_at, percent_bps FROM income_template_line
 WHERE template_id = $1
 ORDER BY sort_order, created_at
 `
@@ -135,6 +138,7 @@ func (q *Queries) ListIncomeTemplateLines(ctx context.Context, templateID pgtype
 			&i.Amount,
 			&i.SortOrder,
 			&i.CreatedAt,
+			&i.PercentBps,
 		); err != nil {
 			return nil, err
 		}

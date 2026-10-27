@@ -12,16 +12,18 @@ import (
 )
 
 const getPosCashBalance = `-- name: GetPosCashBalance :one
-SELECT COALESCE(SUM(CASE
-    WHEN type = 'money_in'  THEN pos_amount
-    WHEN type = 'money_out' THEN -pos_amount
-    ELSE 0
-END), 0)::bigint AS balance
-FROM transactions
-WHERE pos_id = $1
+SELECT ((SELECT COALESCE(SUM(CASE
+    WHEN t.type = 'money_in'  THEN t.pos_amount
+    WHEN t.type = 'money_out' THEN -t.pos_amount
+    ELSE 0 END), 0) FROM transactions AS t WHERE t.pos_id = $1)
+ + (SELECT COALESCE(SUM(CASE WHEN l.direction = 'in' THEN l.amount ELSE -l.amount END), 0)
+    FROM inter_pos_lines AS l WHERE l.pos_id = $1))::bigint AS balance
 `
 
 // Single-pos variant of SumPosCashBalances for the §6.3 detail view.
+// Includes inter_pos legs (same net-zero-per-currency reasoning). Two
+// scalar subqueries (no outer FROM) so the shared `pos_id` name never
+// needs scope disambiguation.
 func (q *Queries) GetPosCashBalance(ctx context.Context, posID pgtype.UUID) (int64, error) {
 	row := q.db.QueryRow(ctx, getPosCashBalance, posID)
 	var balance int64
@@ -30,7 +32,7 @@ func (q *Queries) GetPosCashBalance(ctx context.Context, posID pgtype.UUID) (int
 }
 
 const getTransaction = `-- name: GetTransaction :one
-SELECT id, type, effective_date, account_amount, pos_id, pos_amount, counterparty_id, note, source, created_by, idempotency_key, created_at, reverses_id FROM transactions WHERE id = $1
+SELECT id, type, effective_date, account_amount, pos_id, pos_amount, counterparty_id, note, source, created_by, idempotency_key, created_at, reverses_id, mode FROM transactions WHERE id = $1
 `
 
 func (q *Queries) GetTransaction(ctx context.Context, id pgtype.UUID) (Transaction, error) {
@@ -50,6 +52,7 @@ func (q *Queries) GetTransaction(ctx context.Context, id pgtype.UUID) (Transacti
 		&i.IdempotencyKey,
 		&i.CreatedAt,
 		&i.ReversesID,
+		&i.Mode,
 	)
 	return i, err
 }
@@ -66,7 +69,7 @@ INSERT INTO transactions (
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (idempotency_key)
 DO UPDATE SET idempotency_key = transactions.idempotency_key  -- no-op so RETURNING fires
-RETURNING transactions.id, transactions.type, transactions.effective_date, transactions.account_amount, transactions.pos_id, transactions.pos_amount, transactions.counterparty_id, transactions.note, transactions.source, transactions.created_by, transactions.idempotency_key, transactions.created_at, transactions.reverses_id, (xmax = 0) AS was_inserted
+RETURNING transactions.id, transactions.type, transactions.effective_date, transactions.account_amount, transactions.pos_id, transactions.pos_amount, transactions.counterparty_id, transactions.note, transactions.source, transactions.created_by, transactions.idempotency_key, transactions.created_at, transactions.reverses_id, transactions.mode, (xmax = 0) AS was_inserted
 `
 
 type InsertMoneyTransactionParams struct {
@@ -97,6 +100,7 @@ type InsertMoneyTransactionRow struct {
 	IdempotencyKey string
 	CreatedAt      pgtype.Timestamptz
 	ReversesID     pgtype.UUID
+	Mode           *string
 	WasInserted    bool
 }
 
@@ -138,6 +142,7 @@ func (q *Queries) InsertMoneyTransaction(ctx context.Context, arg InsertMoneyTra
 		&i.IdempotencyKey,
 		&i.CreatedAt,
 		&i.ReversesID,
+		&i.Mode,
 		&i.WasInserted,
 	)
 	return i, err
@@ -261,7 +266,7 @@ func (q *Queries) ListObligationsForPos(ctx context.Context, creditorPosID pgtyp
 }
 
 const listTransactionsByAccount = `-- name: ListTransactionsByAccount :many
-SELECT t.id, t.type, t.effective_date, t.account_amount, t.pos_id, t.pos_amount, t.counterparty_id, t.note, t.source, t.created_by, t.idempotency_key, t.created_at, t.reverses_id FROM transactions t
+SELECT t.id, t.type, t.effective_date, t.account_amount, t.pos_id, t.pos_amount, t.counterparty_id, t.note, t.source, t.created_by, t.idempotency_key, t.created_at, t.reverses_id, t.mode FROM transactions t
 JOIN pos p ON p.id = t.pos_id
 WHERE p.account_id = $1
 ORDER BY t.effective_date DESC, t.created_at DESC
@@ -293,6 +298,7 @@ func (q *Queries) ListTransactionsByAccount(ctx context.Context, accountID pgtyp
 			&i.IdempotencyKey,
 			&i.CreatedAt,
 			&i.ReversesID,
+			&i.Mode,
 		); err != nil {
 			return nil, err
 		}
@@ -711,11 +717,14 @@ const sumPosCashBalances = `-- name: SumPosCashBalances :many
 SELECT
     p.id,
     p.currency,
-    COALESCE(SUM(CASE
+    (COALESCE(SUM(CASE
         WHEN t.type = 'money_in'  THEN t.pos_amount
         WHEN t.type = 'money_out' THEN -t.pos_amount
         ELSE 0
-    END), 0)::bigint AS balance
+    END), 0) + COALESCE((
+        SELECT SUM(CASE WHEN l.direction = 'in' THEN l.amount ELSE -l.amount END)
+        FROM inter_pos_lines l WHERE l.pos_id = p.id
+    ), 0))::bigint AS balance
 FROM pos p
 LEFT JOIN transactions t ON t.pos_id = p.id
 WHERE NOT p.archived
@@ -729,9 +738,12 @@ type SumPosCashBalancesRow struct {
 }
 
 // Per-pos cash balance: signed sum of money_in / money_out pos_amount per
-// (pos_id, currency). inter_pos lines are not yet wired (Phase 7+) so they
-// contribute zero. Currency comes from pos.currency since money_in/_out
-// always denominate pos_amount in the pos's currency (§4.3 / §5.1).
+// (pos_id, currency) PLUS inter_pos legs (out subtracts, in adds).
+// inter_pos nets to zero per currency (§10.6), so the §10.5 IDR
+// reconciliation still holds. Currency comes from pos.currency since
+// money_in/_out always denominate pos_amount in the pos's currency
+// (§4.3 / §5.1) and line currency must match the pos (validated in
+// logic/transaction).
 func (q *Queries) SumPosCashBalances(ctx context.Context) ([]SumPosCashBalancesRow, error) {
 	rows, err := q.db.Query(ctx, sumPosCashBalances)
 	if err != nil {

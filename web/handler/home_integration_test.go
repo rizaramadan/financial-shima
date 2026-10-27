@@ -68,16 +68,16 @@ func TestIntegration_HomeGet_RendersAccountsAndPosFromDB(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	// Structural assertions: <h2>Accounts</h2>, <h2>Pos &mdash; idr</h2>,
-	// <h2>Pos &mdash; gold-g</h2> all present, with idr appearing before
+	// Structural assertions: the Accounts section-card, plus one Pos
+	// section-card per currency (idr, gold-g), with idr appearing before
 	// gold-g (spec — IDR is the operator's primary currency).
-	if !strings.Contains(body, `<h2>Accounts</h2>`) {
-		t.Error("body missing <h2>Accounts</h2>")
+	if !strings.Contains(body, `<span class="section-card-title">Accounts</span>`) {
+		t.Error(`body missing <span class="section-card-title">Accounts</span>`)
 	}
-	idrIdx := strings.Index(body, `<h2>Pos &mdash; idr</h2>`)
-	goldIdx := strings.Index(body, `<h2>Pos &mdash; gold-g</h2>`)
+	idrIdx := strings.Index(body, `>idr &middot;`)
+	goldIdx := strings.Index(body, `>gold-g &middot;`)
 	if idrIdx < 0 || goldIdx < 0 {
-		t.Fatalf("missing pos group h2: idr=%d gold=%d; body:\n%s", idrIdx, goldIdx, body)
+		t.Fatalf("missing pos group meta: idr=%d gold=%d; body:\n%s", idrIdx, goldIdx, body)
 	}
 	if idrIdx > goldIdx {
 		t.Errorf("idr group at %d should precede gold-g at %d", idrIdx, goldIdx)

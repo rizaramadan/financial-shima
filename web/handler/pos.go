@@ -326,6 +326,10 @@ func (h *Handlers) PosGet(c echo.Context) error {
 // PosRenamePost handles POST /pos/:id/rename — rename and/or change
 // the budget target. Currency stays immutable per spec §10.3 (changing
 // it would re-bucket past pos_amount).
+//
+// Shared update path (pos_service.go) so the web form and the API stay
+// behavior-identical by construction. Transport-only parsing (name
+// trim, target number) stays here so form wording never changes.
 func (h *Handlers) PosRenamePost(c echo.Context) error {
 	if _, ok := mw.CurrentUser(c); !ok {
 		return c.Redirect(http.StatusSeeOther, "/login")
@@ -354,18 +358,26 @@ func (h *Handlers) PosRenamePost(c echo.Context) error {
 	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 3*time.Second)
 	defer cancel()
-	q := dbq.New(h.DB)
-	if _, err := q.UpdatePosNameAndTarget(ctx, dbq.UpdatePosNameAndTargetParams{
-		ID:     pgtype.UUID{Bytes: posID, Valid: true},
-		Name:   name,
-		Target: target,
+	// Empty target clears (TargetSet with nil), matching the previous
+	// UpdatePosNameAndTarget(Target=nil) call.
+	if _, violations, err := updatePos(ctx, h.DB, PosUpdateInput{
+		PosID:     posID,
+		Name:      &name,
+		TargetSet: true,
+		Target:    target,
 	}); err != nil {
 		c.Logger().Errorf("UpdatePosNameAndTarget: %v", err)
 		msg := "Couldn’t save the changes."
-		if isUniqueViolation(err) {
+		if IsPosConflict(err) {
 			msg = "A Pos with that name and currency already exists."
 		}
 		c.SetCookie(&http.Cookie{Name: "pos_account_flash", Value: msg, Path: "/", MaxAge: 30})
+		return c.Redirect(http.StatusSeeOther, "/pos/"+posID.String())
+	} else if len(violations) > 0 {
+		// Unreachable after the pre-checks above; keep the generic
+		// message so wording never regresses.
+		c.Logger().Errorf("UpdatePosNameAndTarget violations: %v", violations)
+		c.SetCookie(&http.Cookie{Name: "pos_account_flash", Value: "Couldn’t save the changes.", Path: "/", MaxAge: 30})
 		return c.Redirect(http.StatusSeeOther, "/pos/"+posID.String())
 	}
 	c.SetCookie(&http.Cookie{Name: "pos_account_flash", Value: "Pos updated.", Path: "/", MaxAge: 30})
@@ -373,7 +385,9 @@ func (h *Handlers) PosRenamePost(c echo.Context) error {
 }
 
 // PosArchivePost handles POST /pos/:id/archive — soft delete only.
-// Per spec §10.3 the row is preserved.
+// Per spec §10.3 the row is preserved. Shared archive path
+// (pos_service.go) so the web button and the API stay
+// behavior-identical by construction.
 func (h *Handlers) PosArchivePost(c echo.Context) error {
 	if _, ok := mw.CurrentUser(c); !ok {
 		return c.Redirect(http.StatusSeeOther, "/login")
@@ -387,7 +401,12 @@ func (h *Handlers) PosArchivePost(c echo.Context) error {
 	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 3*time.Second)
 	defer cancel()
-	if err := dbq.New(h.DB).ArchivePos(ctx, pgtype.UUID{Bytes: posID, Valid: true}); err != nil {
+	if err := archivePos(ctx, h.DB, posID); err != nil {
+		// Missing Pos previously fell through to the home redirect
+		// (ArchivePos exec touches 0 rows without error); preserve that.
+		if IsPosNotFound(err) {
+			return c.Redirect(http.StatusSeeOther, "/")
+		}
 		c.Logger().Errorf("ArchivePos: %v", err)
 		c.SetCookie(&http.Cookie{Name: "pos_account_flash", Value: "Couldn’t archive the Pos.", Path: "/", MaxAge: 30})
 		return c.Redirect(http.StatusSeeOther, "/pos/"+posID.String())
@@ -397,30 +416,11 @@ func (h *Handlers) PosArchivePost(c echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, "/")
 }
 
-// isUniqueViolation reports whether err is a Postgres unique-constraint
-// violation (SQLSTATE 23505). Inlined here so this file doesn't need
-// the pgconn import on the happy path.
-func isUniqueViolation(err error) bool {
-	type pgErr interface {
-		SQLState() string
-	}
-	for e := err; e != nil; {
-		if pe, ok := e.(pgErr); ok && pe.SQLState() == "23505" {
-			return true
-		}
-		u, ok := e.(interface{ Unwrap() error })
-		if !ok {
-			break
-		}
-		e = u.Unwrap()
-	}
-	return false
-}
-
 // PosUpdateAccountPost handles POST /pos/:id/account from the detail
 // page's "Funding account" form. Per spec §5.6, this is the snapshot-
 // semantic reassignment: pos.account_id changes, past balances re-
-// attribute on next read.
+// attribute on next read. Shared update path (pos_service.go) so the
+// web form and the API stay behavior-identical by construction.
 func (h *Handlers) PosUpdateAccountPost(c echo.Context) error {
 	if _, ok := mw.CurrentUser(c); !ok {
 		return c.Redirect(http.StatusSeeOther, "/login")
@@ -448,12 +448,17 @@ func (h *Handlers) PosUpdateAccountPost(c echo.Context) error {
 	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 3*time.Second)
 	defer cancel()
-	q := dbq.New(h.DB)
-	if _, err := q.UpdatePosAccount(ctx, dbq.UpdatePosAccountParams{
-		ID:        pgtype.UUID{Bytes: posID, Valid: true},
-		AccountID: pgtype.UUID{Bytes: accountID, Valid: true},
+	// Account move only (Name/Target untouched). FK and missing-pos
+	// failures keep the previous generic wording.
+	if _, violations, err := updatePos(ctx, h.DB, PosUpdateInput{
+		PosID:     posID,
+		AccountID: &accountID,
 	}); err != nil {
 		c.Logger().Errorf("UpdatePosAccount: %v", err)
+		c.SetCookie(&http.Cookie{Name: errName, Value: "Couldn’t move the Pos. Try again.", Path: "/", MaxAge: 30})
+		return c.Redirect(http.StatusSeeOther, redirectTo)
+	} else if len(violations) > 0 {
+		c.Logger().Errorf("UpdatePosAccount violations: %v", violations)
 		c.SetCookie(&http.Cookie{Name: errName, Value: "Couldn’t move the Pos. Try again.", Path: "/", MaxAge: 30})
 		return c.Redirect(http.StatusSeeOther, redirectTo)
 	}

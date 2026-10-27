@@ -39,6 +39,10 @@ type MoneyTxnInput struct {
 	Source         notification.Source
 	CreatedBy      *uuid.UUID // nil for seed/api
 	IdempotencyKey string
+	// ReversesID marks this row as a correction of another transaction
+	// (append-only reversal, spec §10.3). Nil for ordinary inserts —
+	// the column stays NULL; the Service still exposes no Update.
+	ReversesID *uuid.UUID
 }
 
 // Pool is the subset of pgxpool.Pool the Service needs. Tests inject a
@@ -103,7 +107,7 @@ func (s *Service) Insert(ctx context.Context, in MoneyTxnInput) (uuid.UUID, erro
 		Source:         dbq.TransactionSource(in.Source),
 		CreatedBy:      createdBy,
 		IdempotencyKey: in.IdempotencyKey,
-		ReversesID:     pgtype.UUID{},
+		ReversesID:     optUUID(in.ReversesID),
 	})
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("insert transaction: %w", err)
@@ -171,6 +175,16 @@ func ptrStr(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// optUUID maps a nil *uuid.UUID to an invalid (NULL) pgtype.UUID so
+// ordinary inserts leave reverses_id NULL without a branch at the call
+// site.
+func optUUID(id *uuid.UUID) pgtype.UUID {
+	if id == nil {
+		return pgtype.UUID{}
+	}
+	return pgtype.UUID{Bytes: *id, Valid: true}
 }
 
 // parseUserID converts a user.User.ID string to a uuid.UUID. The seed file

@@ -52,10 +52,23 @@ type Querier interface {
 	GetOrCreateCounterparty(ctx context.Context, name string) (Counterparty, error)
 	GetPos(ctx context.Context, id pgtype.UUID) (Po, error)
 	// Single-pos variant of SumPosCashBalances for the §6.3 detail view.
+	// Includes inter_pos legs (same net-zero-per-currency reasoning). Two
+	// scalar subqueries (no outer FROM) so the shared `pos_id` name never
+	// needs scope disambiguation.
 	GetPosCashBalance(ctx context.Context, posID pgtype.UUID) (int64, error)
 	GetSession(ctx context.Context, token string) (GetSessionRow, error)
 	GetTransaction(ctx context.Context, id pgtype.UUID) (Transaction, error)
 	GetUserByTelegramIdentifier(ctx context.Context, telegramIdentifier string) (User, error)
+	// One leg of an inter_pos transfer. Inserted in request order inside
+	// the same DB tx as the header (ledger.Service.InsertInterPos).
+	InsertInterPosLine(ctx context.Context, arg InsertInterPosLineParams) (InterPosLine, error)
+	// Insert an inter_pos header (type='inter_pos' + mode). Money columns
+	// stay NULL per the transactions_shape_check (0008): amounts live on
+	// inter_pos_lines. Idempotency mirrors InsertMoneyTransaction: ON
+	// CONFLICT returns the existing row with was_inserted=false so the
+	// caller can compare-and-replay (409 on payload mismatch) instead of
+	// duplicating lines, obligations, or notifications (spec §10.8).
+	InsertInterPosTransaction(ctx context.Context, arg InsertInterPosTransactionParams) (InsertInterPosTransactionRow, error)
 	// Insert a money_in / money_out row. Idempotency: ON CONFLICT on
 	// idempotency_key returns the existing row; the (xmax = 0) projection
 	// distinguishes a fresh insert (was_inserted=true) from a conflict
@@ -67,6 +80,10 @@ type Querier interface {
 	// itself doesn't carry account_id.
 	InsertMoneyTransaction(ctx context.Context, arg InsertMoneyTransactionParams) (InsertMoneyTransactionRow, error)
 	InsertNotification(ctx context.Context, arg InsertNotificationParams) (Notification, error)
+	// One borrow-mode debt leg. Caller (ledger.Service.InsertInterPos)
+	// derives the full leg set from logic/obligation.GenerateBorrowObligations
+	// so the per-debtor sums stay exact; this query only persists rows.
+	InsertObligation(ctx context.Context, arg InsertObligationParams) (PosObligation, error)
 	ListAccounts(ctx context.Context) ([]Account, error)
 	ListAccountsIncludingArchived(ctx context.Context) ([]Account, error)
 	ListCounterparties(ctx context.Context) ([]Counterparty, error)
@@ -74,6 +91,9 @@ type Querier interface {
 	// tiebreaker). Caller folds these into the apply allocation.
 	ListIncomeTemplateLines(ctx context.Context, templateID pgtype.UUID) ([]IncomeTemplateLine, error)
 	ListIncomeTemplates(ctx context.Context) ([]IncomeTemplate, error)
+	// Legs of one transfer in insertion order, for replay comparison
+	// (idempotent re-submit) and response building.
+	ListInterPosLinesByTransaction(ctx context.Context, transactionID pgtype.UUID) ([]InterPosLine, error)
 	ListLoanPos(ctx context.Context) ([]Po, error)
 	ListLoanSubmissionsByPos(ctx context.Context, posID pgtype.UUID) ([]LoanPaymentSubmission, error)
 	ListNotificationsForUser(ctx context.Context, userID pgtype.UUID) ([]Notification, error)
@@ -81,6 +101,12 @@ type Querier interface {
 	// debtor (money it owes). Counts toward Pos.receivables and
 	// Pos.payables on the detail view per spec §4.2.
 	ListObligationsForPos(ctx context.Context, creditorPosID pgtype.UUID) ([]PosObligation, error)
+	// Every open borrow-mode debt for GET /api/v1/debts: all
+	// pos_obligation rows where cleared_at IS NULL, with the creditor and
+	// debtor Pos names joined so the API caller never round-trips per row.
+	// outstanding = amount_owed - amount_repaid is computed in
+	// logic/obligation (pure), not here.
+	ListOpenObligations(ctx context.Context) ([]ListOpenObligationsRow, error)
 	ListPendingLoanSubmissionsByPos(ctx context.Context, posID pgtype.UUID) ([]LoanPaymentSubmission, error)
 	ListPos(ctx context.Context) ([]Po, error)
 	ListPosIncludingArchived(ctx context.Context) ([]Po, error)
@@ -138,14 +164,28 @@ type Querier interface {
 	// Total of all lines on the template — used to validate that the
 	// incoming amount meets or exceeds the template's required allocation.
 	SumIncomeTemplateLines(ctx context.Context, templateID pgtype.UUID) (int64, error)
+	// Same shape as SumMoneyFlowByWeek at calendar-month grain. Reuses the
+	// SumMoneyOutByPosMonth pattern (date_trunc + GROUP BY) extended with
+	// the money_in side so each bucket carries in/out for the net.
+	SumMoneyFlowByMonth(ctx context.Context, arg SumMoneyFlowByMonthParams) ([]SumMoneyFlowByMonthRow, error)
+	// Recap grain: one row per (currency, ISO-week bucket) summing
+	// money_in pos_amount as inflow and money_out pos_amount as outflow.
+	// Net (inflow - outflow) is computed in logic/balance (pure), not here.
+	// Currency groups keep incommensurable units (idr vs gold-g) apart.
+	SumMoneyFlowByWeek(ctx context.Context, arg SumMoneyFlowByWeekParams) ([]SumMoneyFlowByWeekRow, error)
+	// Same shape as SumMoneyFlowByWeek at calendar-year grain.
+	SumMoneyFlowByYear(ctx context.Context, arg SumMoneyFlowByYearParams) ([]SumMoneyFlowByYearRow, error)
 	// Spending heatmap (§6.4): one row per (pos, month) summing pos_amount
 	// for money_out transactions in the date range. Caller pivots to a
 	// months × top-N-pos table and computes the top-N ranking from totals.
 	SumMoneyOutByPosMonth(ctx context.Context, arg SumMoneyOutByPosMonthParams) ([]SumMoneyOutByPosMonthRow, error)
 	// Per-pos cash balance: signed sum of money_in / money_out pos_amount per
-	// (pos_id, currency). inter_pos lines are not yet wired (Phase 7+) so they
-	// contribute zero. Currency comes from pos.currency since money_in/_out
-	// always denominate pos_amount in the pos's currency (§4.3 / §5.1).
+	// (pos_id, currency) PLUS inter_pos legs (out subtracts, in adds).
+	// inter_pos nets to zero per currency (§10.6), so the §10.5 IDR
+	// reconciliation still holds. Currency comes from pos.currency since
+	// money_in/_out always denominate pos_amount in the pos's currency
+	// (§4.3 / §5.1) and line currency must match the pos (validated in
+	// logic/transaction).
 	SumPosCashBalances(ctx context.Context) ([]SumPosCashBalancesRow, error)
 	UnreadCount(ctx context.Context, userID pgtype.UUID) (int64, error)
 	// Rename an account. Account.name is free text per spec §4.1; no

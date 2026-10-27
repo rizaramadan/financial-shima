@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/golang-migrate/migrate/v4"
 	// Side-effect import: registers the `pgx5://` URL scheme with the
@@ -25,6 +26,15 @@ import (
 //
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
+
+// dbSchema returns the active PostgreSQL schema name from the DB_SCHEMA
+// environment variable. Defaults to "public" when unset.
+func dbSchema() string {
+	if s := os.Getenv("DB_SCHEMA"); s != "" {
+		return s
+	}
+	return "public"
+}
 
 // baselineVersion infers which migration set has already been applied
 // to a pre-existing database that was bootstrapped before this code
@@ -51,8 +61,8 @@ func baselineVersion(ctx context.Context, pool *pgxpool.Pool) (uint, bool, error
 	if err := pool.QueryRow(ctx, `
 		SELECT EXISTS (
 		    SELECT 1 FROM information_schema.tables
-		    WHERE table_schema = 'public' AND table_name = 'accounts'
-		)`).Scan(&hasAccounts); err != nil {
+		    WHERE table_schema = $1 AND table_name = 'accounts'
+		)`, dbSchema()).Scan(&hasAccounts); err != nil {
 		return 0, false, fmt.Errorf("baseline: check accounts table: %w", err)
 	}
 	if !hasAccounts {
@@ -68,10 +78,10 @@ func baselineVersion(ctx context.Context, pool *pgxpool.Pool) (uint, bool, error
 	if err := pool.QueryRow(ctx, `
 		SELECT EXISTS (
 		    SELECT 1 FROM information_schema.columns
-		    WHERE table_schema = 'public'
+		    WHERE table_schema = $1
 		      AND table_name   = 'pos'
 		      AND column_name  = 'account_id'
-		)`).Scan(&hasPosAccountID); err != nil {
+		)`, dbSchema()).Scan(&hasPosAccountID); err != nil {
 		return 0, false, fmt.Errorf("baseline: check pos.account_id column: %w", err)
 	}
 	if hasPosAccountID {
@@ -88,8 +98,8 @@ func hasSchemaMigrationsTable(ctx context.Context, pool *pgxpool.Pool) (bool, er
 	if err := pool.QueryRow(ctx, `
 		SELECT EXISTS (
 		    SELECT 1 FROM information_schema.tables
-		    WHERE table_schema = 'public' AND table_name = 'schema_migrations'
-		)`).Scan(&present); err != nil {
+		    WHERE table_schema = $1 AND table_name = 'schema_migrations'
+		)`, dbSchema()).Scan(&present); err != nil {
 		return false, fmt.Errorf("check schema_migrations table: %w", err)
 	}
 	return present, nil

@@ -211,6 +211,17 @@ type IncomeTemplateLine struct {
 	Amount     int64
 	SortOrder  int32
 	CreatedAt  pgtype.Timestamptz
+	PercentBps *int32
+}
+
+type InterPosLine struct {
+	ID            pgtype.UUID
+	TransactionID pgtype.UUID
+	PosID         pgtype.UUID
+	Direction     string
+	Amount        int64
+	Currency      string
+	CreatedAt     pgtype.Timestamptz
 }
 
 type LoanAccess struct {
@@ -298,6 +309,7 @@ type Transaction struct {
 	IdempotencyKey string
 	CreatedAt      pgtype.Timestamptz
 	ReversesID     pgtype.UUID
+	Mode           *string
 }
 
 type User struct {

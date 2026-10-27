@@ -7,14 +7,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/labstack/echo/v4"
 
 	"github.com/rizaramadan/financial-shima/db/dbq"
-	"github.com/rizaramadan/financial-shima/dependencies/ledger"
-	"github.com/rizaramadan/financial-shima/logic/money"
 	"github.com/rizaramadan/financial-shima/logic/notification"
-	logictxn "github.com/rizaramadan/financial-shima/logic/transaction"
 	mw "github.com/rizaramadan/financial-shima/web/middleware"
 	"github.com/rizaramadan/financial-shima/web/template"
 )
@@ -153,54 +149,35 @@ func (h *Handlers) TransactionNewPost(c echo.Context) error {
 		return rerender([]string{"Web form supports IDR only. Use the API for non-IDR Pos."})
 	}
 
-	cpRow, err := q.GetOrCreateCounterparty(ctx, in.CounterpartyName)
+	// Shared resolve → validate → insert path (transaction_service.go):
+	// the service re-resolves pos/account/counterparty by ID and runs
+	// the same spec §5.1 validation the API uses, so the two entries
+	// stay behavior-identical by construction.
+	today := handlerNow(h)
+	result, violations, err := createMoneyTransaction(ctx, h.DB, h.Auth.Users, today, MoneyCreateInput{
+		Type:             in.Type,
+		EffectiveDate:    effDate,
+		AccountAmount:    amount,
+		PosID:            posID,
+		PosAmount:        amount,
+		CounterpartyName: in.CounterpartyName,
+		Note:             in.Note,
+		Source:           notification.SourceWeb,
+		CreatedBy:        parseOptUUID(u.ID),
+		IdempotencyKey:   in.IdempotencyKey,
+	})
 	if err != nil {
-		c.Logger().Errorf("[FS-0272] new txn: get-or-create counterparty: %v", err)
-		return rerender([]string{"Couldn’t resolve counterparty. Try again."})
-	}
-
-	logicIn := logictxn.MoneyInput{
-		EffectiveDate: effDate,
-		AccountAmount: money.New(amount, "idr"),
-		Pos: logictxn.PosRef{
-			ID:              uuid.UUID(pos.ID.Bytes).String(),
-			Currency:        pos.Currency,
-			Archived:        pos.Archived,
-			AccountID:       uuid.UUID(account.ID.Bytes).String(),
-			AccountArchived: account.Archived,
-		},
-		PosAmount:        money.New(amount, "idr"),
-		CounterpartyName: cpRow.Name,
-	}
-	var violations []string
-	if in.Type == "money_in" {
-		violations = logictxn.ValidateMoneyIn(logicIn, time.Now())
-	} else {
-		violations = logictxn.ValidateMoneyOut(logicIn, time.Now())
+		if IsMoneyNotFound(err) {
+			return rerender([]string{err.Error()})
+		}
+		c.Logger().Errorf("[FS-0273] new txn: createMoneyTransaction: %v", err)
+		return rerender([]string{"Couldn’t record the transaction. Try again."})
 	}
 	if len(violations) > 0 {
 		return rerender(violations)
 	}
 
-	svc := &ledger.Service{Pool: h.DB, Users: h.Auth.Users}
-	_, err = svc.Insert(ctx, ledger.MoneyTxnInput{
-		Type:           in.Type,
-		EffectiveDate:  pgtype.Date{Time: effDate, Valid: true},
-		AccountAmount:  amount,
-		PosID:          posID,
-		PosAmount:      amount,
-		CounterpartyID: uuid.UUID(cpRow.ID.Bytes),
-		Note:           in.Note,
-		Source:         notification.SourceWeb,
-		CreatedBy:      parseOptUUID(u.ID),
-		IdempotencyKey: in.IdempotencyKey,
-	})
-	if err != nil {
-		c.Logger().Errorf("[FS-0273] new txn: ledger.Insert: %v", err)
-		return rerender([]string{"Couldn’t record the transaction. Try again."})
-	}
-
-	return c.Redirect(http.StatusSeeOther, "/pos/"+posID.String())
+	return c.Redirect(http.StatusSeeOther, "/pos/"+result.PosID)
 }
 
 // loadTransactionNewOptions populates the form's account + pos

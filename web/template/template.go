@@ -565,11 +565,11 @@ type TransactionNewData struct {
 	Errors           []string
 }
 
-func (d TransactionNewData) SignedIn() bool { return d.DisplayName != "" }
-func (d TransactionNewData) Compact() bool  { return false }
-func (d TransactionNewData) Wide() bool     { return false }
-func (d TransactionNewData) HideBell() bool { return false }
-func (d TransactionNewData) Route() string  { return "transactions" }
+func (d TransactionNewData) SignedIn() bool   { return d.DisplayName != "" }
+func (d TransactionNewData) Compact() bool    { return false }
+func (d TransactionNewData) Wide() bool       { return false }
+func (d TransactionNewData) HideBell() bool   { return false }
+func (d TransactionNewData) Route() string    { return "transactions" }
 func (d TransactionNewData) IsIncoming() bool { return d.Type == "money_in" }
 
 // SearchData backs /search — the global search results page driven by the
@@ -2867,25 +2867,28 @@ func (d IncomeTemplateNewData) Route() string  { return "income" }
 // IncomeTemplateLineInput is one row of the new-template form (raw
 // strings so we can re-render unchanged on validation failure).
 type IncomeTemplateLineInput struct {
-	PosID  string
-	Amount string
+	PosID   string
+	Amount  string
+	Percent string // raw percent e.g. "60" — empty means fixed-only
 }
 
 // IncomeTemplateDetailData drives /income-templates/:id.
 type IncomeTemplateDetailData struct {
-	Title           string
-	DisplayName     string
-	UnreadCount     int
-	ID              string
-	Name            string
-	Lines           []IncomeTemplateLineRow
-	LinesTotal      int64
-	LeftoverPosID   string
-	LeftoverPosName string
-	HasLeftoverPos  bool
-	Pos             []PosOption
-	Accounts        []AccountOption
-	Flash           string // surfaced after apply
+	Title             string
+	DisplayName       string
+	UnreadCount       int
+	ID                string
+	Name              string
+	Lines             []IncomeTemplateLineRow
+	LinesTotal        int64
+	TotalPercentBps   int32  // Σ percent lines, 0 when fixed-only
+	TotalPercentLabel string // e.g. "60%" — empty when TotalPercentBps == 0
+	LeftoverPosID     string
+	LeftoverPosName   string
+	HasLeftoverPos    bool
+	Pos               []PosOption
+	Accounts          []AccountOption
+	Flash             string // surfaced after apply
 }
 
 func (d IncomeTemplateDetailData) SignedIn() bool { return d.DisplayName != "" }
@@ -2896,10 +2899,12 @@ func (d IncomeTemplateDetailData) Route() string  { return "income" }
 
 // IncomeTemplateLineRow is one allocation row on the detail page.
 type IncomeTemplateLineRow struct {
-	PosID       string
-	PosName     string
-	PosCurrency string
-	Amount      int64
+	PosID        string
+	PosName      string
+	PosCurrency  string
+	Amount       int64
+	PercentBps   int32  // 0 when fixed-only
+	PercentLabel string // e.g. "60%" — empty when PercentBps == 0
 }
 
 // IncomeTemplatePreviewData drives /income-templates/:id (preview
@@ -3016,6 +3021,8 @@ const incomeTemplateNewBody = `<h1>New income template</h1>
 </select>
 <input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9.,]*" value="{{$line.Amount}}"
   placeholder="e.g. 12.000.000" aria-label="Amount for line {{$i}}">
+<input name="percent_{{$i}}" type="text" inputmode="decimal" value="{{$line.Percent}}"
+  placeholder="e.g. 60%" aria-label="Percent for line {{$i}}">
 </div>
 {{end}}
 {{if not .Lines}}
@@ -3027,18 +3034,22 @@ const incomeTemplateNewBody = `<h1>New income template</h1>
 </select>
 <input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9.,]*" placeholder="e.g. 12.000.000"
   aria-label="Amount for line {{$i}}">
+<input name="percent_{{$i}}" type="text" inputmode="decimal" placeholder="e.g. 60%"
+  aria-label="Percent for line {{$i}}">
 </div>
 {{end}}
 {{end}}
 </div>
 <p style="margin: 8px 0 0;"><a href="#" class="linkbtn" onclick="return addLine()">+ Add line</a></p>
+<p class="hint">Each line takes a fixed amount, a percent of the salary (e.g. 60%), or both.</p>
 <button type="submit" style="margin-top: 16px;">Create template</button>
 </form>
 <script>
 function addLine(){var c=document.getElementById("alloc-lines"),n=c.children.length,
 lc=document.getElementById("line-count"),r=c.lastElementChild.cloneNode(true),
-s=r.querySelector("select"),inp=r.querySelector("input");
-s.name="pos_id_"+n;s.selectedIndex=0;inp.name="amount_"+n;inp.value="";
+s=r.querySelector("select"),inps=r.querySelectorAll("input");
+s.name="pos_id_"+n;s.selectedIndex=0;
+for(var k=0;k<inps.length;k++){inps[k].name=(inps[k].name.indexOf("percent_")===0?"percent_":"amount_")+n;inps[k].value="";}
 c.appendChild(r);lc.value=n+1;return false}
 </script>
 <p class="aside"><a class="linkbtn" href="/income-templates">&larr; Back</a></p>`
@@ -3049,7 +3060,7 @@ const incomeTemplateDetailBody = `<header class="page-head">
     <h1>{{.Name}}</h1>
   </div>
 </header>
-<p class="subtitle">Allocation total {{money .LinesTotal "idr"}}{{if .HasLeftoverPos}} &middot; leftover → <strong>{{.LeftoverPosName}}</strong>{{end}}</p>
+<p class="subtitle">Allocation total {{money .LinesTotal "idr"}}{{if .TotalPercentLabel}} + {{.TotalPercentLabel}} of salary{{end}}{{if .HasLeftoverPos}} &middot; leftover → <strong>{{.LeftoverPosName}}</strong>{{end}}</p>
 {{if .Flash}}<div class="alert" role="status">{{.Flash}}</div>{{end}}
 
 <section class="section-card">
@@ -3081,6 +3092,8 @@ const incomeTemplateDetailBody = `<header class="page-head">
   </select>
   <input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9.,]*" value="{{fmtAmt $line.Amount}}"
     placeholder="e.g. 12.000.000">
+  <input name="percent_{{$i}}" type="text" inputmode="decimal" value="{{$line.PercentLabel}}"
+    placeholder="e.g. 60%">
   </div>
   {{end}}
   {{else}}
@@ -3090,6 +3103,7 @@ const incomeTemplateDetailBody = `<header class="page-head">
   {{range $.Pos}}<option value="{{.ID}}">{{.Name}} ({{.Currency}})</option>{{end}}
   </select>
   <input name="amount_0" type="text" inputmode="numeric" pattern="[0-9.,]*" placeholder="e.g. 12.000.000">
+  <input name="percent_0" type="text" inputmode="decimal" placeholder="e.g. 60%">
   </div>
   {{end}}
   </div>
@@ -3128,8 +3142,9 @@ const incomeTemplateDetailBody = `<header class="page-head">
 <script>
 function addEditLine(){var c=document.getElementById("edit-alloc-lines"),n=c.children.length,
 lc=document.getElementById("edit-line-count"),r=c.lastElementChild.cloneNode(true),
-s=r.querySelector("select"),inp=r.querySelector("input");
-s.name="pos_id_"+n;s.selectedIndex=0;inp.name="amount_"+n;inp.value="";
+s=r.querySelector("select"),inps=r.querySelectorAll("input");
+s.name="pos_id_"+n;s.selectedIndex=0;
+for(var k=0;k<inps.length;k++){inps[k].name=(inps[k].name.indexOf("percent_")===0?"percent_":"amount_")+n;inps[k].value="";}
 c.appendChild(r);lc.value=n+1;return false}
 </script>
 <p class="aside"><a class="linkbtn" href="/income-templates">&larr; All templates</a></p>`

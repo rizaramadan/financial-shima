@@ -34,12 +34,15 @@ type APIIncomeTemplate struct {
 }
 
 // APIIncomeTemplateLine is one allocation entry on a template.
+// PercentBps is nil for fixed-only lines; 1..10000 (basis points
+// of the incoming amount) for percent lines.
 type APIIncomeTemplateLine struct {
-	ID        string    `json:"id"`
-	PosID     string    `json:"pos_id"`
-	Amount    int64     `json:"amount"`
-	SortOrder int32     `json:"sort_order"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         string    `json:"id"`
+	PosID      string    `json:"pos_id"`
+	Amount     int64     `json:"amount"`
+	PercentBps *int32    `json:"percent_bps,omitempty"`
+	SortOrder  int32     `json:"sort_order"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // createIncomeTemplateRequest is the body for POST. Lines are inline
@@ -51,9 +54,44 @@ type createIncomeTemplateRequest struct {
 }
 
 type createIncomeTemplateLineInput struct {
-	PosID     string `json:"pos_id"`
-	Amount    int64  `json:"amount"`
-	SortOrder int32  `json:"sort_order"`
+	PosID      string `json:"pos_id"`
+	Amount     int64  `json:"amount"`
+	PercentBps *int32 `json:"percent_bps"`
+	SortOrder  int32  `json:"sort_order"`
+}
+
+// validateTemplateLines enforces the per-line shape (fixed, percent,
+// or both — never neither) and the Σ(percents) ≤ 100% invariant, so
+// POST and PATCH share one rule. Returns the total basis points.
+func validateTemplateLines(lines []createIncomeTemplateLineInput) (int64, *string) {
+	var totalBps int64
+	for i, l := range lines {
+		if _, err := uuid.Parse(l.PosID); err != nil {
+			msg := "line " + itoa(i+1) + ": pos_id must be a valid UUID"
+			return 0, &msg
+		}
+		if l.Amount < 0 {
+			msg := "line " + itoa(i+1) + ": amount must not be negative"
+			return 0, &msg
+		}
+		hasPercent := l.PercentBps != nil
+		if hasPercent && (*l.PercentBps < 1 || *l.PercentBps > 10000) {
+			msg := "line " + itoa(i+1) + ": percent_bps must be between 1 and 10000"
+			return 0, &msg
+		}
+		if l.Amount == 0 && !hasPercent {
+			msg := "line " + itoa(i+1) + ": amount must be positive for fixed lines (or set percent_bps)"
+			return 0, &msg
+		}
+		if hasPercent {
+			totalBps += int64(*l.PercentBps)
+		}
+	}
+	if totalBps > 10000 {
+		msg := "total percent_bps exceeds 10000 (100%)"
+		return 0, &msg
+	}
+	return totalBps, nil
 }
 
 // applyIncomeTemplateRequest is the body for POST /apply. The
@@ -106,11 +144,12 @@ func (h *Handlers) APIIncomeTemplatesList(c echo.Context) error {
 		} else {
 			for _, l := range lineRows {
 				t.Lines = append(t.Lines, APIIncomeTemplateLine{
-					ID:        uuid.UUID(l.ID.Bytes).String(),
-					PosID:     uuid.UUID(l.PosID.Bytes).String(),
-					Amount:    l.Amount,
-					SortOrder: l.SortOrder,
-					CreatedAt: l.CreatedAt.Time,
+					ID:         uuid.UUID(l.ID.Bytes).String(),
+					PosID:      uuid.UUID(l.PosID.Bytes).String(),
+					Amount:     l.Amount,
+					PercentBps: l.PercentBps,
+					SortOrder:  l.SortOrder,
+					CreatedAt:  l.CreatedAt.Time,
 				})
 			}
 		}
@@ -147,17 +186,9 @@ func (h *Handlers) APIIncomeTemplatesCreate(c echo.Context) error {
 			mw.APIErrorCodeValidation,
 			"at least one line is required")
 	}
-	for i, l := range req.Lines {
-		if l.Amount <= 0 {
-			return mw.WriteAPIError(c, http.StatusBadRequest,
-				mw.APIErrorCodeValidation,
-				"line "+itoa(i+1)+": amount must be positive")
-		}
-		if _, err := uuid.Parse(l.PosID); err != nil {
-			return mw.WriteAPIError(c, http.StatusBadRequest,
-				mw.APIErrorCodeValidation,
-				"line "+itoa(i+1)+": pos_id must be a valid UUID")
-		}
+	if _, msg := validateTemplateLines(req.Lines); msg != nil {
+		return mw.WriteAPIError(c, http.StatusBadRequest,
+			mw.APIErrorCodeValidation, *msg)
 	}
 
 	var leftoverParam pgtype.UUID
@@ -220,6 +251,7 @@ func (h *Handlers) APIIncomeTemplatesCreate(c echo.Context) error {
 			TemplateID: tmpl.ID,
 			PosID:      pgtype.UUID{Bytes: posID, Valid: true},
 			Amount:     l.Amount,
+			PercentBps: l.PercentBps,
 			SortOrder:  l.SortOrder,
 		})
 		if err != nil {
@@ -234,11 +266,12 @@ func (h *Handlers) APIIncomeTemplatesCreate(c echo.Context) error {
 				mw.APIErrorCodeInternal, "failed to add template line")
 		}
 		out.Lines = append(out.Lines, APIIncomeTemplateLine{
-			ID:        uuid.UUID(row.ID.Bytes).String(),
-			PosID:     uuid.UUID(row.PosID.Bytes).String(),
-			Amount:    row.Amount,
-			SortOrder: row.SortOrder,
-			CreatedAt: row.CreatedAt.Time,
+			ID:         uuid.UUID(row.ID.Bytes).String(),
+			PosID:      uuid.UUID(row.PosID.Bytes).String(),
+			Amount:     row.Amount,
+			PercentBps: row.PercentBps,
+			SortOrder:  row.SortOrder,
+			CreatedAt:  row.CreatedAt.Time,
 		})
 	}
 
@@ -308,47 +341,12 @@ func (h *Handlers) APIIncomeTemplateApply(c echo.Context) error {
 			mw.APIErrorCodeInternal, "failed to load template lines")
 	}
 
-	logicTmpl := logictpl.Template{
-		ID:    uuid.UUID(tmpl.ID.Bytes).String(),
-		Name:  tmpl.Name,
-		Lines: make([]logictpl.Line, 0, len(lineRows)),
-	}
-	if tmpl.LeftoverPosID.Valid {
-		logicTmpl.LeftoverPosID = uuid.UUID(tmpl.LeftoverPosID.Bytes).String()
-		logicTmpl.HasLeftoverPos = true
-	}
+	logicTmpl := logicTemplateFromRows(tmpl, lineRows)
 	posCurrencies := map[string]string{}
-	for _, l := range lineRows {
-		posID := uuid.UUID(l.PosID.Bytes).String()
-		logicTmpl.Lines = append(logicTmpl.Lines, logictpl.Line{
-			ID:     uuid.UUID(l.ID.Bytes).String(),
-			PosID:  posID,
-			Amount: l.Amount,
-		})
-	}
 
 	allocations, err := logictpl.Apply(logicTmpl, req.Amount)
 	if err != nil {
-		switch {
-		case errors.Is(err, logictpl.ErrAmountBelowTemplate):
-			return mw.WriteAPIError(c, http.StatusBadRequest,
-				mw.APIErrorCodeValidation,
-				"amount is less than the sum of template lines")
-		case errors.Is(err, logictpl.ErrAmountExceedsTemplate):
-			return mw.WriteAPIError(c, http.StatusBadRequest,
-				mw.APIErrorCodeValidation,
-				"amount exceeds template total and template has no leftover Pos configured")
-		case errors.Is(err, logictpl.ErrEmptyTemplate):
-			return mw.WriteAPIError(c, http.StatusBadRequest,
-				mw.APIErrorCodeValidation, "template has no lines")
-		case errors.Is(err, logictpl.ErrNonPositiveAmount):
-			return mw.WriteAPIError(c, http.StatusBadRequest,
-				mw.APIErrorCodeValidation, "amount must be positive")
-		default:
-			c.Logger().Errorf("apply: %v", err)
-			return mw.WriteAPIError(c, http.StatusInternalServerError,
-				mw.APIErrorCodeInternal, "apply failed")
-		}
+		return applyLogicError(c, err)
 	}
 
 	// Resolve every Pos so we know its currency AND its current funding
@@ -504,7 +502,317 @@ func (h *Handlers) APIIncomeTemplateApply(c echo.Context) error {
 	})
 }
 
+// updateIncomeTemplateRequest is the body for PATCH
+// /api/v1/income-templates/:id. Every field is optional; omitted
+// fields keep their current value. lines, when present, replaces
+// the whole line set (same delete + re-insert as the web edit
+// flow). leftover_pos_id "" clears the leftover Pos.
+type updateIncomeTemplateRequest struct {
+	Name          *string                          `json:"name"`
+	LeftoverPosID *string                          `json:"leftover_pos_id"`
+	Lines         *[]createIncomeTemplateLineInput `json:"lines"`
+}
+
+// APIIncomeTemplateUpdate implements PATCH /api/v1/income-templates/:id.
+func (h *Handlers) APIIncomeTemplateUpdate(c echo.Context) error {
+	if h.DB == nil {
+		return mw.WriteAPIError(c, http.StatusServiceUnavailable,
+			mw.APIErrorCodeServiceUnavailable,
+			"data layer not configured (DATABASE_URL unset)")
+	}
+
+	templateID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return mw.WriteAPIError(c, http.StatusBadRequest,
+			mw.APIErrorCodeValidation, "id must be a valid UUID")
+	}
+
+	var req updateIncomeTemplateRequest
+	if err := decodeJSONStrict(c.Request().Body, &req); err != nil {
+		return mw.WriteAPIError(c, http.StatusBadRequest,
+			mw.APIErrorCodeValidation, "invalid JSON body: "+err.Error())
+	}
+	if req.Name != nil && strings.TrimSpace(*req.Name) == "" {
+		return mw.WriteAPIError(c, http.StatusBadRequest,
+			mw.APIErrorCodeValidation, "name must not be empty")
+	}
+	if req.Lines != nil {
+		if len(*req.Lines) == 0 {
+			return mw.WriteAPIError(c, http.StatusBadRequest,
+				mw.APIErrorCodeValidation, "at least one line is required")
+		}
+		if _, msg := validateTemplateLines(*req.Lines); msg != nil {
+			return mw.WriteAPIError(c, http.StatusBadRequest,
+				mw.APIErrorCodeValidation, *msg)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
+	defer cancel()
+	q := dbq.New(h.DB)
+
+	tmpl, err := q.GetIncomeTemplate(ctx, pgtype.UUID{Bytes: templateID, Valid: true})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return mw.WriteAPIError(c, http.StatusNotFound,
+				mw.APIErrorCodeNotFound, "income template not found")
+		}
+		c.Logger().Errorf("api update template: get: %v", err)
+		return mw.WriteAPIError(c, http.StatusInternalServerError,
+			mw.APIErrorCodeInternal, "failed to load income template")
+	}
+
+	name := tmpl.Name
+	if req.Name != nil {
+		name = strings.TrimSpace(*req.Name)
+	}
+	leftoverParam := tmpl.LeftoverPosID
+	if req.LeftoverPosID != nil {
+		leftoverParam = pgtype.UUID{}
+		if strings.TrimSpace(*req.LeftoverPosID) != "" {
+			id, err := uuid.Parse(strings.TrimSpace(*req.LeftoverPosID))
+			if err != nil {
+				return mw.WriteAPIError(c, http.StatusBadRequest,
+					mw.APIErrorCodeValidation, "leftover_pos_id must be a valid UUID")
+			}
+			leftoverParam = pgtype.UUID{Bytes: id, Valid: true}
+		}
+	}
+
+	tx, err := h.DB.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		c.Logger().Errorf("begin tx: %v", err)
+		return mw.WriteAPIError(c, http.StatusInternalServerError,
+			mw.APIErrorCodeInternal, "could not start transaction")
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	tq := dbq.New(tx)
+
+	if err := tq.UpdateIncomeTemplate(ctx, dbq.UpdateIncomeTemplateParams{
+		ID: tmpl.ID, Name: name, LeftoverPosID: leftoverParam,
+	}); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return mw.WriteAPIError(c, http.StatusConflict,
+				mw.APIErrorCodeConflict,
+				"an income template with that name already exists")
+		}
+		c.Logger().Errorf("api update template: %v", err)
+		return mw.WriteAPIError(c, http.StatusInternalServerError,
+			mw.APIErrorCodeInternal, "failed to update income template")
+	}
+
+	if req.Lines != nil {
+		if err := tq.DeleteIncomeTemplateLinesByTemplate(ctx, tmpl.ID); err != nil {
+			c.Logger().Errorf("clear lines: %v", err)
+			return mw.WriteAPIError(c, http.StatusInternalServerError,
+				mw.APIErrorCodeInternal, "failed to replace template lines")
+		}
+		for _, l := range *req.Lines {
+			posID, _ := uuid.Parse(l.PosID)
+			if _, err := tq.AddIncomeTemplateLine(ctx, dbq.AddIncomeTemplateLineParams{
+				TemplateID: tmpl.ID,
+				PosID:      pgtype.UUID{Bytes: posID, Valid: true},
+				Amount:     l.Amount,
+				PercentBps: l.PercentBps,
+				SortOrder:  l.SortOrder,
+			}); err != nil {
+				var pgErr *pgconn.PgError
+				if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+					return mw.WriteAPIError(c, http.StatusConflict,
+						mw.APIErrorCodeConflict,
+						"duplicate Pos in template lines")
+				}
+				c.Logger().Errorf("add line: %v", err)
+				return mw.WriteAPIError(c, http.StatusInternalServerError,
+					mw.APIErrorCodeInternal, "failed to add template line")
+			}
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		c.Logger().Errorf("commit: %v", err)
+		return mw.WriteAPIError(c, http.StatusInternalServerError,
+			mw.APIErrorCodeInternal, "failed to commit template")
+	}
+	committed = true
+
+	updated, err := q.GetIncomeTemplate(ctx, tmpl.ID)
+	if err != nil {
+		c.Logger().Errorf("reload template: %v", err)
+		return mw.WriteAPIError(c, http.StatusInternalServerError,
+			mw.APIErrorCodeInternal, "failed to reload income template")
+	}
+	lineRows, err := q.ListIncomeTemplateLines(ctx, tmpl.ID)
+	if err != nil {
+		c.Logger().Errorf("reload lines: %v", err)
+		return mw.WriteAPIError(c, http.StatusInternalServerError,
+			mw.APIErrorCodeInternal, "failed to reload template lines")
+	}
+	return c.JSON(http.StatusOK, apiTemplateFromRows(updated, lineRows))
+}
+
+// previewIncomeTemplateRequest is the body for POST
+// /api/v1/income-templates/:id/preview. Pure computation — no rows
+// are written, no counterparty is resolved.
+type previewIncomeTemplateRequest struct {
+	Amount int64 `json:"amount"`
+}
+
+// APIIncomeTemplatePreview implements POST
+// /api/v1/income-templates/:id/preview. Runs the template's Apply
+// logic for the given amount and returns the suggested split so an
+// API caller can show it before POSTing /apply.
+func (h *Handlers) APIIncomeTemplatePreview(c echo.Context) error {
+	if h.DB == nil {
+		return mw.WriteAPIError(c, http.StatusServiceUnavailable,
+			mw.APIErrorCodeServiceUnavailable,
+			"data layer not configured (DATABASE_URL unset)")
+	}
+
+	templateID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return mw.WriteAPIError(c, http.StatusBadRequest,
+			mw.APIErrorCodeValidation, "id must be a valid UUID")
+	}
+
+	var req previewIncomeTemplateRequest
+	if err := decodeJSONStrict(c.Request().Body, &req); err != nil {
+		return mw.WriteAPIError(c, http.StatusBadRequest,
+			mw.APIErrorCodeValidation, "invalid JSON body: "+err.Error())
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
+	defer cancel()
+	q := dbq.New(h.DB)
+
+	tmpl, err := q.GetIncomeTemplate(ctx, pgtype.UUID{Bytes: templateID, Valid: true})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return mw.WriteAPIError(c, http.StatusNotFound,
+				mw.APIErrorCodeNotFound, "income template not found")
+		}
+		c.Logger().Errorf("api preview: get template: %v", err)
+		return mw.WriteAPIError(c, http.StatusInternalServerError,
+			mw.APIErrorCodeInternal, "failed to load income template")
+	}
+	lineRows, err := q.ListIncomeTemplateLines(ctx, tmpl.ID)
+	if err != nil {
+		c.Logger().Errorf("api preview: list lines: %v", err)
+		return mw.WriteAPIError(c, http.StatusInternalServerError,
+			mw.APIErrorCodeInternal, "failed to load template lines")
+	}
+
+	logicTmpl := logicTemplateFromRows(tmpl, lineRows)
+	allocations, err := logictpl.Apply(logicTmpl, req.Amount)
+	if err != nil {
+		return applyLogicError(c, err)
+	}
+
+	var total int64
+	for _, a := range allocations {
+		total += a.Amount
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"template_id": logicTmpl.ID,
+		"amount":      req.Amount,
+		"total":       total,
+		"allocations": allocations,
+	})
+}
+
+// logicTemplateFromRows folds DB rows into the pure logic shape so
+// preview and apply share one mapping.
+func logicTemplateFromRows(tmpl dbq.IncomeTemplate, lineRows []dbq.IncomeTemplateLine) logictpl.Template {
+	out := logictpl.Template{
+		ID:    uuid.UUID(tmpl.ID.Bytes).String(),
+		Name:  tmpl.Name,
+		Lines: make([]logictpl.Line, 0, len(lineRows)),
+	}
+	if tmpl.LeftoverPosID.Valid {
+		out.LeftoverPosID = uuid.UUID(tmpl.LeftoverPosID.Bytes).String()
+		out.HasLeftoverPos = true
+	}
+	for _, l := range lineRows {
+		line := logictpl.Line{
+			ID:     uuid.UUID(l.ID.Bytes).String(),
+			PosID:  uuid.UUID(l.PosID.Bytes).String(),
+			Amount: l.Amount,
+		}
+		if l.PercentBps != nil {
+			line.PercentBps = int(*l.PercentBps)
+		}
+		out.Lines = append(out.Lines, line)
+	}
+	return out
+}
+
+// apiTemplateFromRows folds DB rows into the JSON shape so list,
+// create, and update share one mapping.
+func apiTemplateFromRows(tmpl dbq.IncomeTemplate, lineRows []dbq.IncomeTemplateLine) APIIncomeTemplate {
+	out := APIIncomeTemplate{
+		ID:        uuid.UUID(tmpl.ID.Bytes).String(),
+		Name:      tmpl.Name,
+		Archived:  tmpl.Archived,
+		CreatedAt: tmpl.CreatedAt.Time,
+		Lines:     []APIIncomeTemplateLine{},
+	}
+	if tmpl.LeftoverPosID.Valid {
+		out.LeftoverPosID = uuid.UUID(tmpl.LeftoverPosID.Bytes).String()
+	}
+	for _, l := range lineRows {
+		out.Lines = append(out.Lines, APIIncomeTemplateLine{
+			ID:         uuid.UUID(l.ID.Bytes).String(),
+			PosID:      uuid.UUID(l.PosID.Bytes).String(),
+			Amount:     l.Amount,
+			PercentBps: l.PercentBps,
+			SortOrder:  l.SortOrder,
+			CreatedAt:  l.CreatedAt.Time,
+		})
+	}
+	return out
+}
+
 // itoa avoids strconv import for the small per-line index we render.
+func applyLogicError(c echo.Context, err error) error {
+	switch {
+	case errors.Is(err, logictpl.ErrAmountBelowTemplate):
+		return mw.WriteAPIError(c, http.StatusBadRequest,
+			mw.APIErrorCodeValidation,
+			"amount is less than the sum of template lines")
+	case errors.Is(err, logictpl.ErrAmountExceedsTemplate):
+		return mw.WriteAPIError(c, http.StatusBadRequest,
+			mw.APIErrorCodeValidation,
+			"amount exceeds template total and template has no leftover Pos configured")
+	case errors.Is(err, logictpl.ErrEmptyTemplate):
+		return mw.WriteAPIError(c, http.StatusBadRequest,
+			mw.APIErrorCodeValidation, "template has no lines")
+	case errors.Is(err, logictpl.ErrNonPositiveAmount):
+		return mw.WriteAPIError(c, http.StatusBadRequest,
+			mw.APIErrorCodeValidation, "amount must be positive")
+	case errors.Is(err, logictpl.ErrInvalidPercent):
+		return mw.WriteAPIError(c, http.StatusBadRequest,
+			mw.APIErrorCodeValidation,
+			"template has a line with percent_bps outside 1..10000")
+	case errors.Is(err, logictpl.ErrPercentTotalExceeds):
+		return mw.WriteAPIError(c, http.StatusBadRequest,
+			mw.APIErrorCodeValidation,
+			"template total percent exceeds 100%")
+	case errors.Is(err, logictpl.ErrInvalidLine):
+		return mw.WriteAPIError(c, http.StatusBadRequest,
+			mw.APIErrorCodeValidation,
+			"template has a line with neither a positive amount nor a percent")
+	default:
+		c.Logger().Errorf("apply: %v", err)
+		return mw.WriteAPIError(c, http.StatusInternalServerError,
+			mw.APIErrorCodeInternal, "apply failed")
+	}
+}
 func itoa(n int) string {
 	if n == 0 {
 		return "0"

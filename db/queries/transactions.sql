@@ -109,17 +109,23 @@ GROUP BY p.currency;
 
 -- name: SumPosCashBalances :many
 -- Per-pos cash balance: signed sum of money_in / money_out pos_amount per
--- (pos_id, currency). inter_pos lines are not yet wired (Phase 7+) so they
--- contribute zero. Currency comes from pos.currency since money_in/_out
--- always denominate pos_amount in the pos's currency (§4.3 / §5.1).
+-- (pos_id, currency) PLUS inter_pos legs (out subtracts, in adds).
+-- inter_pos nets to zero per currency (§10.6), so the §10.5 IDR
+-- reconciliation still holds. Currency comes from pos.currency since
+-- money_in/_out always denominate pos_amount in the pos's currency
+-- (§4.3 / §5.1) and line currency must match the pos (validated in
+-- logic/transaction).
 SELECT
     p.id,
     p.currency,
-    COALESCE(SUM(CASE
+    (COALESCE(SUM(CASE
         WHEN t.type = 'money_in'  THEN t.pos_amount
         WHEN t.type = 'money_out' THEN -t.pos_amount
         ELSE 0
-    END), 0)::bigint AS balance
+    END), 0) + COALESCE((
+        SELECT SUM(CASE WHEN l.direction = 'in' THEN l.amount ELSE -l.amount END)
+        FROM inter_pos_lines l WHERE l.pos_id = p.id
+    ), 0))::bigint AS balance
 FROM pos p
 LEFT JOIN transactions t ON t.pos_id = p.id
 WHERE NOT p.archived
@@ -127,13 +133,15 @@ GROUP BY p.id, p.currency;
 
 -- name: GetPosCashBalance :one
 -- Single-pos variant of SumPosCashBalances for the §6.3 detail view.
-SELECT COALESCE(SUM(CASE
-    WHEN type = 'money_in'  THEN pos_amount
-    WHEN type = 'money_out' THEN -pos_amount
-    ELSE 0
-END), 0)::bigint AS balance
-FROM transactions
-WHERE pos_id = $1;
+-- Includes inter_pos legs (same net-zero-per-currency reasoning). Two
+-- scalar subqueries (no outer FROM) so the shared `pos_id` name never
+-- needs scope disambiguation.
+SELECT ((SELECT COALESCE(SUM(CASE
+    WHEN t.type = 'money_in'  THEN t.pos_amount
+    WHEN t.type = 'money_out' THEN -t.pos_amount
+    ELSE 0 END), 0) FROM transactions AS t WHERE t.pos_id = $1)
+ + (SELECT COALESCE(SUM(CASE WHEN l.direction = 'in' THEN l.amount ELSE -l.amount END), 0)
+    FROM inter_pos_lines AS l WHERE l.pos_id = $1))::bigint AS balance;
 
 -- name: ListObligationsForPos :many
 -- Open obligations where this pos is creditor (money it's owed) or

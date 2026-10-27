@@ -15,8 +15,8 @@ ORDER BY name;
 UPDATE income_template SET archived = true WHERE id = $1;
 
 -- name: AddIncomeTemplateLine :one
-INSERT INTO income_template_line (template_id, pos_id, amount, sort_order)
-VALUES ($1, $2, $3, $4)
+INSERT INTO income_template_line (template_id, pos_id, amount, percent_bps, sort_order)
+VALUES ($1, $2, $3, $4, $5)
 RETURNING *;
 
 -- name: ListIncomeTemplateLines :many

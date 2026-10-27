@@ -1,0 +1,29 @@
+-- name: InsertInterPosTransaction :one
+-- Insert an inter_pos header (type='inter_pos' + mode). Money columns
+-- stay NULL per the transactions_shape_check (0008): amounts live on
+-- inter_pos_lines. Idempotency mirrors InsertMoneyTransaction: ON
+-- CONFLICT returns the existing row with was_inserted=false so the
+-- caller can compare-and-replay (409 on payload mismatch) instead of
+-- duplicating lines, obligations, or notifications (spec §10.8).
+INSERT INTO transactions (type, mode, effective_date, note, source, created_by, idempotency_key)
+VALUES ('inter_pos', $1, $2, $3, $4, $5, $6)
+ON CONFLICT (idempotency_key)
+DO UPDATE SET idempotency_key = transactions.idempotency_key  -- no-op so RETURNING fires
+RETURNING transactions.id, transactions.mode, transactions.effective_date,
+    transactions.note, transactions.source, transactions.created_by,
+    transactions.idempotency_key, transactions.created_at, (xmax = 0) AS was_inserted;
+
+-- name: InsertInterPosLine :one
+-- One leg of an inter_pos transfer. Inserted in request order inside
+-- the same DB tx as the header (ledger.Service.InsertInterPos).
+INSERT INTO inter_pos_lines (transaction_id, pos_id, direction, amount, currency)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING *;
+
+-- name: ListInterPosLinesByTransaction :many
+-- Legs of one transfer in insertion order, for replay comparison
+-- (idempotent re-submit) and response building.
+SELECT id, transaction_id, pos_id, direction, amount, currency, created_at
+FROM inter_pos_lines
+WHERE transaction_id = $1
+ORDER BY created_at, id;

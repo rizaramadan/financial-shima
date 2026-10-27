@@ -104,7 +104,7 @@ func (h *Handlers) IncomeTemplateNewPost(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, "database not configured")
 	}
 
-	render := func(errs []string, name, leftover string, posIDs []string, amounts []string) error {
+	render := func(errs []string, name, leftover string, posIDs []string, amounts []string, percents []string) error {
 		ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
 		defer cancel()
 		q := dbq.New(h.DB)
@@ -119,7 +119,7 @@ func (h *Handlers) IncomeTemplateNewPost(c echo.Context) error {
 		var lines []template.IncomeTemplateLineInput
 		for i := range posIDs {
 			lines = append(lines, template.IncomeTemplateLineInput{
-				PosID: posIDs[i], Amount: amounts[i],
+				PosID: posIDs[i], Amount: amounts[i], Percent: percents[i],
 			})
 		}
 		return c.Render(http.StatusOK, "income_template_new", template.IncomeTemplateNewData{
@@ -142,9 +142,11 @@ func (h *Handlers) IncomeTemplateNewPost(c echo.Context) error {
 	}
 	posIDs := make([]string, lineCount)
 	amounts := make([]string, lineCount)
+	percents := make([]string, lineCount)
 	for i := 0; i < lineCount; i++ {
 		posIDs[i] = strings.TrimSpace(c.FormValue("pos_id_" + strconv.Itoa(i)))
 		amounts[i] = strings.TrimSpace(c.FormValue("amount_" + strconv.Itoa(i)))
+		percents[i] = strings.TrimSpace(c.FormValue("percent_" + strconv.Itoa(i)))
 	}
 
 	var errs []string
@@ -152,38 +154,27 @@ func (h *Handlers) IncomeTemplateNewPost(c echo.Context) error {
 		errs = append(errs, "Name is required.")
 	}
 
-	type lineParsed struct {
-		PosID  uuid.UUID
-		Amount int64
-		Sort   int32
-	}
 	var parsedLines []lineParsed
+	var totalBps int64
 	for i := 0; i < lineCount; i++ {
-		if posIDs[i] == "" && amounts[i] == "" {
-			continue // empty row — skip
-		}
-		if posIDs[i] == "" {
-			errs = append(errs, "Line "+strconv.Itoa(i+1)+": Pos is required.")
+		parsed, msg := parseTemplateLineRow(posIDs[i], amounts[i], percents[i], i)
+		if msg != nil {
+			errs = append(errs, *msg)
 			continue
 		}
-		if amounts[i] == "" {
-			errs = append(errs, "Line "+strconv.Itoa(i+1)+": Amount is required.")
+		if parsed == nil {
 			continue
 		}
-		pid, err := uuid.Parse(posIDs[i])
-		if err != nil {
-			errs = append(errs, "Line "+strconv.Itoa(i+1)+": invalid Pos.")
-			continue
+		parsedLines = append(parsedLines, *parsed)
+		if parsed.PercentBps != nil {
+			totalBps += int64(*parsed.PercentBps)
 		}
-		amt, err := parseAmount(amounts[i])
-		if err != nil || amt <= 0 {
-			errs = append(errs, "Line "+strconv.Itoa(i+1)+": amount must be a positive whole number.")
-			continue
-		}
-		parsedLines = append(parsedLines, lineParsed{PosID: pid, Amount: amt, Sort: int32(i)})
+	}
+	if totalBps > 10000 {
+		errs = append(errs, "Total percent exceeds 100%.")
 	}
 	if len(parsedLines) == 0 && len(errs) == 0 {
-		errs = append(errs, "Add at least one line (Pos + amount).")
+		errs = append(errs, "Add at least one line (Pos + amount and/or percent).")
 	}
 
 	var leftoverParam pgtype.UUID
@@ -197,14 +188,14 @@ func (h *Handlers) IncomeTemplateNewPost(c echo.Context) error {
 	}
 
 	if len(errs) > 0 {
-		return render(errs, name, leftover, posIDs, amounts)
+		return render(errs, name, leftover, posIDs, amounts, percents)
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
 	defer cancel()
 	tx, err := h.DB.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
-		return render([]string{"Database error. Try again."}, name, leftover, posIDs, amounts)
+		return render([]string{"Database error. Try again."}, name, leftover, posIDs, amounts, percents)
 	}
 	committed := false
 	defer func() {
@@ -219,28 +210,29 @@ func (h *Handlers) IncomeTemplateNewPost(c echo.Context) error {
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return render([]string{"A template with that name already exists."}, name, leftover, posIDs, amounts)
+			return render([]string{"A template with that name already exists."}, name, leftover, posIDs, amounts, percents)
 		}
 		c.Logger().Errorf("create template: %v", err)
-		return render([]string{"Could not save template."}, name, leftover, posIDs, amounts)
+		return render([]string{"Could not save template."}, name, leftover, posIDs, amounts, percents)
 	}
 	for _, l := range parsedLines {
 		if _, err := q.AddIncomeTemplateLine(ctx, dbq.AddIncomeTemplateLineParams{
 			TemplateID: tmpl.ID,
 			PosID:      pgtype.UUID{Bytes: l.PosID, Valid: true},
 			Amount:     l.Amount,
+			PercentBps: l.PercentBps,
 			SortOrder:  l.Sort,
 		}); err != nil {
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-				return render([]string{"Duplicate Pos in template lines."}, name, leftover, posIDs, amounts)
+				return render([]string{"Duplicate Pos in template lines."}, name, leftover, posIDs, amounts, percents)
 			}
 			c.Logger().Errorf("add line: %v", err)
-			return render([]string{"Could not save line."}, name, leftover, posIDs, amounts)
+			return render([]string{"Could not save line."}, name, leftover, posIDs, amounts, percents)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return render([]string{"Database error on commit."}, name, leftover, posIDs, amounts)
+		return render([]string{"Database error on commit."}, name, leftover, posIDs, amounts, percents)
 	}
 	committed = true
 	return c.Redirect(http.StatusSeeOther, "/income-templates/"+uuid.UUID(tmpl.ID.Bytes).String())
@@ -307,11 +299,18 @@ func (h *Handlers) IncomeTemplateGet(c echo.Context) error {
 	}
 	for _, l := range lineRows {
 		opt := posByID[uuid.UUID(l.PosID.Bytes).String()]
-		data.Lines = append(data.Lines, template.IncomeTemplateLineRow{
+		row := template.IncomeTemplateLineRow{
 			PosID: opt.ID, PosName: opt.Name, PosCurrency: opt.Currency, Amount: l.Amount,
-		})
+		}
+		if l.PercentBps != nil {
+			row.PercentBps = *l.PercentBps
+			row.PercentLabel = formatPercentBps(*l.PercentBps)
+			data.TotalPercentBps += *l.PercentBps
+		}
+		data.Lines = append(data.Lines, row)
 		data.LinesTotal += l.Amount
 	}
+	data.TotalPercentLabel = formatPercentBps(data.TotalPercentBps)
 	// Surface a flash message on apply success / failure
 	if msg := c.QueryParam("flash"); msg != "" {
 		data.Flash = msg
@@ -350,40 +349,30 @@ func (h *Handlers) IncomeTemplateEditPost(c echo.Context) error {
 		errs = append(errs, "Name is required.")
 	}
 
-	type lineParsed struct {
-		PosID  uuid.UUID
-		Amount int64
-		Sort   int32
-	}
 	var parsedLines []lineParsed
+	var totalBps int64
 	for i := 0; i < lineCount; i++ {
 		posStr := strings.TrimSpace(c.FormValue("pos_id_" + strconv.Itoa(i)))
 		amtStr := strings.TrimSpace(c.FormValue("amount_" + strconv.Itoa(i)))
-		if posStr == "" && amtStr == "" {
+		pctStr := strings.TrimSpace(c.FormValue("percent_" + strconv.Itoa(i)))
+		parsed, msg := parseTemplateLineRow(posStr, amtStr, pctStr, i)
+		if msg != nil {
+			errs = append(errs, *msg)
 			continue
 		}
-		if posStr == "" {
-			errs = append(errs, "Line "+strconv.Itoa(i+1)+": Pos is required.")
+		if parsed == nil {
 			continue
 		}
-		if amtStr == "" {
-			errs = append(errs, "Line "+strconv.Itoa(i+1)+": Amount is required.")
-			continue
+		parsedLines = append(parsedLines, *parsed)
+		if parsed.PercentBps != nil {
+			totalBps += int64(*parsed.PercentBps)
 		}
-		pid, err := uuid.Parse(posStr)
-		if err != nil {
-			errs = append(errs, "Line "+strconv.Itoa(i+1)+": invalid Pos.")
-			continue
-		}
-		amt, err := parseAmount(amtStr)
-		if err != nil || amt <= 0 {
-			errs = append(errs, "Line "+strconv.Itoa(i+1)+": amount must be a positive whole number.")
-			continue
-		}
-		parsedLines = append(parsedLines, lineParsed{PosID: pid, Amount: amt, Sort: int32(i)})
+	}
+	if totalBps > 10000 {
+		errs = append(errs, "Total percent exceeds 100%.")
 	}
 	if len(parsedLines) == 0 && len(errs) == 0 {
-		errs = append(errs, "Add at least one line (Pos + amount).")
+		errs = append(errs, "Add at least one line (Pos + amount and/or percent).")
 	}
 
 	var leftoverParam pgtype.UUID
@@ -435,6 +424,7 @@ func (h *Handlers) IncomeTemplateEditPost(c echo.Context) error {
 			TemplateID: pgID,
 			PosID:      pgtype.UUID{Bytes: l.PosID, Valid: true},
 			Amount:     l.Amount,
+			PercentBps: l.PercentBps,
 			SortOrder:  l.Sort,
 		}); err != nil {
 			var pgErr *pgconn.PgError
@@ -521,11 +511,15 @@ func (h *Handlers) IncomeTemplatePreviewPost(c echo.Context) error {
 		logicTmpl.HasLeftoverPos = true
 	}
 	for _, l := range lineRows {
-		logicTmpl.Lines = append(logicTmpl.Lines, logictpl.Line{
+		line := logictpl.Line{
 			ID:     uuid.UUID(l.ID.Bytes).String(),
 			PosID:  uuid.UUID(l.PosID.Bytes).String(),
 			Amount: l.Amount,
-		})
+		}
+		if l.PercentBps != nil {
+			line.PercentBps = int(*l.PercentBps)
+		}
+		logicTmpl.Lines = append(logicTmpl.Lines, line)
 	}
 	allocations, allocErr := logictpl.Apply(logicTmpl, amount)
 	// allocErr is informational here — even if Apply rejects (e.g.
@@ -789,4 +783,85 @@ func parseOptUUID(s string) *uuid.UUID {
 		return nil
 	}
 	return &id
+}
+
+// lineParsed is one validated template line from the new/edit form.
+type lineParsed struct {
+	PosID      uuid.UUID
+	Amount     int64
+	PercentBps *int32
+	Sort       int32
+}
+
+// parseTemplateLineRow validates one (pos, amount, percent) form row.
+// All three blank means "skip this row" (returns nil, nil). A fixed
+// line needs amount > 0; a percent line needs percent 1..100% and
+// may carry amount 0. Total-percent capping happens at the caller.
+func parseTemplateLineRow(posStr, amtStr, pctStr string, idx int) (*lineParsed, *string) {
+	row := "Line " + strconv.Itoa(idx+1) + ": "
+	if posStr == "" && amtStr == "" && pctStr == "" {
+		return nil, nil // empty row — skip
+	}
+	if posStr == "" {
+		msg := row + "Pos is required."
+		return nil, &msg
+	}
+	pid, err := uuid.Parse(posStr)
+	if err != nil {
+		msg := row + "invalid Pos."
+		return nil, &msg
+	}
+	var amt int64
+	if amtStr != "" {
+		amt, err = parseAmount(amtStr)
+		if err != nil || amt < 0 {
+			msg := row + "amount must be a positive whole number."
+			return nil, &msg
+		}
+	}
+	bps, hasPct, err := parsePercentBps(pctStr)
+	if err != nil {
+		msg := row + "percent must look like 60 or 62.5%."
+		return nil, &msg
+	}
+	if amt == 0 && !hasPct {
+		msg := row + "needs an amount, a percent, or both."
+		return nil, &msg
+	}
+	out := &lineParsed{PosID: pid, Amount: amt, Sort: int32(idx)}
+	if hasPct {
+		out.PercentBps = &bps
+	}
+	return out, nil
+}
+
+// parsePercentBps parses a human percent ("60", "60%", "62.5") into
+// basis points. Empty means "no percent part".
+func parsePercentBps(s string) (int32, bool, error) {
+	s = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(s), "%"))
+	if s == "" {
+		return 0, false, nil
+	}
+	s = strings.ReplaceAll(s, ",", ".")
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || f <= 0 || f > 100 {
+		return 0, false, errors.New("percent must be between 0 and 100")
+	}
+	bps := int32(f*100 + 0.5)
+	if bps < 1 || bps > 10000 {
+		return 0, false, errors.New("percent must be between 0 and 100")
+	}
+	return bps, true, nil
+}
+
+// formatPercentBps renders basis points for the form ("60%", "62.5%").
+func formatPercentBps(bps int32) string {
+	if bps == 0 {
+		return ""
+	}
+	if bps%100 == 0 {
+		return strconv.FormatInt(int64(bps/100), 10) + "%"
+	}
+	return strings.TrimRight(strings.TrimRight(
+		strconv.FormatFloat(float64(bps)/100, 'f', 2, 64), "0"), ".") + "%"
 }
