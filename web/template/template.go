@@ -2639,6 +2639,7 @@ const pivotBody = `<header class="page-head">
     <h1>Pivot Roll-forward</h1>
   </div>
   <div class="page-head-actions">
+    <button type="button" class="linkbtn" id="pivot-toggle" aria-expanded="false" aria-controls="pivot-filters">Show filters</button>
     <button type="button" class="linkbtn" id="pivot-reset-top">Reset filters</button>
   </div>
 </header>
@@ -2649,6 +2650,31 @@ const pivotBody = `<header class="page-head">
 <p class="alert" role="alert">Some data could not be loaded. The view may be incomplete.</p>
 {{end}}
 
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Report</span>
+    <span class="section-card-meta" id="pivot-count"></span>
+  </div>
+  <div class="table-wrap pivot-wrap"><table class="pivot-table">
+    <thead><tr><th>Akun</th><th>Kategori</th><th>Nama</th><th class="num">Amount</th></tr></thead>
+    <tbody id="pivot-body"></tbody>
+    <tfoot id="pivot-foot"></tfoot>
+  </table></div>
+  <div class="empty-state" id="pivot-empty-state" hidden>
+    <svg viewBox="0 0 64 41" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <ellipse cx="32" cy="33" rx="32" ry="7" fill="currentColor" opacity="0.08"/>
+      <rect x="14" y="6" width="36" height="24" rx="2" stroke="currentColor" stroke-width="1" fill="none" opacity="0.5"/>
+      <rect x="20" y="20" width="4" height="6" fill="currentColor" opacity="0.25"/>
+      <rect x="28" y="14" width="4" height="12" fill="currentColor" opacity="0.25"/>
+      <rect x="36" y="10" width="4" height="16" fill="currentColor" opacity="0.25"/>
+      <rect x="44" y="22" width="4" height="4" fill="currentColor" opacity="0.25"/>
+    </svg>
+    <p class="empty-state-text">No movements match the current filters.</p>
+    <p class="empty-state-action"><button type="button" class="linkbtn" id="pivot-reset-empty">Reset filters</button></p>
+  </div>
+</section>
+
+<div id="pivot-filters" hidden>
 <section class="section-card">
   <div class="section-card-head">
     <span class="section-card-title">Akun</span>
@@ -2731,30 +2757,7 @@ const pivotBody = `<header class="page-head">
     </div>
   </div>
 </section>
-
-<section class="section-card">
-  <div class="section-card-head">
-    <span class="section-card-title">Report</span>
-    <span class="section-card-meta" id="pivot-count"></span>
-  </div>
-  <div class="table-wrap pivot-wrap"><table class="pivot-table">
-    <thead><tr><th>Akun</th><th>Kategori</th><th>Nama</th><th class="num">Amount</th></tr></thead>
-    <tbody id="pivot-body"></tbody>
-    <tfoot id="pivot-foot"></tfoot>
-  </table></div>
-  <div class="empty-state" id="pivot-empty-state" hidden>
-    <svg viewBox="0 0 64 41" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <ellipse cx="32" cy="33" rx="32" ry="7" fill="currentColor" opacity="0.08"/>
-      <rect x="14" y="6" width="36" height="24" rx="2" stroke="currentColor" stroke-width="1" fill="none" opacity="0.5"/>
-      <rect x="20" y="20" width="4" height="6" fill="currentColor" opacity="0.25"/>
-      <rect x="28" y="14" width="4" height="12" fill="currentColor" opacity="0.25"/>
-      <rect x="36" y="10" width="4" height="16" fill="currentColor" opacity="0.25"/>
-      <rect x="44" y="22" width="4" height="4" fill="currentColor" opacity="0.25"/>
-    </svg>
-    <p class="empty-state-text">No movements match the current filters.</p>
-    <p class="empty-state-action"><button type="button" class="linkbtn" id="pivot-reset-empty">Reset filters</button></p>
-  </div>
-</section>
+</div>
 
 <script type="application/json" id="pivot-data">{{.DataJSON}}</script>
 <script>
@@ -2772,7 +2775,7 @@ const pivotBody = `<header class="page-head">
   Object.keys(knownAkun).forEach(function(id){ akun[id] = true; });
   Object.keys(knownKat).forEach(function(id){ kat[id] = true; });
   var state = {preset: 'all', from: '', to: '', type: 'all', q: '',
-    showEmpty: false, showAkunTotal: true, sort: 'date', collapsed: {}};
+    showEmpty: false, showAkunTotal: true, sort: 'date', collapsed: {}, showFilters: false};
   var lastVisibleKats = [];
 
   function $(s){ return document.querySelector(s); }
@@ -2799,6 +2802,7 @@ const pivotBody = `<header class="page-head">
     state.showEmpty = p.get('empty') === '1';
     state.showAkunTotal = p.get('akuntotal') !== '0';
     if (p.get('sort') === 'amount') state.sort = 'amount';
+    state.showFilters = p.get('filters') === '1';
     state.collapsed = {};
     (p.get('collapsed') || '').split(',').forEach(function(id){
       if (knownKat[id]) state.collapsed[id] = true;
@@ -2920,6 +2924,7 @@ const pivotBody = `<header class="page-head">
     if (state.showEmpty) p.set('empty', '1');
     if (!state.showAkunTotal) p.set('akuntotal', '0');
     if (state.sort !== 'date') p.set('sort', state.sort);
+    if (state.showFilters) p.set('filters', '1');
     var c = Object.keys(state.collapsed).filter(function(id){ return state.collapsed[id]; });
     if (c.length) p.set('collapsed', c.join(','));
     var s = p.toString();
@@ -2944,6 +2949,13 @@ const pivotBody = `<header class="page-head">
     if (document.activeElement !== $('#pivot-q')) $('#pivot-q').value = state.q;
     $('#pivot-empty').checked = state.showEmpty;
     $('#pivot-akuntotal').checked = state.showAkunTotal;
+    var fw = $('#pivot-filters');
+    if (fw) fw.hidden = !state.showFilters;
+    var tg = $('#pivot-toggle');
+    if (tg) {
+      tg.textContent = state.showFilters ? 'Hide filters' : 'Show filters';
+      tg.setAttribute('aria-expanded', state.showFilters ? 'true' : 'false');
+    }
     paintKatGrey();
   }
 
@@ -3112,10 +3124,14 @@ const pivotBody = `<header class="page-head">
     kat = {};
     Object.keys(knownKat).forEach(function(id){ kat[id] = true; });
     state = {preset: 'all', from: '', to: '', type: 'all', q: '',
-      showEmpty: false, showAkunTotal: true, sort: 'date', collapsed: {}};
+      showEmpty: false, showAkunTotal: true, sort: 'date', collapsed: {}, showFilters: false};
     $('#pivot-q').value = '';
     paintControls(); render();
   }
+  $('#pivot-toggle').addEventListener('click', function(){
+    state.showFilters = !state.showFilters;
+    paintControls(); syncURL();
+  });
   $('#pivot-reset-top').addEventListener('click', resetState);
   $('#pivot-reset-empty').addEventListener('click', resetState);
 

@@ -69,6 +69,9 @@ func TestPivotGet_NilPool_RendersFiltersAndEmptyStateScaffolding(t *testing.T) {
 		`id="pivot-body"`,
 		`id="pivot-foot"`,
 		`id="pivot-data"`,
+		`id="pivot-filters" hidden`,
+		`id="pivot-toggle"`,
+		`Show filters`,
 		`No movements match the current filters`,
 		`Reset filters`,
 		`>Akun</th><th>Kategori</th><th>Nama</th>`,
@@ -90,6 +93,10 @@ func TestPivotGet_NilPool_RendersFiltersAndEmptyStateScaffolding(t *testing.T) {
 	}
 	if !strings.Contains(body, `href="/notifications"`) {
 		t.Error("nav missing Notifications link on pivot page")
+	}
+	// Report renders before the (hidden) filter panels.
+	if strings.Index(body, `id="pivot-body"`) > strings.Index(body, `id="pivot-filters"`) {
+		t.Error("report table should come before the filter panels in source order")
 	}
 	// Empty dataset encodes as empty arrays so the client boots clean.
 	if !strings.Contains(body, `{"accounts":[],"movements":[],"positions":[]}`) &&
