@@ -3,6 +3,7 @@ tmp/
 *.exe
 old/
 .claude/
+.openchamber/
 .ive_dump/
 /server
 scripts/playwright/node_modules/
