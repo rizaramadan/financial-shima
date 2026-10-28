@@ -113,23 +113,29 @@ func (h *Handlers) TransactionNewPost(c echo.Context) error {
 	defer cancel()
 	q := dbq.New(h.DB)
 
-	// Resolve the typed Pos label → row. Web form is IDR-only and the
-	// (name, currency) UNIQUE index makes the name unambiguous within
-	// IDR. Match case-insensitively so the typeahead value doesn't have
-	// to round-trip exact casing.
+	// Resolve the typed Pos label → row. Web form is IDR-only. Pos names
+	// are UNIQUE per (name, currency, account_id), so the same name may
+	// exist under several accounts. The datalist suggests qualified values
+	// like "Belanja (BCA Riza)"; a bare name still works when it matches
+	// exactly one IDR Pos. Match case-insensitively so the typeahead value
+	// doesn't have to round-trip exact casing.
 	posList, err := q.ListPos(ctx)
 	if err != nil {
 		c.Logger().Errorf("[FS-0276] new txn: ListPos: %v", err)
 		return rerender([]string{"Couldn’t look up Pos. Try again."})
 	}
-	var pos dbq.Po
-	var found bool
-	for _, p := range posList {
-		if p.Currency == "idr" && strings.EqualFold(p.Name, in.PosLabel) {
-			pos = p
-			found = true
-			break
-		}
+	accRows, err := q.ListAccountsIncludingArchived(ctx)
+	if err != nil {
+		c.Logger().Errorf("[FS-0276] new txn: ListAccounts: %v", err)
+		return rerender([]string{"Couldn’t look up Pos. Try again."})
+	}
+	accNameByID := make(map[[16]byte]string, len(accRows))
+	for _, a := range accRows {
+		accNameByID[a.ID.Bytes] = a.Name
+	}
+	pos, found, ambiguous := resolvePosLabel(in.PosLabel, posList, accNameByID)
+	if ambiguous {
+		return rerender([]string{`Multiple Pos share that name — pick one with its account, e.g. "Belanja (BCA Riza)".`})
 	}
 	if !found {
 		return rerender([]string{"Pos not found. Pick one from the suggestions."})
@@ -185,12 +191,14 @@ func (h *Handlers) TransactionNewPost(c echo.Context) error {
 // validation failure so the user's other selections survive.
 func (h *Handlers) loadTransactionNewOptions(ctx context.Context, c echo.Context, data *template.TransactionNewData) {
 	q := dbq.New(h.DB)
+	accNameByID := map[[16]byte]string{}
 	if accounts, err := q.ListAccounts(ctx); err == nil {
 		for _, a := range accounts {
 			data.Accounts = append(data.Accounts, template.AccountOption{
 				ID:   uuid.UUID(a.ID.Bytes).String(),
 				Name: a.Name,
 			})
+			accNameByID[a.ID.Bytes] = a.Name
 		}
 	} else {
 		c.Logger().Errorf("[FS-0274] new txn: ListAccounts: %v", err)
@@ -201,9 +209,10 @@ func (h *Handlers) loadTransactionNewOptions(ctx context.Context, c echo.Context
 				continue // form is IDR-only
 			}
 			data.PosOptions = append(data.PosOptions, template.PosOption{
-				ID:       uuid.UUID(p.ID.Bytes).String(),
-				Name:     p.Name,
-				Currency: p.Currency,
+				ID:          uuid.UUID(p.ID.Bytes).String(),
+				Name:        p.Name,
+				Currency:    p.Currency,
+				AccountName: accNameByID[p.AccountID.Bytes],
 			})
 		}
 	} else {
@@ -228,4 +237,58 @@ func newTxnTitle(t string) string {
 		return "New income"
 	}
 	return "New spending"
+}
+
+// resolvePosLabel maps the typed combobox value to one IDR Pos row.
+//
+// Accepted inputs (case-insensitive):
+//   - `Name (Account)` — qualified, picks the Pos with that name in that account.
+//   - `Name` — bare, works only when exactly one IDR Pos carries that name.
+//
+// Returns (row, found, ambiguous): ambiguous is true when a bare name
+// matches several IDR Pos rows and the caller should ask the user to
+// qualify with the account.
+func resolvePosLabel(label string, posList []dbq.Po, accNameByID map[[16]byte]string) (dbq.Po, bool, bool) {
+	var zero dbq.Po
+	trimmed := strings.TrimSpace(label)
+	// Qualified form first: trailing " (Account)".
+	if strings.HasSuffix(trimmed, ")") {
+		if idx := strings.LastIndex(trimmed, " ("); idx > 0 {
+			outer := strings.TrimSpace(trimmed[:idx])
+			inner := strings.TrimSpace(trimmed[idx+2 : len(trimmed)-1])
+			if outer != "" && inner != "" {
+				var knownAccount bool
+				for _, accName := range accNameByID {
+					if strings.EqualFold(accName, inner) {
+						knownAccount = true
+						break
+					}
+				}
+				if knownAccount {
+					for _, p := range posList {
+						if p.Currency != "idr" {
+							continue
+						}
+						if strings.EqualFold(p.Name, outer) && strings.EqualFold(accNameByID[p.AccountID.Bytes], inner) {
+							return p, true, false
+						}
+					}
+					return zero, false, false
+				}
+			}
+		}
+	}
+	var matches []dbq.Po
+	for _, p := range posList {
+		if p.Currency == "idr" && strings.EqualFold(p.Name, trimmed) {
+			matches = append(matches, p)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0], true, false
+	}
+	if len(matches) > 1 {
+		return zero, false, true
+	}
+	return zero, false, false
 }

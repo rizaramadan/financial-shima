@@ -369,7 +369,7 @@ func (h *Handlers) PosRenamePost(c echo.Context) error {
 		c.Logger().Errorf("UpdatePosNameAndTarget: %v", err)
 		msg := "Couldn’t save the changes."
 		if IsPosConflict(err) {
-			msg = "A Pos with that name and currency already exists."
+			msg = "A Pos with that name and currency already exists in this account."
 		}
 		c.SetCookie(&http.Cookie{Name: "pos_account_flash", Value: msg, Path: "/", MaxAge: 30})
 		return c.Redirect(http.StatusSeeOther, "/pos/"+posID.String())

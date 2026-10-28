@@ -63,9 +63,10 @@ type updatePosRequest struct {
 // APIPosCreate implements POST /api/v1/pos per spec §7.2 / S23.
 //
 // Validates per logic/pos.Validate (which mirrors the schema CHECK
-// constraints). Catches the (name, currency) UNIQUE constraint and
+// constraints). Catches the (name, currency, account_id) UNIQUE constraint and
 // surfaces it as 409 Conflict so the LLM caller can distinguish "I
-// already created this" from "real DB error."
+// already created this" from "real DB error." Same name in a different
+// account is allowed.
 //
 // Shared resolve → validate → insert path (pos_service.go) so the web
 // form and the API stay behavior-identical by construction.
@@ -159,7 +160,7 @@ func (h *Handlers) APIPosGet(c echo.Context) error {
 //   - 503: data layer not configured.
 //   - 400: malformed JSON, invalid UUIDs, empty name, negative target.
 //   - 404: pos not found, or new account_id does not exist.
-//   - 409: rename would collide with another (name, currency) pair.
+//   - 409: rename/move would collide with another (name, currency, account_id) triple.
 //   - 500: DB write error.
 func (h *Handlers) APIPosUpdate(c echo.Context) error {
 	if h.DB == nil {

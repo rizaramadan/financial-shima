@@ -6,6 +6,7 @@
 package template
 
 import (
+	"encoding/json"
 	"html/template"
 	"io"
 	"strings"
@@ -52,6 +53,7 @@ func New() *Renderer {
 	template.Must(t.New("spending").Parse(layoutOpen + spendingBody + layoutClose))
 	template.Must(t.New("debts").Parse(layoutOpen + debtsBody + layoutClose))
 	template.Must(t.New("recap").Parse(layoutOpen + recapBody + layoutClose))
+	template.Must(t.New("pivot").Parse(layoutOpen + pivotBody + layoutClose))
 	template.Must(t.New("income_templates").Parse(layoutOpen + incomeTemplatesListBody + layoutClose))
 	template.Must(t.New("income_template_new").Parse(layoutOpen + incomeTemplateNewBody + layoutClose))
 	template.Must(t.New("income_template_detail").Parse(layoutOpen + incomeTemplateDetailBody + layoutClose))
@@ -406,12 +408,14 @@ func (d SpendingData) Wide() bool     { return true }
 func (d SpendingData) HideBell() bool { return false }
 func (d SpendingData) Route() string  { return "spending" }
 
-// SpendingColumn is one of the top-N pos.
+// SpendingColumn is one of the top-N pos. AccountName disambiguates
+// duplicate Pos names held in different accounts.
 type SpendingColumn struct {
-	PosID    string
-	Name     string
-	Currency string
-	Total    int64 // sum across the date range
+	PosID       string
+	Name        string
+	AccountName string
+	Currency    string
+	Total       int64 // sum across the date range
 }
 
 // SpendingRow is one month, with a cell per top-N pos plus a row total.
@@ -506,6 +510,105 @@ type RecapRow struct {
 	Inflow  int64
 	Outflow int64
 	Net     int64
+}
+
+// PivotAccount is one Akun in the roll-forward filter checklist.
+type PivotAccount struct {
+	ID   string
+	Name string
+}
+
+// PivotPosition is one (Akun, Kategori) identity in the filter. The pair
+// is the identity: two positions sharing a name under different Akun
+// are separate entries, each visually tied to its Akun.
+type PivotPosition struct {
+	PosID       string
+	Name        string
+	AccountID   string
+	AccountName string
+}
+
+// PivotAkunGroup clusters filter positions under their Akun so the
+// checklist never shows a bare, ambiguous name.
+type PivotAkunGroup struct {
+	AccountID   string
+	AccountName string
+	Positions   []PivotPosition
+}
+
+// PivotMovement is one signed movement row: money_in positive,
+// money_out negative. Nama is the display label (note, counterparty, or
+// date fallback); Date is YYYY-MM-DD for lexicographic client filtering.
+type PivotMovement struct {
+	ID          string
+	PosID       string
+	AccountID   string
+	AccountName string
+	PosName     string
+	Nama        string
+	Date        string
+	Amount      int64
+	Type        string
+}
+
+// PivotData drives the roll-forward report. Movements carry the full
+// signed dataset as embedded JSON; every filter re-renders client-side
+// without a reload, with the state kept in the URL.
+type PivotData struct {
+	Title       string
+	DisplayName string
+	UnreadCount int
+	Accounts    []PivotAccount
+	Positions   []PivotPosition
+	Groups      []PivotAkunGroup
+	Movements   []PivotMovement
+	LoadError   bool
+}
+
+func (d PivotData) SignedIn() bool { return d.DisplayName != "" }
+func (d PivotData) Compact() bool  { return false }
+func (d PivotData) Wide() bool     { return true }
+func (d PivotData) HideBell() bool { return false }
+func (d PivotData) Route() string  { return "pivot" }
+
+// GroupFor returns the Akun group for accountID, appending it on first
+// use. The handler feeds positions in (Akun, Kategori) order so groups
+// come out sorted without a second pass.
+func (d *PivotData) GroupFor(accountID string) *PivotAkunGroup {
+	for i := range d.Groups {
+		if d.Groups[i].AccountID == accountID {
+			return &d.Groups[i]
+		}
+	}
+	d.Groups = append(d.Groups, PivotAkunGroup{AccountID: accountID})
+	return &d.Groups[len(d.Groups)-1]
+}
+
+// DataJSON embeds the client-side dataset (accounts, positions,
+// movements) in a single JSON script tag. Empty slices encode as []
+// so the client can iterate without nil checks.
+func (d PivotData) DataJSON() template.JS {
+	accounts := d.Accounts
+	if accounts == nil {
+		accounts = []PivotAccount{}
+	}
+	positions := d.Positions
+	if positions == nil {
+		positions = []PivotPosition{}
+	}
+	movements := d.Movements
+	if movements == nil {
+		movements = []PivotMovement{}
+	}
+	b, err := json.Marshal(map[string]any{
+		"accounts":  accounts,
+		"positions": positions,
+		"movements": movements,
+	})
+	if err != nil {
+		return template.JS(`{"accounts":[],"positions":[],"movements":[]}`)
+	}
+	return template.JS(b)
 }
 
 // PosDetailData drives the §6.3 single-Pos view. NotFound triggers a
@@ -695,9 +798,10 @@ type SearchAccountRow struct {
 }
 
 type SearchPosRow struct {
-	ID       string
-	Name     string
-	Currency string
+	ID          string
+	Name        string
+	Currency    string
+	AccountName string
 }
 
 type SearchIncomeRow struct {
@@ -832,13 +936,15 @@ type PosCurrencyGroup struct {
 	Items     []PosRow
 }
 
-// PosRow is one row in a per-currency Pos table.
+// PosRow is one row in a per-currency Pos table. AccountName
+// disambiguates duplicate Pos names held in different accounts.
 type PosRow struct {
-	ID        string // links the row to /pos/:id detail page
-	Name      string
-	Cash      int64 // unit = the group's currency's smallest unit; zero until wired
-	Target    int64
-	HasTarget bool
+	ID          string // links the row to /pos/:id detail page
+	Name        string
+	AccountName string
+	Cash        int64 // unit = the group's currency's smallest unit; zero until wired
+	Target      int64
+	HasTarget   bool
 }
 
 const layoutOpen = `<!doctype html>
@@ -1565,6 +1671,58 @@ tbody tr:hover { background: color-mix(in oklab, var(--primary) 4%, transparent)
 tr.totals { border-top: 1px solid var(--border); background: var(--bg-fill); }
 tr.totals td { font-weight: 600; }
 
+/* Pivot roll-forward report: filter checklists, segmented controls and
+ * the grouped Akun | Kategori | Nama | Amount table. */
+.pivot-checks { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; }
+.pivot-check {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; font-size: 13px; color: var(--text-secondary);
+  background: var(--bg-container);
+  border: 1px solid var(--border); border-radius: 999px;
+  cursor: pointer;
+}
+.pivot-check input { width: auto; margin: 0; accent-color: var(--primary); }
+.pivot-check.is-off { opacity: 0.45; }
+.pivot-group { border-top: 1px solid var(--border-secondary); }
+.pivot-group:first-of-type { border-top: 0; }
+.pivot-group-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 10px 16px 0;
+}
+.pivot-group-name { font-size: var(--font-sm); font-weight: 600; color: var(--text-secondary); }
+.pivot-group-actions { font-size: var(--font-sm); white-space: nowrap; }
+.pivot-akun-tag { color: var(--text-tertiary); font-size: 12px; }
+.pivot-panel { display: grid; gap: 12px; padding: 12px 16px; }
+.pivot-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.pivot-seg { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.pivot-seg button {
+  width: auto; padding: 5px 12px;
+  font-size: 12px; font-weight: 500; line-height: 1.5;
+  color: var(--text-secondary); background: var(--bg-container);
+  border: 1px solid var(--border-secondary); border-radius: 999px;
+  box-shadow: none; cursor: pointer;
+}
+.pivot-seg button:hover { color: var(--primary); border-color: var(--primary); }
+.pivot-seg button[aria-pressed="true"] {
+  color: var(--primary); border-color: var(--primary); background: var(--primary-bg);
+}
+#pivot-q { flex: 1 1 160px; width: auto; max-width: 280px; }
+.pivot-table thead th {
+  position: sticky; top: 56px; z-index: 2;
+  background: var(--bg-fill);
+}
+.pivot-table td.num, .pivot-table th.num { white-space: nowrap; }
+.pivot-sub td { font-weight: 700; background: var(--bg-fill); cursor: pointer; }
+.pivot-sub:hover td { background: color-mix(in oklab, var(--primary) 8%, transparent); }
+.pivot-caret { display: inline-block; width: 1.2em; color: var(--text-tertiary); font-weight: 400; }
+.pivot-atotal td {
+  font-weight: 700; border-top: 1px solid var(--border);
+  background: color-mix(in oklab, var(--primary) 5%, transparent);
+}
+.pivot-grand td { font-weight: 700; font-size: var(--font-lg); border-top: 2px solid var(--border); }
+.pivot-neg { color: var(--error); font-weight: 500; }
+.pivot-akun-cell { color: var(--text-secondary); }
+
 /* Mobile: horizontally scrollable tab strip — five+ items don't fit on
  * narrow screens, so let users swipe rather than wrap to multiple rows
  * (which collides with .nav-end's auto-margin). Desktop reverts to the
@@ -1979,6 +2137,7 @@ tr.totals td { font-weight: 600; }
 <a href="/transactions"{{if eq .Route "transactions"}} aria-current="page"{{end}}><span class="nav-ico">&#128184;</span>Transactions</a>
 <a href="/spending"{{if eq .Route "spending"}} aria-current="page"{{end}}><span class="nav-ico">&#128202;</span>Spending</a>
 <a href="/recap"{{if eq .Route "recap"}} aria-current="page"{{end}}><span class="nav-ico">&#128200;</span>Rekap</a>
+<a href="/pivot"{{if eq .Route "pivot"}} aria-current="page"{{end}}><span class="nav-ico">&#9646;</span>Pivot</a>
 <a href="/accounts"{{if eq .Route "accounts"}} aria-current="page"{{end}}><span class="nav-ico">&#127974;</span>Accounts</a>
 <a href="/debts"{{if eq .Route "debts"}} aria-current="page"{{end}}><span class="nav-ico">&#128179;</span>Sisa Hutang</a>
 </nav>
@@ -2052,7 +2211,7 @@ const searchBody = `<header class="page-head">
       <div class="section-card-head"><span class="section-card-title">Pos</span><span class="search-count">{{len .Pos}}</span></div>
       {{range .Pos}}<a class="search-result" href="/pos/{{.ID}}">
         <span class="search-result-ico">&#128193;</span>
-        <span class="search-result-main"><span class="search-result-title">{{.Name}}</span></span>
+        <span class="search-result-main"><span class="search-result-title">{{.Name}}</span>{{if .AccountName}}<span class="search-result-sub">{{.AccountName}}</span>{{end}}</span>
         <span class="search-result-tag">{{.Currency}}</span>
       </a>{{end}}
     </section>{{end}}
@@ -2458,7 +2617,7 @@ const spendingBody = `<header class="page-head">
   <tbody>
   {{range $i, $col := .Columns}}
   <tr>
-  <td><a href="/pos/{{$col.PosID}}">{{$col.Name}}</a></td>
+  <td><a href="/pos/{{$col.PosID}}">{{$col.Name}}</a>{{if $col.AccountName}} <span style="color:var(--text-tertiary); font-weight:400;">· {{$col.AccountName}}</span>{{end}}</td>
   {{range $.Rows}}<td class="num">{{$c := index .Cells $i}}{{if $c}}{{money $c $col.Currency}}{{else}}&mdash;{{end}}</td>{{end}}
   <td class="num"><strong>{{money $col.Total $col.Currency}}</strong></td>
   </tr>
@@ -2473,6 +2632,516 @@ const spendingBody = `<header class="page-head">
   </div>
 </section>
 {{end}}`
+
+const pivotBody = `<header class="page-head">
+  <div>
+    <p class="home-eyebrow">Analytics</p>
+    <h1>Pivot Roll-forward</h1>
+  </div>
+  <div class="page-head-actions">
+    <button type="button" class="linkbtn" id="pivot-reset-top">Reset filters</button>
+  </div>
+</header>
+
+<p class="subtitle" id="pivot-summary" role="status">Loading&hellip;</p>
+
+{{if .LoadError}}
+<p class="alert" role="alert">Some data could not be loaded. The view may be incomplete.</p>
+{{end}}
+
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Akun</span>
+    <span class="section-card-meta">
+      <button type="button" class="linkbtn" data-akun-all>Select all</button>
+      &middot;
+      <button type="button" class="linkbtn" data-akun-none>Clear</button>
+    </span>
+  </div>
+  <div class="pivot-checks" id="pivot-akun">
+    {{range .Accounts}}<label class="pivot-check"><input type="checkbox" data-akun="{{.ID}}" checked> <span>{{.Name}}</span></label>{{else}}<p class="subtitle">No accounts.</p>{{end}}
+  </div>
+</section>
+
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Kategori</span>
+    <span class="section-card-meta">
+      <button type="button" class="linkbtn" data-kat-all>Select all</button>
+      &middot;
+      <button type="button" class="linkbtn" data-kat-none>Clear</button>
+    </span>
+  </div>
+  {{range .Groups}}
+  <div class="pivot-group" data-group="{{.AccountID}}">
+    <div class="pivot-group-head">
+      <span class="pivot-group-name">{{.AccountName}}</span>
+      <span class="pivot-group-actions">
+        <button type="button" class="linkbtn" data-group-all="{{.AccountID}}">Select all</button>
+        &middot;
+        <button type="button" class="linkbtn" data-group-none="{{.AccountID}}">Clear</button>
+      </span>
+    </div>
+    <div class="pivot-checks">
+      {{range .Positions}}<label class="pivot-check" data-kat-label="{{.AccountID}}"><input type="checkbox" data-kat="{{.PosID}}" data-akun="{{.AccountID}}" checked> <span>{{.Name}} <span class="pivot-akun-tag">&middot; {{.AccountName}}</span></span></label>{{end}}
+    </div>
+  </div>
+  {{else}}<div class="pivot-checks"><p class="subtitle">No positions.</p></div>{{end}}
+</section>
+
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Filters</span>
+  </div>
+  <div class="pivot-panel">
+    <div class="pivot-row">
+      <span class="txn-filter-label">Period</span>
+      <span class="pivot-seg" id="pivot-preset" role="group" aria-label="Date range">
+        <button type="button" data-preset="month">This month</button>
+        <button type="button" data-preset="quarter">This quarter</button>
+        <button type="button" data-preset="year">This year</button>
+        <button type="button" data-preset="all" aria-pressed="true">All time</button>
+      </span>
+      <span class="txn-filter-dates">
+        <input type="date" id="pivot-from" aria-label="From">
+        <span class="sep">&rarr;</span>
+        <input type="date" id="pivot-to" aria-label="To">
+      </span>
+    </div>
+    <div class="pivot-row">
+      <span class="txn-filter-label">Movement</span>
+      <span class="pivot-seg" id="pivot-type" role="group" aria-label="Movement type">
+        <button type="button" data-type="all" aria-pressed="true">All</button>
+        <button type="button" data-type="money_in">Money in</button>
+        <button type="button" data-type="money_out">Money out</button>
+      </span>
+      <input type="search" id="pivot-q" placeholder="Search Nama&hellip;" aria-label="Search Nama" autocomplete="off">
+    </div>
+    <div class="pivot-row">
+      <span class="txn-filter-label">View</span>
+      <label class="pivot-check"><input type="checkbox" id="pivot-empty"> <span>Show empty positions</span></label>
+      <label class="pivot-check"><input type="checkbox" id="pivot-akuntotal" checked> <span>Show Akun totals</span></label>
+      <span class="pivot-seg" id="pivot-sort" role="group" aria-label="Sort within Kategori">
+        <button type="button" data-sort="date" aria-pressed="true">By date</button>
+        <button type="button" data-sort="amount">By amount</button>
+      </span>
+      <button type="button" class="linkbtn" id="pivot-expand">Expand all</button>
+      &middot;
+      <button type="button" class="linkbtn" id="pivot-collapse">Collapse all</button>
+    </div>
+  </div>
+</section>
+
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Report</span>
+    <span class="section-card-meta" id="pivot-count"></span>
+  </div>
+  <div class="table-wrap pivot-wrap"><table class="pivot-table">
+    <thead><tr><th>Akun</th><th>Kategori</th><th>Nama</th><th class="num">Amount</th></tr></thead>
+    <tbody id="pivot-body"></tbody>
+    <tfoot id="pivot-foot"></tfoot>
+  </table></div>
+  <div class="empty-state" id="pivot-empty-state" hidden>
+    <svg viewBox="0 0 64 41" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <ellipse cx="32" cy="33" rx="32" ry="7" fill="currentColor" opacity="0.08"/>
+      <rect x="14" y="6" width="36" height="24" rx="2" stroke="currentColor" stroke-width="1" fill="none" opacity="0.5"/>
+      <rect x="20" y="20" width="4" height="6" fill="currentColor" opacity="0.25"/>
+      <rect x="28" y="14" width="4" height="12" fill="currentColor" opacity="0.25"/>
+      <rect x="36" y="10" width="4" height="16" fill="currentColor" opacity="0.25"/>
+      <rect x="44" y="22" width="4" height="4" fill="currentColor" opacity="0.25"/>
+    </svg>
+    <p class="empty-state-text">No movements match the current filters.</p>
+    <p class="empty-state-action"><button type="button" class="linkbtn" id="pivot-reset-empty">Reset filters</button></p>
+  </div>
+</section>
+
+<script type="application/json" id="pivot-data">{{.DataJSON}}</script>
+<script>
+(function(){
+  var el = document.getElementById('pivot-data');
+  var data = {accounts: [], positions: [], movements: []};
+  try { data = Object.assign(data, JSON.parse(el.textContent)); } catch (e) {}
+  var knownAkun = {};
+  var knownKat = {};
+  data.accounts.forEach(function(a){ knownAkun[a.ID] = true; });
+  data.positions.forEach(function(p){ knownKat[p.PosID] = true; });
+
+  var akun = {};
+  var kat = {};
+  Object.keys(knownAkun).forEach(function(id){ akun[id] = true; });
+  Object.keys(knownKat).forEach(function(id){ kat[id] = true; });
+  var state = {preset: 'all', from: '', to: '', type: 'all', q: '',
+    showEmpty: false, showAkunTotal: true, sort: 'date', collapsed: {}};
+  var lastVisibleKats = [];
+
+  function $(s){ return document.querySelector(s); }
+  function $all(s){ return Array.prototype.slice.call(document.querySelectorAll(s)); }
+
+  function parseURL(){
+    var p = new URLSearchParams(location.search);
+    if (p.has('akun')) {
+      akun = {};
+      p.get('akun').split(',').forEach(function(id){ if (knownAkun[id]) akun[id] = true; });
+    }
+    if (p.has('kat')) {
+      kat = {};
+      p.get('kat').split(',').forEach(function(id){ if (knownKat[id]) kat[id] = true; });
+    }
+    var preset = p.get('preset');
+    if (preset === 'month' || preset === 'quarter' || preset === 'year' ||
+        preset === 'custom' || preset === 'all') state.preset = preset;
+    state.from = p.get('from') || '';
+    state.to = p.get('to') || '';
+    var type = p.get('type');
+    if (type === 'money_in' || type === 'money_out') state.type = type;
+    state.q = p.get('q') || '';
+    state.showEmpty = p.get('empty') === '1';
+    state.showAkunTotal = p.get('akuntotal') !== '0';
+    if (p.get('sort') === 'amount') state.sort = 'amount';
+    state.collapsed = {};
+    (p.get('collapsed') || '').split(',').forEach(function(id){
+      if (knownKat[id]) state.collapsed[id] = true;
+    });
+  }
+
+  function pad(n){ return (n < 10 ? '0' : '') + n; }
+  function iso(d){ return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function bounds(){
+    var now = new Date();
+    if (state.preset === 'month') {
+      return {from: iso(new Date(now.getFullYear(), now.getMonth(), 1)), to: iso(now)};
+    }
+    if (state.preset === 'quarter') {
+      return {from: iso(new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1)), to: iso(now)};
+    }
+    if (state.preset === 'year') {
+      return {from: iso(new Date(now.getFullYear(), 0, 1)), to: iso(now)};
+    }
+    if (state.preset === 'custom') {
+      return {from: state.from, to: state.to};
+    }
+    return {from: '', to: ''};
+  }
+
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function mlabel(s){
+    if (!s) return '';
+    var parts = s.split('-');
+    if (parts.length < 2) return s;
+    return MONTHS[parseInt(parts[1], 10) - 1] + ' ' + parts[0];
+  }
+
+  function fmt(n){
+    if (!n) return '0';
+    var neg = n < 0;
+    var s = String(Math.abs(n));
+    var out = '';
+    while (s.length > 3) { out = '.' + s.slice(-3) + out; s = s.slice(0, -3); }
+    return (neg ? '-' : '') + s + out;
+  }
+
+  function esc(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+      return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
+    });
+  }
+
+  function filteredRows(){
+    var b = bounds();
+    var q = state.q.trim().toLowerCase();
+    return data.movements.filter(function(m){
+      if (!akun[m.AccountID]) return false;
+      if (!kat[m.PosID]) return false;
+      if (b.from && m.Date < b.from) return false;
+      if (b.to && m.Date > b.to) return false;
+      if (state.type !== 'all' && m.Type !== state.type) return false;
+      if (q && (m.Nama || '').toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    });
+  }
+
+  function build(rows){
+    var akuns = {};
+    var order = [];
+    function getAkun(id, name){
+      var a = akuns[id];
+      if (!a) { a = akuns[id] = {id: id, name: name, kats: {}, korder: []}; order.push(a); }
+      return a;
+    }
+    rows.forEach(function(m){
+      var a = getAkun(m.AccountID, m.AccountName);
+      var k = a.kats[m.PosID];
+      if (!k) { k = a.kats[m.PosID] = {id: m.PosID, name: m.PosName, rows: [], sub: 0}; a.korder.push(k); }
+      k.rows.push(m);
+      k.sub += m.Amount;
+    });
+    if (state.showEmpty) {
+      data.positions.forEach(function(p){
+        if (!akun[p.AccountID] || !kat[p.PosID]) return;
+        var a = getAkun(p.AccountID, p.AccountName);
+        if (!a.kats[p.PosID]) {
+          var k = a.kats[p.PosID] = {id: p.PosID, name: p.Name, rows: [], sub: 0};
+          a.korder.push(k);
+        }
+      });
+    }
+    order.sort(function(a, b){ return a.name < b.name ? -1 : a.name > b.name ? 1 : 0; });
+    var grand = 0;
+    order.forEach(function(a){
+      a.korder.sort(function(x, y){ return x.name < y.name ? -1 : x.name > y.name ? 1 : 0; });
+      a.total = 0;
+      a.korder.forEach(function(k){
+        if (state.sort === 'amount') {
+          k.rows.sort(function(x, y){ return y.Amount - x.Amount || (x.Date < y.Date ? 1 : -1); });
+        } else {
+          k.rows.sort(function(x, y){ return x.Date < y.Date ? 1 : x.Date > y.Date ? -1 : 0; });
+        }
+        a.total += k.sub;
+      });
+      grand += a.total;
+    });
+    return {akuns: order, grand: grand};
+  }
+
+  function syncURL(){
+    var p = new URLSearchParams();
+    var akunIds = Object.keys(akun).filter(function(id){ return akun[id]; });
+    if (akunIds.length !== data.accounts.length) p.set('akun', akunIds.join(','));
+    var katIds = Object.keys(kat).filter(function(id){ return kat[id]; });
+    if (katIds.length !== data.positions.length) p.set('kat', katIds.join(','));
+    if (state.preset !== 'all') p.set('preset', state.preset);
+    if (state.preset === 'custom') {
+      if (state.from) p.set('from', state.from);
+      if (state.to) p.set('to', state.to);
+    }
+    if (state.type !== 'all') p.set('type', state.type);
+    if (state.q.trim()) p.set('q', state.q.trim());
+    if (state.showEmpty) p.set('empty', '1');
+    if (!state.showAkunTotal) p.set('akuntotal', '0');
+    if (state.sort !== 'date') p.set('sort', state.sort);
+    var c = Object.keys(state.collapsed).filter(function(id){ return state.collapsed[id]; });
+    if (c.length) p.set('collapsed', c.join(','));
+    var s = p.toString();
+    history.replaceState(null, '', location.pathname + (s ? '?' + s : ''));
+  }
+
+  function paintControls(){
+    $all('#pivot-akun input[data-akun]').forEach(function(cb){ cb.checked = !!akun[cb.getAttribute('data-akun')]; });
+    $all('input[data-kat]').forEach(function(cb){ cb.checked = !!kat[cb.getAttribute('data-kat')]; });
+    $all('#pivot-preset button').forEach(function(b){
+      b.setAttribute('aria-pressed', b.getAttribute('data-preset') === state.preset ? 'true' : 'false');
+    });
+    $all('#pivot-type button').forEach(function(b){
+      b.setAttribute('aria-pressed', b.getAttribute('data-type') === state.type ? 'true' : 'false');
+    });
+    $all('#pivot-sort button').forEach(function(b){
+      b.setAttribute('aria-pressed', b.getAttribute('data-sort') === state.sort ? 'true' : 'false');
+    });
+    var b = bounds();
+    $('#pivot-from').value = b.from || state.from;
+    $('#pivot-to').value = b.to || state.to;
+    if (document.activeElement !== $('#pivot-q')) $('#pivot-q').value = state.q;
+    $('#pivot-empty').checked = state.showEmpty;
+    $('#pivot-akuntotal').checked = state.showAkunTotal;
+    paintKatGrey();
+  }
+
+  function paintKatGrey(){
+    $all('[data-kat-label]').forEach(function(label){
+      var aid = label.getAttribute('data-kat-label');
+      label.classList.toggle('is-off', !akun[aid]);
+    });
+  }
+
+  function render(){
+    var rep = build(filteredRows());
+    var body = $('#pivot-body');
+    var foot = $('#pivot-foot');
+    var html = '';
+    var nMov = 0;
+    lastVisibleKats = [];
+    rep.akuns.forEach(function(a){
+      var first = true;
+      a.korder.forEach(function(k){
+        lastVisibleKats.push(k.id);
+        var collapsed = !!state.collapsed[k.id];
+        var caret = collapsed ? '&#9656;' : '&#9662;';
+        var expanded = collapsed ? 'false' : 'true';
+        if (!collapsed) {
+          k.rows.forEach(function(m){
+            nMov++;
+            var cls = m.Amount < 0 ? ' class="num pivot-neg"' : ' class="num"';
+            html += '<tr><td class="pivot-akun-cell">' + (first ? esc(a.name) : '') + '</td>' +
+              '<td><a href="/pos/' + esc(m.PosID) + '">' + esc(m.PosName) + '</a></td>' +
+              '<td title="' + esc(m.Date) + '">' + esc(m.Nama) + '</td>' +
+              '<td' + cls + '>' + fmt(m.Amount) + '</td></tr>';
+            first = false;
+          });
+        } else if (first) {
+          first = false;
+        }
+        var subCls = k.sub < 0 ? ' class="num pivot-neg"' : ' class="num"';
+        html += '<tr class="pivot-sub" data-pos="' + esc(k.id) + '" tabindex="0" role="button" aria-expanded="' + expanded + '" title="Expand/collapse">' +
+          '<td></td><td><span class="pivot-caret">' + caret + '</span>' + esc(k.name) + ' Total</td><td></td>' +
+          '<td' + subCls + '>' + fmt(k.sub) + '</td></tr>';
+      });
+      if (state.showAkunTotal) {
+        var aCls = a.total < 0 ? ' class="num pivot-neg"' : ' class="num"';
+        html += '<tr class="pivot-atotal"><td colspan="3">' + esc(a.name) + ' Total</td><td' + aCls + '>' + fmt(a.total) + '</td></tr>';
+      }
+    });
+    body.innerHTML = html;
+    var gCls = rep.grand < 0 ? ' class="num pivot-neg"' : ' class="num"';
+    foot.innerHTML = '<tr class="pivot-grand"><td colspan="3">Grand Total</td><td' + gCls + '>' + fmt(rep.grand) + '</td></tr>';
+
+    var selAkun = Object.keys(akun).filter(function(id){ return akun[id]; }).length;
+    var selKat = Object.keys(kat).filter(function(id){ return kat[id]; }).length;
+    var b = bounds();
+    var range = 'All time';
+    if (b.from || b.to) range = (b.from ? mlabel(b.from) : '…') + ' – ' + (b.to ? mlabel(b.to) : '…');
+    $('#pivot-summary').textContent =
+      selAkun + ' of ' + data.accounts.length + ' Akun · ' +
+      selKat + ' of ' + data.positions.length + ' Kategori · ' + range;
+    $('#pivot-count').textContent = nMov + ' movements · ' +
+      (state.sort === 'amount' ? 'sorted by amount' : 'newest first');
+
+    var empty = nMov === 0;
+    document.querySelector('.pivot-wrap').hidden = empty;
+    $('#pivot-empty-state').hidden = !empty;
+    syncURL();
+  }
+
+  function refresh(){ paintKatGrey(); render(); }
+
+  $all('#pivot-akun input[data-akun]').forEach(function(cb){
+    cb.addEventListener('change', function(){
+      akun[cb.getAttribute('data-akun')] = cb.checked;
+      refresh();
+    });
+  });
+  $all('input[data-kat]').forEach(function(cb){
+    cb.addEventListener('change', function(){
+      kat[cb.getAttribute('data-kat')] = cb.checked;
+      render();
+    });
+  });
+
+  document.querySelector('[data-akun-all]').addEventListener('click', function(){
+    Object.keys(knownAkun).forEach(function(id){ akun[id] = true; });
+    paintControls(); refresh();
+  });
+  document.querySelector('[data-akun-none]').addEventListener('click', function(){
+    akun = {};
+    paintControls(); refresh();
+  });
+  document.querySelector('[data-kat-all]').addEventListener('click', function(){
+    Object.keys(knownKat).forEach(function(id){ kat[id] = true; });
+    paintControls(); render();
+  });
+  document.querySelector('[data-kat-none]').addEventListener('click', function(){
+    kat = {};
+    paintControls(); render();
+  });
+  $all('[data-group-all]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var aid = btn.getAttribute('data-group-all');
+      data.positions.forEach(function(p){ if (p.AccountID === aid) kat[p.PosID] = true; });
+      paintControls(); render();
+    });
+  });
+  $all('[data-group-none]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var aid = btn.getAttribute('data-group-none');
+      data.positions.forEach(function(p){ if (p.AccountID === aid) delete kat[p.PosID]; });
+      paintControls(); render();
+    });
+  });
+
+  $all('#pivot-preset button').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      state.preset = btn.getAttribute('data-preset');
+      if (state.preset !== 'custom') { state.from = ''; state.to = ''; }
+      paintControls(); render();
+    });
+  });
+  $('#pivot-from').addEventListener('change', function(e){
+    state.preset = 'custom'; state.from = e.target.value; paintControls(); render();
+  });
+  $('#pivot-to').addEventListener('change', function(e){
+    state.preset = 'custom'; state.to = e.target.value; paintControls(); render();
+  });
+
+  $all('#pivot-type button').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      state.type = btn.getAttribute('data-type');
+      paintControls(); render();
+    });
+  });
+  $('#pivot-q').addEventListener('input', function(e){
+    state.q = e.target.value;
+    render();
+  });
+  $('#pivot-empty').addEventListener('change', function(e){
+    state.showEmpty = e.target.checked;
+    render();
+  });
+  $('#pivot-akuntotal').addEventListener('change', function(e){
+    state.showAkunTotal = e.target.checked;
+    render();
+  });
+  $all('#pivot-sort button').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      state.sort = btn.getAttribute('data-sort');
+      paintControls(); render();
+    });
+  });
+  $('#pivot-expand').addEventListener('click', function(){
+    state.collapsed = {};
+    render();
+  });
+  $('#pivot-collapse').addEventListener('click', function(){
+    state.collapsed = {};
+    lastVisibleKats.forEach(function(id){ state.collapsed[id] = true; });
+    render();
+  });
+
+  function resetState(){
+    akun = {};
+    Object.keys(knownAkun).forEach(function(id){ akun[id] = true; });
+    kat = {};
+    Object.keys(knownKat).forEach(function(id){ kat[id] = true; });
+    state = {preset: 'all', from: '', to: '', type: 'all', q: '',
+      showEmpty: false, showAkunTotal: true, sort: 'date', collapsed: {}};
+    $('#pivot-q').value = '';
+    paintControls(); render();
+  }
+  $('#pivot-reset-top').addEventListener('click', resetState);
+  $('#pivot-reset-empty').addEventListener('click', resetState);
+
+  $('#pivot-body').addEventListener('click', function(e){
+    var tr = e.target.closest('tr.pivot-sub');
+    if (!tr || e.target.closest('a')) return;
+    var id = tr.getAttribute('data-pos');
+    if (state.collapsed[id]) delete state.collapsed[id];
+    else state.collapsed[id] = true;
+    render();
+  });
+  $('#pivot-body').addEventListener('keydown', function(e){
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    var tr = e.target.closest('tr.pivot-sub');
+    if (!tr) return;
+    e.preventDefault();
+    var id = tr.getAttribute('data-pos');
+    if (state.collapsed[id]) delete state.collapsed[id];
+    else state.collapsed[id] = true;
+    render();
+  });
+
+  parseURL();
+  paintControls();
+  render();
+})();</script>`
 
 const posBody = `{{if .NotFound}}
 <h1>Pos not found</h1>
@@ -2916,9 +3585,9 @@ const transactionNewBody = `<h1>{{.Title}}</h1>
   list="pos-options" autocomplete="off"
   value="{{.PosLabel}}" placeholder="Type to filter…">
 <datalist id="pos-options">
-{{range .PosOptions}}<option value="{{.Name}}"></option>{{end}}
+{{range .PosOptions}}{{if .AccountName}}<option value="{{.Name}} ({{.AccountName}})"></option>{{else}}<option value="{{.Name}}"></option>{{end}}{{end}}
 </datalist>
-<p class="hint">Start typing to filter. Pick a suggestion or type the exact Pos name. IDR only here; cross-currency stays behind the API.</p>
+<p class="hint">Start typing to filter. Pick a suggestion or type the exact Pos name. Same name may appear under several accounts — pick the one with the right account in brackets. IDR only here; cross-currency stays behind the API.</p>
 </div>
 <div class="field">
 <label for="amount">Amount (IDR)</label>
@@ -3029,7 +3698,7 @@ const homeBody = `<header class="home-greeting">
       <tbody>
         {{range $g.Items}}
         <tr>
-          <td>{{if .ID}}<a href="/pos/{{.ID}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td>
+          <td>{{if .ID}}<a href="/pos/{{.ID}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}{{if .AccountName}} <span style="color:var(--text-tertiary); font-weight:400;">· {{.AccountName}}</span>{{end}}</td>
           <td class="num{{if lt .Cash 0}} neg-cash{{end}}">{{money .Cash $g.Currency}}</td>
           <td class="num">
             {{if .HasTarget}}
@@ -3050,13 +3719,16 @@ const homeBody = `<header class="home-greeting">
 
 // ─── Income templates ──────────────────────────────────────────────
 
-// PosOption is one Pos shown in a <select>. Used by the new-template
-// form (line picker) and the apply form (account picker reuses
-// AccountOption — kept symmetric for clarity).
+// PosOption is one Pos shown in a <select> or <datalist>. Used by the
+// new-template form (line picker), the apply form, and the new-transaction
+// combobox. AccountName disambiguates duplicate Pos names across accounts
+// (UNIQUE is on (name, currency, account_id), so the same name may appear
+// under several accounts).
 type PosOption struct {
-	ID       string
-	Name     string
-	Currency string
+	ID          string
+	Name        string
+	Currency    string
+	AccountName string
 }
 
 // AccountOption is one account shown in a <select> on the apply form.
@@ -3257,7 +3929,7 @@ const incomeTemplateNewBody = `<h1>New income template</h1>
 <select id="leftover_pos_id" name="leftover_pos_id">
 <option value="">— none (strict: amount must equal Σ(lines)) —</option>
 {{range .Pos}}
-<option value="{{.ID}}"{{if eq .ID $.LeftoverPosID}} selected{{end}}>{{.Name}} ({{.Currency}})</option>
+<option value="{{.ID}}"{{if eq .ID $.LeftoverPosID}} selected{{end}}>{{.Name}} ({{.Currency}}{{if .AccountName}}, {{.AccountName}}{{end}})</option>
 {{end}}
 </select>
 <p class="hint">If set, any amount above the lines&rsquo; total lands here. Otherwise a too-large amount is rejected.</p>
@@ -3268,7 +3940,7 @@ const incomeTemplateNewBody = `<h1>New income template</h1>
 <div class="alloc-row">
 <select name="pos_id_{{$i}}" aria-label="Pos for line {{$i}}">
 <option value="">— skip —</option>
-{{range $.Pos}}<option value="{{.ID}}"{{if eq .ID $line.PosID}} selected{{end}}>{{.Name}} ({{.Currency}})</option>{{end}}
+{{range $.Pos}}<option value="{{.ID}}"{{if eq .ID $line.PosID}} selected{{end}}>{{.Name}} ({{.Currency}}{{if .AccountName}}, {{.AccountName}}{{end}})</option>{{end}}
 </select>
 <input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9.,]*" value="{{$line.Amount}}"
   placeholder="e.g. 12.000.000" aria-label="Amount for line {{$i}}">
@@ -3281,7 +3953,7 @@ const incomeTemplateNewBody = `<h1>New income template</h1>
 <div class="alloc-row">
 <select name="pos_id_{{$i}}" aria-label="Pos for line {{$i}}">
 <option value="">— skip —</option>
-{{range $.Pos}}<option value="{{.ID}}">{{.Name}} ({{.Currency}})</option>{{end}}
+{{range $.Pos}}<option value="{{.ID}}">{{.Name}} ({{.Currency}}{{if .AccountName}}, {{.AccountName}}{{end}})</option>{{end}}
 </select>
 <input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9.,]*" placeholder="e.g. 12.000.000"
   aria-label="Amount for line {{$i}}">
@@ -3329,7 +4001,7 @@ const incomeTemplateDetailBody = `<header class="page-head">
   <label for="edit-leftover">Leftover Pos <span style="color:var(--text-tertiary); font-weight:400;">(optional)</span></label>
   <select id="edit-leftover" name="leftover_pos_id">
   <option value="">— none —</option>
-  {{range .Pos}}<option value="{{.ID}}"{{if eq .ID $.LeftoverPosID}} selected{{end}}>{{.Name}} ({{.Currency}})</option>{{end}}
+  {{range .Pos}}<option value="{{.ID}}"{{if eq .ID $.LeftoverPosID}} selected{{end}}>{{.Name}} ({{.Currency}}{{if .AccountName}}, {{.AccountName}}{{end}})</option>{{end}}
   </select>
   </div>
   <h3 style="font-size: var(--font-sm); font-weight: 600; margin: 16px 0 8px;">Lines</h3>
@@ -3339,7 +4011,7 @@ const incomeTemplateDetailBody = `<header class="page-head">
   <div class="alloc-row">
   <select name="pos_id_{{$i}}">
   <option value="">— remove —</option>
-  {{range $.Pos}}<option value="{{.ID}}"{{if eq .ID $line.PosID}} selected{{end}}>{{.Name}} ({{.Currency}})</option>{{end}}
+  {{range $.Pos}}<option value="{{.ID}}"{{if eq .ID $line.PosID}} selected{{end}}>{{.Name}} ({{.Currency}}{{if .AccountName}}, {{.AccountName}}{{end}})</option>{{end}}
   </select>
   <input name="amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9.,]*" value="{{fmtAmt $line.Amount}}"
     placeholder="e.g. 12.000.000">
@@ -3351,7 +4023,7 @@ const incomeTemplateDetailBody = `<header class="page-head">
   <div class="alloc-row">
   <select name="pos_id_0">
   <option value="">— skip —</option>
-  {{range $.Pos}}<option value="{{.ID}}">{{.Name}} ({{.Currency}})</option>{{end}}
+  {{range $.Pos}}<option value="{{.ID}}">{{.Name}} ({{.Currency}}{{if .AccountName}}, {{.AccountName}}{{end}})</option>{{end}}
   </select>
   <input name="amount_0" type="text" inputmode="numeric" pattern="[0-9.,]*" placeholder="e.g. 12.000.000">
   <input name="percent_0" type="text" inputmode="decimal" placeholder="e.g. 60%">
@@ -3432,7 +4104,7 @@ const incomeTemplatePreviewBody = `<h1>Review allocation</h1>
 <div class="alloc-row">
 <select name="alloc_pos_{{$i}}" aria-label="Pos for row {{$i}}">
 <option value="">— skip —</option>
-{{range $.PosOptions}}<option value="{{.ID}}"{{if eq .ID $row.PosID}} selected{{end}}>{{.Name}} ({{.Currency}})</option>{{end}}
+{{range $.PosOptions}}<option value="{{.ID}}"{{if eq .ID $row.PosID}} selected{{end}}>{{.Name}} ({{.Currency}}{{if .AccountName}}, {{.AccountName}}{{end}})</option>{{end}}
 </select>
 <input name="alloc_amount_{{$i}}" type="text" inputmode="numeric" pattern="[0-9.,]*"
   value="{{$row.Amount}}" placeholder="e.g. 12.000.000" aria-label="Amount for row {{$i}}">

@@ -64,8 +64,8 @@ func IsPosNotFound(err error) bool {
 	return errors.As(err, &nf)
 }
 
-// posConflictError marks a rename/create rejected by the UNIQUE
-// (name, currency) constraint so callers map it to 409 (vs 500).
+// posConflictError marks a rename/create/move rejected by the UNIQUE
+// (name, currency, account_id) constraint so callers map it to 409 (vs 500).
 type posConflictError struct{ msg string }
 
 func (e *posConflictError) Error() string { return e.msg }
@@ -117,7 +117,7 @@ func posActions(posID string) []MoneyAction {
 //   - (result, nil, nil) on success.
 //   - (zero, violations, nil) when input fails validation — caller maps
 //     to 400 (API, violations[0]) or re-renders the form (web, full list).
-//   - (zero, nil, *posConflictError) on UNIQUE (name, currency).
+//   - (zero, nil, *posConflictError) on UNIQUE (name, currency, account_id).
 //   - (zero, nil, *posAccountNotFoundError) on FK account_id.
 //   - (zero, nil, err) on DB failure — caller maps to 500 / retry message.
 func createPos(
@@ -151,7 +151,7 @@ func createPos(
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return zero, nil, &posConflictError{msg: "a Pos with that name and currency already exists"}
+			return zero, nil, &posConflictError{msg: "a Pos with that name and currency already exists in this account"}
 		}
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
 			return zero, nil, &posAccountNotFoundError{msg: "account_id does not refer to an existing account"}
@@ -174,7 +174,7 @@ func createPos(
 //   - (result, nil, nil) on success (fully-populated row for partial PATCH).
 //   - (zero, violations, nil) on bad name/target — caller maps to 400.
 //   - (zero, nil, *posNotFoundError) when the pos is missing.
-//   - (zero, nil, *posConflictError) on UNIQUE (name, currency).
+//   - (zero, nil, *posConflictError) on UNIQUE (name, currency, account_id).
 //   - (zero, nil, *posAccountNotFoundError) on FK account_id.
 //   - (zero, nil, err) on DB failure.
 func updatePos(
@@ -226,7 +226,7 @@ func updatePos(
 			}
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-				return zero, nil, &posConflictError{msg: "a Pos with that name and currency already exists"}
+				return zero, nil, &posConflictError{msg: "a Pos with that name and currency already exists in this account"}
 			}
 			return zero, nil, err
 		}
@@ -243,6 +243,9 @@ func updatePos(
 				return zero, nil, &posNotFoundError{msg: "pos not found"}
 			}
 			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				return zero, nil, &posConflictError{msg: "a Pos with that name and currency already exists in this account"}
+			}
 			if errors.As(err, &pgErr) && pgErr.Code == "23503" {
 				return zero, nil, &posAccountNotFoundError{msg: "account_id does not refer to an existing account"}
 			}

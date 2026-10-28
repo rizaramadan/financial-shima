@@ -81,11 +81,18 @@ func (h *Handlers) IncomeTemplateNewGet(c echo.Context) error {
 		data.LoadError = true
 		return c.Render(http.StatusOK, "income_template_new", data)
 	}
+	accNameByID := map[[16]byte]string{}
+	if accs, err := q.ListAccountsIncludingArchived(ctx); err == nil {
+		for _, a := range accs {
+			accNameByID[a.ID.Bytes] = a.Name
+		}
+	}
 	for _, p := range pos {
 		data.Pos = append(data.Pos, template.PosOption{
-			ID:       uuid.UUID(p.ID.Bytes).String(),
-			Name:     p.Name,
-			Currency: p.Currency,
+			ID:          uuid.UUID(p.ID.Bytes).String(),
+			Name:        p.Name,
+			Currency:    p.Currency,
+			AccountName: accNameByID[p.AccountID.Bytes],
 		})
 	}
 	data.UnreadCount = h.loadBellCount(ctx, c, u.ID)
@@ -109,10 +116,17 @@ func (h *Handlers) IncomeTemplateNewPost(c echo.Context) error {
 		defer cancel()
 		q := dbq.New(h.DB)
 		pos, _ := q.ListPos(ctx)
+		accNameByID := map[[16]byte]string{}
+		if accs, err := q.ListAccountsIncludingArchived(ctx); err == nil {
+			for _, a := range accs {
+				accNameByID[a.ID.Bytes] = a.Name
+			}
+		}
 		var posOpts []template.PosOption
 		for _, p := range pos {
 			posOpts = append(posOpts, template.PosOption{
 				ID: uuid.UUID(p.ID.Bytes).String(), Name: p.Name, Currency: p.Currency,
+				AccountName: accNameByID[p.AccountID.Bytes],
 			})
 		}
 		// Re-build line rows from raw form values.
@@ -267,9 +281,16 @@ func (h *Handlers) IncomeTemplateGet(c echo.Context) error {
 	posByID := map[string]template.PosOption{}
 	var posOpts []template.PosOption
 	pos, _ := q.ListPos(ctx)
+	accNameByID := map[[16]byte]string{}
+	if accs, err := q.ListAccountsIncludingArchived(ctx); err == nil {
+		for _, a := range accs {
+			accNameByID[a.ID.Bytes] = a.Name
+		}
+	}
 	for _, p := range pos {
 		o := template.PosOption{
 			ID: uuid.UUID(p.ID.Bytes).String(), Name: p.Name, Currency: p.Currency,
+			AccountName: accNameByID[p.AccountID.Bytes],
 		}
 		posByID[o.ID] = o
 		posOpts = append(posOpts, o)
@@ -558,9 +579,13 @@ func (h *Handlers) IncomeTemplatePreviewPost(c echo.Context) error {
 			break
 		}
 		opt := posByID[a.PosID]
+		label := opt.Name + " (" + opt.Currency + ")"
+		if opt.AccountName != "" {
+			label = opt.Name + " (" + opt.Currency + ", " + opt.AccountName + ")"
+		}
 		rows[i] = template.IncomeAllocationRow{
 			PosID:    a.PosID,
-			PosLabel: opt.Name + " (" + opt.Currency + ")",
+			PosLabel: label,
 			Amount:   strconv.FormatInt(a.Amount, 10),
 		}
 	}
@@ -606,19 +631,27 @@ func (h *Handlers) IncomeTemplatePreviewPost(c echo.Context) error {
 }
 
 // loadPosOptions returns Pos info indexed by id (for display) and as
-// a slice of options (for <select> rendering).
+// a slice of options (for <select> rendering). AccountName is filled so
+// duplicate Pos names across accounts render distinctly.
 func loadPosOptions(ctx context.Context, q *dbq.Queries) (map[string]template.PosOption, []template.PosOption, error) {
 	pos, err := q.ListPos(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
+	accNameByID := map[[16]byte]string{}
+	if accs, err := q.ListAccountsIncludingArchived(ctx); err == nil {
+		for _, a := range accs {
+			accNameByID[a.ID.Bytes] = a.Name
+		}
+	}
 	byID := map[string]template.PosOption{}
 	opts := make([]template.PosOption, 0, len(pos))
 	for _, p := range pos {
 		o := template.PosOption{
-			ID:       uuid.UUID(p.ID.Bytes).String(),
-			Name:     p.Name,
-			Currency: p.Currency,
+			ID:          uuid.UUID(p.ID.Bytes).String(),
+			Name:        p.Name,
+			Currency:    p.Currency,
+			AccountName: accNameByID[p.AccountID.Bytes],
 		}
 		byID[o.ID] = o
 		opts = append(opts, o)

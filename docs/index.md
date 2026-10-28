@@ -192,7 +192,7 @@ constant-time comparison; missing or invalid keys return `401` with
 |---|---|---|
 | `GET /api/v1/accounts[?include_archived=true]` | S23 | Bare JSON array, ordered by name. |
 | `POST /api/v1/accounts` | S23 | `{"name":"BCA Riza"}` → 201 `APIAccount`. Empty name → 400. |
-| `POST /api/v1/pos` | S23 | `{"name","currency","target?"}` → 201 `APIPos`. UNIQUE (name, currency) → **409 conflict** (not 500). |
+| `POST /api/v1/pos` | S23 | `{"name","currency","target?"}` → 201 `APIPos`. UNIQUE (name, currency, account_id) — same name allowed in different accounts → **409 conflict** (not 500) when colliding within one account. |
 | `POST /api/v1/counterparties` | S23 / §4.4 | `{"name"}` → 201; **case-insensitive idempotent** — re-POSTing any casing of the same name returns the original row with original casing preserved. |
 | `POST /api/v1/transactions` | S24 | `money_in` / `money_out`. Resolves account, pos, counterparty (id or name); validates per §5.1; atomic insert + notifications via `dependencies/ledger`. **Idempotent on `idempotency_key`** — duplicate POSTs return `was_inserted: false` and don't fire duplicate notifications (§10.8). |
 

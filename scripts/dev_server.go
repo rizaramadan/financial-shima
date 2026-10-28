@@ -117,18 +117,30 @@ func main() {
 	// a build-ignore tag).
 	// Dev shim: resolve a Pos by exact name (currency=idr) → uuid.
 	// Lets browser-driven UAT scripts navigate to /pos/:id without
-	// needing a UI link.
+	// needing a UI link. Same name may exist under several accounts
+	// now — optional ?account_id= narrows it; otherwise the first match
+	// (ordered by account name) is returned.
 	e.GET("/dev/pos-id", func(c echo.Context) error {
 		name := strings.TrimSpace(c.QueryParam("name"))
 		currency := strings.TrimSpace(c.QueryParam("currency"))
 		if currency == "" {
 			currency = "idr"
 		}
+		accountID := strings.TrimSpace(c.QueryParam("account_id"))
 		var idStr string
-		if err := pool.QueryRow(c.Request().Context(),
-			`SELECT id::text FROM pos WHERE name = $1 AND currency = $2`,
-			name, currency,
-		).Scan(&idStr); err != nil {
+		var err error
+		if accountID != "" {
+			err = pool.QueryRow(c.Request().Context(),
+				`SELECT p.id::text FROM pos p JOIN accounts a ON a.id = p.account_id WHERE p.name = $1 AND p.currency = $2 AND p.account_id::text = $3 ORDER BY a.name LIMIT 1`,
+				name, currency, accountID,
+			).Scan(&idStr)
+		} else {
+			err = pool.QueryRow(c.Request().Context(),
+				`SELECT p.id::text FROM pos p JOIN accounts a ON a.id = p.account_id WHERE p.name = $1 AND p.currency = $2 ORDER BY a.name LIMIT 1`,
+				name, currency,
+			).Scan(&idStr)
+		}
+		if err != nil {
 			return c.String(http.StatusNotFound, "not found")
 		}
 		return c.String(http.StatusOK, idStr)

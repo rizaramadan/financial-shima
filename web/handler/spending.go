@@ -85,7 +85,7 @@ func (h *Handlers) SpendingGet(c echo.Context) error {
 	}
 
 	type posKey struct {
-		ID, Name, Currency string
+		ID, Name, Currency, AccountName string
 	}
 	posByID := map[string]posKey{}
 	totals := map[string]int64{}
@@ -125,12 +125,26 @@ func (h *Handlers) SpendingGet(c echo.Context) error {
 	if len(allPos) < topN {
 		topN = len(allPos)
 	}
+	// Resolve account names for the top-N columns so duplicate Pos names
+	// across accounts render distinctly. Pos list is small (household scale).
+	accNameByPosID := map[string]string{}
+	if posList, err := q.ListPosIncludingArchived(ctx); err == nil {
+		accRows, _ := q.ListAccountsIncludingArchived(ctx)
+		accNameByID := map[[16]byte]string{}
+		for _, a := range accRows {
+			accNameByID[a.ID.Bytes] = a.Name
+		}
+		for _, p := range posList {
+			accNameByPosID[uuid.UUID(p.ID.Bytes).String()] = accNameByID[p.AccountID.Bytes]
+		}
+	}
 	for i := 0; i < topN; i++ {
 		data.Columns = append(data.Columns, template.SpendingColumn{
-			PosID:    allPos[i].Pos.ID,
-			Name:     allPos[i].Pos.Name,
-			Currency: allPos[i].Pos.Currency,
-			Total:    allPos[i].Total,
+			PosID:       allPos[i].Pos.ID,
+			Name:        allPos[i].Pos.Name,
+			AccountName: accNameByPosID[allPos[i].Pos.ID],
+			Currency:    allPos[i].Pos.Currency,
+			Total:       allPos[i].Total,
 		})
 	}
 	for i := 1; i < len(data.Columns); i++ {

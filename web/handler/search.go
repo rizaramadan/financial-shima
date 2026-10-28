@@ -60,11 +60,18 @@ func (h *Handlers) SearchGet(c echo.Context) error {
 	if rows, err := qd.SearchPos(ctx, q); err != nil {
 		c.Logger().Errorf("SearchGet SearchPos(%q): %v", q, err)
 	} else {
+		accNameByID := map[[16]byte]string{}
+		if accs, err := qd.ListAccountsIncludingArchived(ctx); err == nil {
+			for _, a := range accs {
+				accNameByID[a.ID.Bytes] = a.Name
+			}
+		}
 		for _, r := range rows {
 			data.Pos = append(data.Pos, template.SearchPosRow{
-				ID:       uuid.UUID(r.ID.Bytes).String(),
-				Name:     r.Name,
-				Currency: r.Currency,
+				ID:          uuid.UUID(r.ID.Bytes).String(),
+				Name:        r.Name,
+				Currency:    r.Currency,
+				AccountName: accNameByID[r.AccountID.Bytes],
 			})
 		}
 	}

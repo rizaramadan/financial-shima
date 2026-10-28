@@ -64,7 +64,7 @@ func Validate(in CreateInput) []string {
 
 // Normalize returns a CreateInput with Name trimmed and Currency
 // trimmed + lowercased. Caller should normalize before persistence so
-// dedup (UNIQUE on (name, currency)) works against canonical values.
+// dedup (UNIQUE on (name, currency, account_id)) works against canonical values.
 func Normalize(in CreateInput) CreateInput {
 	in.Name = strings.TrimSpace(in.Name)
 	in.Currency = strings.ToLower(strings.TrimSpace(in.Currency))

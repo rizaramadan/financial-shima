@@ -62,9 +62,10 @@ func loadAccountOptions(c echo.Context, h *Handlers) []template.AccountOption {
 // re-render the form with the user's input and the list of error
 // messages.
 //
-// Duplicate-name handling: the DB has a UNIQUE (name, currency)
-// constraint; on conflict we surface it as a per-form error rather
-// than a 500. Shared create path (pos_service.go) so the web form and
+// Duplicate-name handling: the DB has a UNIQUE (name, currency,
+// account_id) constraint; on conflict we surface it as a per-form error
+// rather than a 500. Same name in a different account is allowed.
+// Shared create path (pos_service.go) so the web form and
 // the API stay behavior-identical by construction.
 func (h *Handlers) PosNewPost(c echo.Context) error {
 	u, ok := mw.CurrentUser(c)
@@ -144,7 +145,7 @@ func (h *Handlers) PosNewPost(c echo.Context) error {
 	})
 	if err != nil {
 		if IsPosConflict(err) {
-			return rerender([]string{"A Pos with that name and currency already exists."})
+			return rerender([]string{"A Pos with that name and currency already exists in this account."})
 		}
 		if IsPosAccountNotFound(err) {
 			return rerender([]string{"Selected account no longer exists."})

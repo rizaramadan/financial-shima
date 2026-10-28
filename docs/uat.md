@@ -85,14 +85,14 @@ Server says: *"Currency must be lowercase letters, digits, or hyphens (e.g. idr,
 
 ## 6. Create Pos — duplicate name caught at the DB
 
-Submitting `name=Mortgage`, `currency=idr` (already in seed) triggers
-the schema's `UNIQUE (name, currency)` constraint. The handler
+Submitting `name=Mortgage`, `currency=idr` in the same account (already in seed) triggers
+the schema's `UNIQUE (name, currency, account_id)` constraint. The handler
 catches Postgres error code `23505` and surfaces it as a form error
-— the user never sees a 500.
+— the user never sees a 500. The same name in a *different* account is allowed.
 
 ![duplicate](./screenshots/uat/06_pos_new_duplicate_error.png)
 
-Server says: *"A Pos with that name and currency already exists."*
+Server says: *"A Pos with that name and currency already exists in this account."*
 
 ---
 

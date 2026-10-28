@@ -106,6 +106,12 @@ func (h *Handlers) loadHomeData(ctx context.Context, data *template.HomeData) er
 	if err != nil {
 		return err
 	}
+	accNameByID := map[[16]byte]string{}
+	if accs, err := q.ListAccountsIncludingArchived(ctx); err == nil {
+		for _, a := range accs {
+			accNameByID[a.ID.Bytes] = a.Name
+		}
+	}
 	// SQL returns rows sorted by (currency, name); collect groups in
 	// encounter order, then move IDR to the front.
 	var groups []template.PosCurrencyGroup
@@ -123,7 +129,7 @@ func (h *Handlers) loadHomeData(ctx context.Context, data *template.HomeData) er
 		}
 		groups[curIdx].Items = append(groups[curIdx].Items, template.PosRow{
 			ID:   uuid.UUID(p.ID.Bytes).String(),
-			Name: p.Name, Cash: posBal[p.ID.Bytes],
+			Name: p.Name, AccountName: accNameByID[p.AccountID.Bytes], Cash: posBal[p.ID.Bytes],
 			Target: target, HasTarget: hasTarget,
 		})
 	}
