@@ -108,7 +108,12 @@ func (h *Handlers) IncomeTemplateNewPost(c echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/login")
 	}
 	if h.DB == nil {
-		return c.String(http.StatusInternalServerError, "database not configured")
+		return c.Render(http.StatusInternalServerError, "income_template_new", template.IncomeTemplateNewData{
+			Title:       "New income template",
+			DisplayName: u.DisplayName,
+			Name:        strings.TrimSpace(c.FormValue("name")),
+			Errors:      []string{"Database not configured. Try again later."},
+		})
 	}
 
 	render := func(errs []string, name, leftover string, posIDs []string, amounts []string, percents []string) error {
@@ -264,7 +269,7 @@ func (h *Handlers) IncomeTemplateGet(c echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/income-templates")
 	}
 	if h.DB == nil {
-		return c.String(http.StatusInternalServerError, "database not configured")
+		return c.Redirect(http.StatusSeeOther, "/income-templates")
 	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
 	defer cancel()
@@ -275,7 +280,11 @@ func (h *Handlers) IncomeTemplateGet(c echo.Context) error {
 			return c.Redirect(http.StatusSeeOther, "/income-templates")
 		}
 		c.Logger().Errorf("get template: %v", err)
-		return c.String(http.StatusInternalServerError, "could not load template")
+		return c.Render(http.StatusInternalServerError, "income_templates", template.IncomeTemplatesListData{
+			Title:       "Income templates",
+			DisplayName: u.DisplayName,
+			LoadError:   true,
+		})
 	}
 	lineRows, _ := q.ListIncomeTemplateLines(ctx, tmpl.ID)
 	posByID := map[string]template.PosOption{}
@@ -348,7 +357,7 @@ func (h *Handlers) IncomeTemplateEditPost(c echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/login")
 	}
 	if h.DB == nil {
-		return c.String(http.StatusInternalServerError, "database not configured")
+		return c.Redirect(http.StatusSeeOther, "/income-templates")
 	}
 	tmplID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -482,7 +491,7 @@ func (h *Handlers) IncomeTemplatePreviewPost(c echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/login")
 	}
 	if h.DB == nil {
-		return c.String(http.StatusInternalServerError, "database not configured")
+		return c.Redirect(http.StatusSeeOther, "/income-templates")
 	}
 
 	tmplID, err := uuid.Parse(c.Param("id"))
@@ -683,7 +692,7 @@ func (h *Handlers) IncomeTemplateApplyPost(c echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/login")
 	}
 	if h.DB == nil {
-		return c.String(http.StatusInternalServerError, "database not configured")
+		return c.Redirect(http.StatusSeeOther, "/income-templates")
 	}
 	tmplID, err := uuid.Parse(c.Param("id"))
 	if err != nil {

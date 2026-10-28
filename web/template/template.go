@@ -567,7 +567,7 @@ type PivotData struct {
 
 func (d PivotData) SignedIn() bool { return d.DisplayName != "" }
 func (d PivotData) Compact() bool  { return false }
-func (d PivotData) Wide() bool     { return true }
+func (d PivotData) Wide() bool     { return false }
 func (d PivotData) HideBell() bool { return false }
 func (d PivotData) Route() string  { return "pivot" }
 
@@ -947,6 +947,55 @@ type PosRow struct {
 	HasTarget   bool
 }
 
+// ─── Icons ──────────────────────────────────────────────────────────
+// Inline stroke icons for the sidebar and topbar (Lucide-style: 24×24
+// viewBox, currentColor stroke). No emoji, no external assets — they
+// follow the theme automatically and stay crisp on all densities.
+// Decorative only (aria-hidden); the link text carries the label.
+const iconSVGOpen = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">`
+const iconSVGClose = `</svg>`
+
+const iconHome = iconSVGOpen + `<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9 21v-6h6v6"/>` + iconSVGClose
+const iconTransactions = iconSVGOpen + `<path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/>` + iconSVGClose
+const iconSpending = iconSVGOpen + `<path d="M3 3v18h18"/><path d="M8 17v-6M13 17V7M18 17v-3"/>` + iconSVGClose
+const iconRecap = iconSVGOpen + `<path d="m3 17 6-6 4 4 8-8"/><path d="M15 7h6v6"/>` + iconSVGClose
+const iconPivot = iconSVGOpen + `<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M10 10v10"/>` + iconSVGClose
+const iconAccounts = iconSVGOpen + `<path d="M3 9.5 12 4l9 5.5"/><path d="M5 10v8M9.5 10v8M14.5 10v8M19 10v8"/><path d="M3 20h18"/>` + iconSVGClose
+const iconDebts = iconSVGOpen + `<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10.5h18"/><path d="M7 15h4"/>` + iconSVGClose
+const iconIncome = iconSVGOpen + `<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/>` + iconSVGClose
+const iconPos = iconSVGOpen + `<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>` + iconSVGClose
+const iconBell = iconSVGOpen + `<path d="M18 9a6 6 0 1 0-12 0c0 6-2.5 7-2.5 7h17S18 15 18 9"/><path d="M10 20a2.2 2.2 0 0 0 4 0"/>` + iconSVGClose
+const iconSettings = iconSVGOpen + `<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>` + iconSVGClose
+const iconMenu = iconSVGOpen + `<path d="M4 7h16M4 12h16M4 17h16"/>` + iconSVGClose
+const iconPlus = iconSVGOpen + `<path d="M12 5v14M5 12h14"/>` + iconSVGClose
+const iconMinus = iconSVGOpen + `<path d="M5 12h14"/>` + iconSVGClose
+const iconCheck = iconSVGOpen + `<path d="M20 6 9 17l-5-5"/>` + iconSVGClose
+const iconCheckDouble = iconSVGOpen + `<path d="m18 6-9 9-5-5"/><path d="m22 11-9 9-5-5"/>` + iconSVGClose
+const iconCheckSquare = iconSVGOpen + `<rect x="3" y="3" width="18" height="18" rx="2"/><path d="m9 12 2 2 4-4"/>` + iconSVGClose
+const iconX = iconSVGOpen + `<path d="M18 6 6 18M6 6l12 12"/>` + iconSVGClose
+const iconSearch = iconSVGOpen + `<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>` + iconSVGClose
+const iconLogin = iconSVGOpen + `<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/>` + iconSVGClose
+const iconLogout = iconSVGOpen + `<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>` + iconSVGClose
+const iconSend = iconSVGOpen + `<path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/>` + iconSVGClose
+const iconRefresh = iconSVGOpen + `<path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/>` + iconSVGClose
+const iconFilter = iconSVGOpen + `<path d="M22 3H2l8 9.5V19l4 2v-8.5z"/>` + iconSVGClose
+const iconReset = iconSVGOpen + `<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>` + iconSVGClose
+const iconArchive = iconSVGOpen + `<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v11h14V9"/><path d="M10 13h4"/>` + iconSVGClose
+const iconTrash = iconSVGOpen + `<path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/><path d="M10 11v6M14 11v6"/>` + iconSVGClose
+const iconEye = iconSVGOpen + `<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>` + iconSVGClose
+const iconCalendar = iconSVGOpen + `<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/>` + iconSVGClose
+const iconClock = iconSVGOpen + `<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/>` + iconSVGClose
+const iconLayers = iconSVGOpen + `<path d="m12 2 9 5-9 5-9-5z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/>` + iconSVGClose
+const iconArrowDown = iconSVGOpen + `<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>` + iconSVGClose
+const iconArrowUp = iconSVGOpen + `<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>` + iconSVGClose
+const iconBanknote = iconSVGOpen + `<rect x="3" y="7" width="18" height="11" rx="2"/><circle cx="12" cy="12.5" r="2.5"/>` + iconSVGClose
+const iconChevDown = iconSVGOpen + `<path d="m6 9 6 6 6-6"/>` + iconSVGClose
+const iconChevUp = iconSVGOpen + `<path d="m18 15-6-6-6 6"/>` + iconSVGClose
+const iconSun = iconSVGOpen + `<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>` + iconSVGClose
+const iconMoon = iconSVGOpen + `<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>` + iconSVGClose
+const iconMonitor = iconSVGOpen + `<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>` + iconSVGClose
+const iconPencil = iconSVGOpen + `<path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/>` + iconSVGClose
+
 const layoutOpen = `<!doctype html>
 <html lang="en"{{themeAttr}}>
 <head>
@@ -979,6 +1028,9 @@ const layoutOpen = `<!doctype html>
   --error:   #DC2626;
   --error-bg:#FEF2F2;
   --error-border:#FECACA;
+  --info:        #1D4ED8;
+  --info-bg:     #EFF6FF;
+  --info-border: #BFDBFE;
 
   /* Neutral text + surfaces (light mode; zinc scale à la shadcn) */
   --text:           #09090B;
@@ -1018,6 +1070,9 @@ const layoutOpen = `<!doctype html>
     --error:    #F87171;
     --error-bg: #2C1618;
     --error-border:#5C2223;
+    --info:        #93C5FD;
+    --info-bg:     #172554;
+    --info-border: #1E3A8A;
 
     --text:           #FAFAF9;
     --text-secondary: #A1A1AA;
@@ -1029,9 +1084,9 @@ const layoutOpen = `<!doctype html>
     --bg-elevated:    #18181B;
     --bg-fill:        #27272A;
   }
-  .chip-in       { color: #4ADE80; background: rgba(74,222,128,0.12); border-color: rgba(74,222,128,0.30); }
-  .chip-out      { color: #F87171; background: rgba(248,113,113,0.12); border-color: rgba(248,113,113,0.30); }
-  .chip-transfer { color: #93C5FD; background: rgba(147,197,253,0.12); border-color: rgba(147,197,253,0.30); }
+  .chip-in       { color: var(--success); background: color-mix(in oklab, var(--success) 12%, transparent); border-color: color-mix(in oklab, var(--success) 30%, transparent); }
+  .chip-out      { color: var(--error); background: color-mix(in oklab, var(--error) 12%, transparent); border-color: color-mix(in oklab, var(--error) 30%, transparent); }
+  .chip-transfer { color: var(--info); background: color-mix(in oklab, var(--info) 12%, transparent); border-color: color-mix(in oklab, var(--info) 30%, transparent); }
 }
 /* Explicit user choice — beats the @media query.
  *   data-theme="light"  forces light even when OS prefers dark
@@ -1049,6 +1104,9 @@ const layoutOpen = `<!doctype html>
   --error:    #DC2626;
   --error-bg: #FEF2F2;
   --error-border:#FECACA;
+  --info:        #1D4ED8;
+  --info-bg:     #EFF6FF;
+  --info-border: #BFDBFE;
 
   --text:           #09090B;
   --text-secondary: #52525B;
@@ -1072,6 +1130,9 @@ const layoutOpen = `<!doctype html>
   --error:    #F87171;
   --error-bg: #2C1618;
   --error-border:#5C2223;
+  --info:        #93C5FD;
+  --info-bg:     #172554;
+  --info-border: #1E3A8A;
 
   --text:           #FAFAF9;
   --text-secondary: #A1A1AA;
@@ -1083,9 +1144,9 @@ const layoutOpen = `<!doctype html>
   --bg-elevated:    #18181B;
   --bg-fill:        #27272A;
 }
-:root[data-theme="dark"] .chip-in       { color: #4ADE80; background: rgba(74,222,128,0.12); border-color: rgba(74,222,128,0.30); }
-:root[data-theme="dark"] .chip-out      { color: #F87171; background: rgba(248,113,113,0.12); border-color: rgba(248,113,113,0.30); }
-:root[data-theme="dark"] .chip-transfer { color: #93C5FD; background: rgba(147,197,253,0.12); border-color: rgba(147,197,253,0.30); }
+:root[data-theme="dark"] .chip-in       { color: var(--success); background: color-mix(in oklab, var(--success) 12%, transparent); border-color: color-mix(in oklab, var(--success) 30%, transparent); }
+:root[data-theme="dark"] .chip-out      { color: var(--error); background: color-mix(in oklab, var(--error) 12%, transparent); border-color: color-mix(in oklab, var(--error) 30%, transparent); }
+:root[data-theme="dark"] .chip-transfer { color: var(--info); background: color-mix(in oklab, var(--info) 12%, transparent); border-color: color-mix(in oklab, var(--info) 30%, transparent); }
 ::selection { background: color-mix(in oklab, var(--primary) 25%, transparent); }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
@@ -1298,9 +1359,11 @@ body.signed-in > main.wide    { max-width: 920px; margin: 0 auto; }
   transition: background 0.15s, color 0.15s, box-shadow 0.15s;
 }
 .nav-ico {
-  flex: none; width: 18px; text-align: center;
-  font-size: 15px; line-height: 1; opacity: 0.85;
+  flex: none; width: 18px; height: 18px; opacity: 0.85;
 }
+.nav-ico svg { display: block; width: 18px; height: 18px; }
+.topbar-icon svg { display: block; width: 20px; height: 20px; }
+.hamburger svg { display: block; width: 22px; height: 22px; }
 .sidebar a .badge { margin-left: auto; }
 .sidebar a:hover { background: var(--bg-fill); color: var(--primary); }
 .sidebar a:hover .nav-ico { opacity: 1; }
@@ -1353,6 +1416,7 @@ body.signed-in > main.wide    { max-width: 920px; margin: 0 auto; }
 .search-result-ico {
   flex: none; width: 22px; text-align: center; font-size: 16px; opacity: 0.9;
 }
+.search-result-ico svg { display: block; width: 20px; height: 20px; }
 .search-result-main { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .search-result-title {
   font-size: var(--font-base); font-weight: 500; color: var(--text);
@@ -1368,7 +1432,6 @@ body.signed-in > main.wide    { max-width: 920px; margin: 0 auto; }
   font-variant-numeric: tabular-nums;
 }
 .search-result-amt.amt-in { color: var(--success); }
-:root[data-theme="dark"] .search-result-amt.amt-in { color: #4ADE80; }
 .search-result-amt.amt-out { color: var(--text); }
 .search-chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px; }
 .search-chip {
@@ -1469,6 +1532,101 @@ button:disabled {
   border-color: var(--border); cursor: not-allowed; box-shadow: none;
 }
 
+/* Small action buttons for manage-list rows (Accounts, Pos): a shadcn
+ * button hierarchy instead of full-width primaries. The doubled class
+ * out-specifies the base button:not(.linkbtn):hover rule so each
+ * variant keeps its own hover/active treatment. */
+.btn-sm {
+  width: auto; padding: 6px 12px;
+  font-size: 13px; white-space: nowrap; box-shadow: none;
+}
+button.btn-outline.btn-sm {
+  background: var(--bg-container); color: var(--text-secondary);
+  border-color: var(--border);
+}
+button.btn-outline.btn-sm:hover:not(:disabled) {
+  background: var(--bg-container); color: var(--primary);
+  border-color: var(--primary);
+}
+button.btn-outline.btn-sm:active:not(:disabled) {
+  background: var(--bg-fill); color: var(--primary-active);
+  border-color: var(--primary-active);
+}
+button.btn-danger-outline.btn-sm {
+  background: transparent; color: var(--error);
+  border-color: var(--error-border);
+}
+button.btn-danger-outline.btn-sm:hover:not(:disabled),
+button.btn-danger-outline.btn-sm:active:not(:disabled) {
+  background: var(--error-bg); color: var(--error);
+  border-color: var(--error);
+}
+
+/* Manage-list inline row forms (Accounts rename, Pos account move) and
+ * row action clusters. Token-driven flex rows; the table-wrap scrolls
+ * horizontally on narrow screens. */
+.inline-row-form { display: flex; gap: 8px; align-items: center; min-width: 240px; }
+.inline-row-form input, .inline-row-form select { flex: 1 1 auto; min-width: 0; }
+.inline-row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.inline-row-actions form, form.inline-form { display: inline; }
+
+/* Quiet inline tone for parenthetical hints inside labels and rows. */
+.quiet { color: var(--text-tertiary); font-weight: 400; }
+/* Card interior padding + common spacings, replacing one-off styles. */
+.card-pad { padding: 16px; }
+.card-pad > .subtitle { margin-top: 0; margin-bottom: 12px; }
+.mt-4 { margin-top: 16px; }
+.alert ul { margin: 8px 0 0 20px; padding: 0; }
+.add-line { margin: 8px 0 0; }
+.section-h2 { font-size: var(--font-base); font-weight: 600; margin: 24px 0 12px; }
+.section-h3 { font-size: var(--font-sm); font-weight: 600; margin: 16px 0 8px; }
+
+/* Base pill button (shadcn outline, small): applies everywhere, including
+ * table-cell actions like loan approvals. Page-head and hero rules below
+ * refine it where needed. */
+.pill {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  width: auto; padding: 5px 12px;
+  font-size: 12px; font-weight: 600; line-height: 1.5;
+  color: var(--text); background: var(--bg-container);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm); cursor: pointer; text-decoration: none; white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+a.pill:hover, button.pill:hover:not(:disabled) {
+  color: var(--primary); border-color: var(--primary);
+}
+.pill.primary {
+  color: var(--primary-foreground); background: var(--primary); border-color: var(--primary);
+}
+.pill.primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); color: var(--primary-foreground); }
+
+/* Content links inherit text styling (shadcn: subtle until hovered)
+ * instead of browser-default blue. Badges keep their own tone. */
+main table a:not(.badge-rev) { color: inherit; text-decoration: none; font-weight: 500; }
+main table a:not(.badge-rev):visited { color: inherit; }
+main table a:not(.badge-rev):hover { color: var(--primary); }
+
+/* Icon + label buttons: every action button carries a leading icon.
+ * Placed after .linkbtn so the flex layout wins ties for link-styled
+ * buttons (linkbtn stays inline for text-only links). */
+.btn-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.btn-ico svg { flex: none; width: 16px; height: 16px; }
+.linkbtn.btn-ico { display: inline-flex; align-items: center; gap: 6px; }
+.btn-ico.btn-sm { gap: 6px; }
+.btn-ico.btn-sm svg { width: 14px; height: 14px; }
+.pill svg { flex: none; width: 14px; height: 14px; }
+.pivot-seg button { display: inline-flex; align-items: center; gap: 6px; }
+.pivot-seg button svg { flex: none; width: 14px; height: 14px; }
+.sidebar form button { display: flex; align-items: center; gap: 10px; }
+.sidebar form button svg { display: block; flex: none; width: 18px; height: 18px; }
+
 .alert {
   margin: 0 0 16px; padding: 8px 12px;
   border-radius: var(--radius);
@@ -1497,10 +1655,6 @@ button:disabled {
   color: var(--text-tertiary); }
 .aside form { display: inline; }
 
-.card { margin: 0 0 24px; }
-.card h2 { font-size: var(--font-base); font-weight: 600; margin: 0 0 12px;
-  color: var(--text-tertiary); text-transform: none; letter-spacing: 0; }
-
 /* AntD Table — tighter cell padding on mobile to fit more columns
  * before .table-wrap kicks in horizontal scroll. */
 table {
@@ -1521,6 +1675,7 @@ tbody td {
 }
 tbody tr:hover { background: color-mix(in oklab, var(--primary) 4%, transparent); }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
+.section-card td.num { white-space: nowrap; }
 
 /* AntD Badge — count pip rendered next to the Notifications nav link.
  * The nav already carries the affordance; the badge attaches an unread
@@ -1602,6 +1757,7 @@ tbody tr:hover { background: color-mix(in oklab, var(--primary) 4%, transparent)
   padding: 48px 0; gap: 12px; color: var(--text-tertiary);
 }
 .empty-state svg { width: 64px; height: 41px; opacity: 0.6; }
+.empty-state[hidden] { display: none; }
 .empty-state-text { font-size: var(--font-base); color: var(--text-secondary); margin: 0; }
 .empty-state-hint { font-size: var(--font-sm); color: var(--text-tertiary); margin: 0; }
 
@@ -1632,9 +1788,9 @@ tbody tr:hover { background: color-mix(in oklab, var(--primary) 4%, transparent)
   border: 1px solid transparent;
   white-space: nowrap;
 }
-.chip-in       { color: #15803D; background: #F0FDF4; border-color: #BBF7D0; }
-.chip-out      { color: #B91C1C; background: #FEF2F2; border-color: #FECACA; }
-.chip-transfer { color: #1D4ED8; background: #EFF6FF; border-color: #BFDBFE; }
+.chip-in       { color: var(--success); background: color-mix(in oklab, var(--success) 12%, transparent); border-color: color-mix(in oklab, var(--success) 30%, transparent); }
+.chip-out      { color: var(--error); background: var(--error-bg); border-color: var(--error-border); }
+.chip-transfer { color: var(--info); background: var(--info-bg); border-color: var(--info-border); }
 .chip-neutral  { color: var(--text-secondary); background: var(--bg-fill); border-color: var(--border-secondary); }
 
 /* Colored amounts in transaction listings — fintech standard:
@@ -1682,14 +1838,15 @@ tr.totals td { font-weight: 600; }
   cursor: pointer;
 }
 .pivot-check input { width: auto; margin: 0; accent-color: var(--primary); }
-.pivot-check.is-off { opacity: 0.45; }
 .pivot-group { border-top: 1px solid var(--border-secondary); }
 .pivot-group:first-of-type { border-top: 0; }
 .pivot-group-head {
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px; padding: 10px 16px 0;
 }
-.pivot-group-name { font-size: var(--font-sm); font-weight: 600; color: var(--text-secondary); }
+.pivot-group-toggle { font-weight: 600; }
+.pivot-group-toggle .pivot-caret { display: inline-block; transition: transform 0.15s; }
+.pivot-group-toggle[aria-expanded="false"] .pivot-caret { transform: rotate(-90deg); }
 .pivot-group-actions { font-size: var(--font-sm); white-space: nowrap; }
 .pivot-akun-tag { color: var(--text-tertiary); font-size: 12px; }
 .pivot-panel { display: grid; gap: 12px; padding: 12px 16px; }
@@ -1708,10 +1865,27 @@ tr.totals td { font-weight: 600; }
 }
 #pivot-q { flex: 1 1 160px; width: auto; max-width: 280px; }
 .pivot-table thead th {
-  position: sticky; top: 56px; z-index: 2;
+  position: sticky; top: 0; z-index: 2;
   background: var(--bg-fill);
 }
+.pivot-toggle-row { display: flex; justify-content: center; margin: 0 0 16px; }
+#pivot-toggle {
+  width: auto; display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px; font-size: 13px; font-weight: 500; line-height: 1.5;
+  color: var(--text-secondary); background: var(--bg-container);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm); cursor: pointer; text-decoration: none;
+}
+#pivot-toggle:hover { color: var(--primary); border-color: var(--primary); }
 .pivot-table td.num, .pivot-table th.num { white-space: nowrap; }
+/* The report table lives in its own scroll region: the wrapper scrolls
+ * both axes (horizontal for narrow screens, vertical past max-height),
+ * so the thead pins to the region top and the grand total pins to its
+ * bottom while rows scroll beneath. */
+.pivot-wrap {
+  overflow: auto;
+  max-height: calc(100vh - 220px);
+}
 .pivot-sub td { font-weight: 700; background: var(--bg-fill); cursor: pointer; }
 .pivot-sub:hover td { background: color-mix(in oklab, var(--primary) 8%, transparent); }
 .pivot-caret { display: inline-block; width: 1.2em; color: var(--text-tertiary); font-weight: 400; }
@@ -1719,9 +1893,15 @@ tr.totals td { font-weight: 600; }
   font-weight: 700; border-top: 1px solid var(--border);
   background: color-mix(in oklab, var(--primary) 5%, transparent);
 }
-.pivot-grand td { font-weight: 700; font-size: var(--font-lg); border-top: 2px solid var(--border); }
+.pivot-grand td {
+  font-weight: 600; border-top: 2px solid var(--border);
+  position: sticky; bottom: 0; background: var(--bg-fill);
+}
 .pivot-neg { color: var(--error); font-weight: 500; }
 .pivot-akun-cell { color: var(--text-secondary); }
+.pivot-kat-link { color: var(--text); text-decoration: none; font-weight: 500; }
+.pivot-kat-link:visited { color: var(--text); }
+.pivot-kat-link:hover { color: var(--primary); }
 
 /* Mobile: horizontally scrollable tab strip — five+ items don't fit on
  * narrow screens, so let users swipe rather than wrap to multiple rows
@@ -1871,7 +2051,7 @@ tr.totals td { font-weight: 600; }
 }
 .balance-hero-actions .pill {
   display: inline-flex; align-items: center; gap: 4px;
-  padding: 7px 12px; font-size: 12px; font-weight: 600;
+  width: auto; padding: 7px 12px; font-size: 12px; font-weight: 600;
   color: var(--text); background: var(--bg-container);
   border: 1px solid var(--border); border-radius: var(--radius);
   text-decoration: none; white-space: nowrap;
@@ -1960,7 +2140,7 @@ tr.totals td { font-weight: 600; }
 .page-head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .page-head-actions .pill {
   display: inline-flex; align-items: center; gap: 4px;
-  padding: 7px 12px; font-size: 12px; font-weight: 600;
+  width: auto; padding: 7px 12px; font-size: 12px; font-weight: 600;
   color: var(--text); background: var(--bg-container);
   border: 1px solid var(--border); border-radius: var(--radius);
   text-decoration: none; white-space: nowrap;
@@ -2006,7 +2186,6 @@ tr.totals td { font-weight: 600; }
 }
 .stat-card.in  .stat-amount { color: var(--success); }
 .stat-card.out .stat-amount { color: var(--error); }
-:root[data-theme="dark"] .stat-card.in .stat-amount { color: #4ADE80; }
 .stat-meta { margin: 6px 0 0; font-size: 11px; color: var(--text-tertiary); }
 @media (min-width: 480px) {
   .stat-amount { font-size: 24px; }
@@ -2071,7 +2250,6 @@ tr.totals td { font-weight: 600; }
 .day-strip .day-net { float: right; color: var(--text-secondary); }
 .day-strip .day-net.in  { color: var(--success); }
 .day-strip .day-net.out { color: var(--error); }
-:root[data-theme="dark"] .day-strip .day-net.in { color: #4ADE80; }
 .txn-list { display: none; padding: 4px; }
 .txn-item {
   padding: 12px 14px;
@@ -2091,9 +2269,8 @@ tr.totals td { font-weight: 600; }
 .txn-item-amount {
   font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums;
 }
-.txn-item-amount.in  { color: #389E0D; }
+.txn-item-amount.in  { color: var(--success); }
 .txn-item-amount.out { color: var(--error); }
-:root[data-theme="dark"] .txn-item-amount.in { color: #95DE64; }
 .txn-item-amount.neutral { color: var(--text); }
 .txn-item-meta {
   grid-column: 1 / -1;
@@ -2115,14 +2292,14 @@ tr.totals td { font-weight: 600; }
 {{if .SignedIn}}
 <input type="checkbox" id="sidebar-toggle" class="sidebar-toggle" aria-hidden="true">
 <header class="topbar">
-<label for="sidebar-toggle" class="hamburger" role="button" tabindex="0" aria-label="Toggle navigation">☰</label>
+<label for="sidebar-toggle" class="hamburger" role="button" tabindex="0" aria-label="Toggle navigation">` + iconMenu + `</label>
 <a href="/" class="topbar-brand"><span class="logo">S</span><span>Shima</span></a>
 <form class="topbar-search" action="/search" method="get" role="search">
 <input id="topbar-q" name="q" type="search" placeholder="Search&hellip;" aria-label="Search" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
 <kbd>&#8984;K</kbd>
 </form>
 <div class="topbar-actions">
-<a href="/notifications" class="topbar-icon" aria-label="{{.UnreadCount}} notifications">&#128276;<span class="badge">{{if .UnreadCount}}{{.UnreadCount}}{{end}}</span></a>
+<a href="/notifications" class="topbar-icon" aria-label="{{.UnreadCount}} notifications">` + iconBell + `<span class="badge">{{if .UnreadCount}}{{.UnreadCount}}{{end}}</span></a>
 </div>
 </header>
 <label for="sidebar-toggle" class="sidebar-overlay" aria-hidden="true"></label>
@@ -2130,30 +2307,30 @@ tr.totals td { font-weight: 600; }
 <p class="sidebar-brand">Shima</p>
 <nav class="nav-group">
 <p class="nav-group-label">Overview</p>
-<a href="/"{{if eq .Route "home"}} aria-current="page"{{end}}><span class="nav-ico">&#127968;</span>Home</a>
+<a href="/"{{if eq .Route "home"}} aria-current="page"{{end}}><span class="nav-ico">` + iconHome + `</span>Home</a>
 </nav>
 <nav class="nav-group">
 <p class="nav-group-label">Money</p>
-<a href="/transactions"{{if eq .Route "transactions"}} aria-current="page"{{end}}><span class="nav-ico">&#128184;</span>Transactions</a>
-<a href="/spending"{{if eq .Route "spending"}} aria-current="page"{{end}}><span class="nav-ico">&#128202;</span>Spending</a>
-<a href="/recap"{{if eq .Route "recap"}} aria-current="page"{{end}}><span class="nav-ico">&#128200;</span>Rekap</a>
-<a href="/pivot"{{if eq .Route "pivot"}} aria-current="page"{{end}}><span class="nav-ico">&#9646;</span>Pivot</a>
-<a href="/accounts"{{if eq .Route "accounts"}} aria-current="page"{{end}}><span class="nav-ico">&#127974;</span>Accounts</a>
-<a href="/debts"{{if eq .Route "debts"}} aria-current="page"{{end}}><span class="nav-ico">&#128179;</span>Sisa Hutang</a>
+<a href="/transactions"{{if eq .Route "transactions"}} aria-current="page"{{end}}><span class="nav-ico">` + iconTransactions + `</span>Transactions</a>
+<a href="/spending"{{if eq .Route "spending"}} aria-current="page"{{end}}><span class="nav-ico">` + iconSpending + `</span>Spending</a>
+<a href="/recap"{{if eq .Route "recap"}} aria-current="page"{{end}}><span class="nav-ico">` + iconRecap + `</span>Rekap</a>
+<a href="/pivot"{{if eq .Route "pivot"}} aria-current="page"{{end}}><span class="nav-ico">` + iconPivot + `</span>Pivot</a>
+<a href="/accounts"{{if eq .Route "accounts"}} aria-current="page"{{end}}><span class="nav-ico">` + iconAccounts + `</span>Accounts</a>
+<a href="/debts"{{if eq .Route "debts"}} aria-current="page"{{end}}><span class="nav-ico">` + iconDebts + `</span>Sisa Hutang</a>
 </nav>
 <nav class="nav-group">
 <p class="nav-group-label">Planning</p>
-<a href="/income-templates"{{if eq .Route "income"}} aria-current="page"{{end}}><span class="nav-ico">&#128203;</span>Income</a>
-<a href="/pos"{{if eq .Route "pos"}} aria-current="page"{{end}}><span class="nav-ico">&#128193;</span>Pos</a>
+<a href="/income-templates"{{if eq .Route "income"}} aria-current="page"{{end}}><span class="nav-ico">` + iconIncome + `</span>Income</a>
+<a href="/pos"{{if eq .Route "pos"}} aria-current="page"{{end}}><span class="nav-ico">` + iconPos + `</span>Pos</a>
 </nav>
 <nav class="nav-group">
 <p class="nav-group-label">Activity</p>
-<a href="/notifications"{{if eq .Route "notifications"}} aria-current="page"{{end}}><span class="nav-ico">&#128276;</span>Notifications<span class="badge" aria-label="{{.UnreadCount}} unread">{{if .UnreadCount}}{{.UnreadCount}}{{end}}</span></a>
+<a href="/notifications"{{if eq .Route "notifications"}} aria-current="page"{{end}}><span class="nav-ico">` + iconBell + `</span>Notifications<span class="badge" aria-label="{{.UnreadCount}} unread">{{if .UnreadCount}}{{.UnreadCount}}{{end}}</span></a>
 </nav>
 <div class="sidebar-end">
-<a href="/settings"{{if eq .Route "settings"}} aria-current="page"{{end}}><span class="nav-ico">&#9881;</span>Settings</a>
+<a href="/settings"{{if eq .Route "settings"}} aria-current="page"{{end}}><span class="nav-ico">` + iconSettings + `</span>Settings</a>
 <form method="post" action="/logout">
-<button type="submit">Sign out</button>
+<button type="submit">` + iconLogout + `Sign out</button>
 </form>
 </div>
 </aside>
@@ -2194,7 +2371,7 @@ const searchBody = `<header class="page-head">
     placeholder="Search accounts, pos, transactions, counterparties&hellip;"
     autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
     aria-label="Search">
-  <button type="submit">Search</button>
+  <button type="submit" class="btn-ico">` + iconSearch + `Search</button>
 </form>
 {{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
 {{if .Query}}
@@ -2202,7 +2379,7 @@ const searchBody = `<header class="page-head">
     {{if .Accounts}}<section class="section-card search-group">
       <div class="section-card-head"><span class="section-card-title">Accounts</span><span class="search-count">{{len .Accounts}}</span></div>
       {{range .Accounts}}<a class="search-result" href="/accounts">
-        <span class="search-result-ico">&#127974;</span>
+        <span class="search-result-ico">` + iconAccounts + `</span>
         <span class="search-result-main"><span class="search-result-title">{{.Name}}</span></span>
         <span class="search-result-tag">Account</span>
       </a>{{end}}
@@ -2210,7 +2387,7 @@ const searchBody = `<header class="page-head">
     {{if .Pos}}<section class="section-card search-group">
       <div class="section-card-head"><span class="section-card-title">Pos</span><span class="search-count">{{len .Pos}}</span></div>
       {{range .Pos}}<a class="search-result" href="/pos/{{.ID}}">
-        <span class="search-result-ico">&#128193;</span>
+        <span class="search-result-ico">` + iconPos + `</span>
         <span class="search-result-main"><span class="search-result-title">{{.Name}}</span>{{if .AccountName}}<span class="search-result-sub">{{.AccountName}}</span>{{end}}</span>
         <span class="search-result-tag">{{.Currency}}</span>
       </a>{{end}}
@@ -2218,7 +2395,7 @@ const searchBody = `<header class="page-head">
     {{if .Transactions}}<section class="section-card search-group">
       <div class="section-card-head"><span class="section-card-title">Transactions</span><span class="search-count">{{len .Transactions}}</span></div>
       {{range .Transactions}}<a class="search-result" href="{{if .PosID}}/pos/{{.PosID}}{{else}}/transactions{{end}}">
-        <span class="search-result-ico">&#128184;</span>
+        <span class="search-result-ico">` + iconTransactions + `</span>
         <span class="search-result-main">
           <span class="search-result-title">{{.Label}}</span>
           <span class="search-result-sub">{{txnLabel .Type}}{{if .PosName}} &middot; {{.PosName}}{{end}}{{if .Date}} &middot; {{.Date}}{{end}}</span>
@@ -2229,7 +2406,7 @@ const searchBody = `<header class="page-head">
     {{if .IncomeTemplates}}<section class="section-card search-group">
       <div class="section-card-head"><span class="section-card-title">Income templates</span><span class="search-count">{{len .IncomeTemplates}}</span></div>
       {{range .IncomeTemplates}}<a class="search-result" href="/income-templates/{{.ID}}">
-        <span class="search-result-ico">&#128203;</span>
+        <span class="search-result-ico">` + iconIncome + `</span>
         <span class="search-result-main"><span class="search-result-title">{{.Name}}</span></span>
         <span class="search-result-tag">Income</span>
       </a>{{end}}
@@ -2261,12 +2438,12 @@ const loanLoginBody = `<div class="loan-brand"><span class="loan-logo">S</span> 
 <label for="password">Password</label>
 <input id="password" name="password" type="password" autocomplete="current-password" required>
 </div>
-<button type="submit">Sign in</button>
+<button type="submit" class="btn-ico">` + iconLogin + `Sign in</button>
 </form>`
 
 const loanViewBody = `<div class="loan-topline">
 <div class="loan-brand"><span class="loan-logo">S</span> Shima Loans</div>
-<form method="post" action="/loan/{{.PosID}}/logout"><button type="submit" class="linkbtn">Sign out</button></form>
+<form method="post" action="/loan/{{.PosID}}/logout"><button type="submit" class="linkbtn btn-ico">` + iconLogout + `Sign out</button></form>
 </div>
 <header class="page-head"><div><p class="home-eyebrow">Loan</p><h1>{{.LoanName}}</h1></div></header>
 {{if .Flash}}<p class="flash" role="status">{{.Flash}}</p>{{end}}
@@ -2293,7 +2470,7 @@ const loanViewBody = `<div class="loan-topline">
         <input id="date" name="date" type="date" value="{{.TodayISO}}" required></div>
       <div class="field"><label for="note">Note (optional)</label>
         <input id="note" name="note" autocomplete="off"></div>
-      <button type="submit">Submit for approval</button>
+      <button type="submit" class="btn-ico">` + iconSend + `Submit for approval</button>
     </form>
   </div>
 </section>
@@ -2308,7 +2485,7 @@ const loanViewBody = `<div class="loan-topline">
         <span class="loan-sub-meta">{{.PayerName}}{{if .Date}} &middot; {{.Date}}{{end}}{{if .Note}} &middot; {{.Note}}{{end}}{{if .Reason}} &middot; {{.Reason}}{{end}}</span>
       </div>
       <span class="loan-status loan-status-{{.Status}}">{{.Status}}</span>
-      {{if .CanCancel}}<form method="post" action="/loan/{{$.PosID}}/payments/{{.ID}}/cancel" class="loan-sub-cancel"><button type="submit" class="linkbtn">Cancel</button></form>{{end}}
+      {{if .CanCancel}}<form method="post" action="/loan/{{$.PosID}}/payments/{{.ID}}/cancel" class="loan-sub-cancel"><button type="submit" class="linkbtn btn-ico">` + iconX + `Cancel</button></form>{{end}}
     </div>
     {{end}}
   {{else}}<div class="loan-card-body"><p class="subtitle">No submissions yet.</p></div>{{end}}
@@ -2340,7 +2517,7 @@ const loanSetupBody = `<header class="page-head"><div><p class="home-eyebrow">Ne
 <div class="field"><label for="lpassword">Borrower password</label>
   <input id="lpassword" name="password" type="password" required>
   <p class="hint">Share this with the borrower along with the loan link.</p></div>
-<button type="submit">Create loan</button>
+<button type="submit" class="btn-ico">` + iconPlus + `Create loan</button>
 </form>`
 
 const loginBody = `<h1>Sign in</h1>
@@ -2360,7 +2537,7 @@ const loginBody = `<h1>Sign in</h1>
   autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false"
   required>
 </div>
-<button type="submit">Sign in</button>
+<button type="submit" class="btn-ico">` + iconLogin + `Sign in</button>
 </form>`
 
 const verifyBody = `<h1>Enter your code</h1>
@@ -2375,16 +2552,16 @@ const verifyBody = `<h1>Enter your code</h1>
   autocapitalize="off" autocorrect="off" spellcheck="false"
   required autofocus>
 </div>
-<button type="submit">Verify</button>
+<button type="submit" class="btn-ico">` + iconCheck + `Verify</button>
 </form>
-<p class="aside">
+<div class="aside">
 <form method="post" action="/login">
 <input type="hidden" name="identifier" value="{{.Identifier}}">
-<button type="submit" class="linkbtn">Send a new code</button>
+<button type="submit" class="linkbtn btn-ico">` + iconRefresh + `Send a new code</button>
 </form>
 &nbsp;·&nbsp;
 <a class="linkbtn" href="/login">Use a different identifier</a>
-</p>`
+</div>`
 
 const notificationsBody = `<header class="page-head">
   <div>
@@ -2393,7 +2570,7 @@ const notificationsBody = `<header class="page-head">
   </div>
   {{if .UnreadCount}}<div class="page-head-actions">
     <form method="post" action="/notifications/mark-all-read">
-      <button type="submit" class="pill">Mark all read ({{.UnreadCount}})</button>
+      <button type="submit" class="pill btn-ico">` + iconCheckDouble + `Mark all read ({{.UnreadCount}})</button>
     </form>
   </div>{{end}}
 </header>
@@ -2437,7 +2614,7 @@ const notificationsBody = `<header class="page-head">
   {{end}}
   {{if not .IsRead}}
   <form method="post" action="/notifications/{{.ID}}/read" class="notif-actions">
-  <button type="submit" class="linkbtn">Mark read</button>
+  <button type="submit" class="linkbtn btn-ico">` + iconCheck + `Mark read</button>
   </form>
   {{end}}
   </li>
@@ -2521,7 +2698,7 @@ const recapBody = `<header class="page-head">
     <input type="date" name="to"   value="{{.To}}"   aria-label="To">
   </span>
   <input type="hidden" name="bucket" value="{{.Bucket}}">
-  <button type="submit">Filter</button>
+  <button type="submit" class="btn-ico">` + iconFilter + `Filter</button>
 </form>
 
 {{range .Errors}}<p class="alert" role="alert">{{.}}</p>{{end}}
@@ -2579,7 +2756,7 @@ const spendingBody = `<header class="page-head">
     <span class="sep">&rarr;</span>
     <input type="date" name="to"   value="{{.To}}"   aria-label="To">
   </span>
-  <button type="submit">Filter</button>
+  <button type="submit" class="btn-ico">` + iconFilter + `Filter</button>
 </form>
 
 {{if .LoadError}}
@@ -2617,7 +2794,7 @@ const spendingBody = `<header class="page-head">
   <tbody>
   {{range $i, $col := .Columns}}
   <tr>
-  <td><a href="/pos/{{$col.PosID}}">{{$col.Name}}</a>{{if $col.AccountName}} <span style="color:var(--text-tertiary); font-weight:400;">· {{$col.AccountName}}</span>{{end}}</td>
+  <td><a href="/pos/{{$col.PosID}}">{{$col.Name}}</a>{{if $col.AccountName}} <span class="quiet">· {{$col.AccountName}}</span>{{end}}</td>
   {{range $.Rows}}<td class="num">{{$c := index .Cells $i}}{{if $c}}{{money $c $col.Currency}}{{else}}&mdash;{{end}}</td>{{end}}
   <td class="num"><strong>{{money $col.Total $col.Currency}}</strong></td>
   </tr>
@@ -2639,8 +2816,7 @@ const pivotBody = `<header class="page-head">
     <h1>Pivot Roll-forward</h1>
   </div>
   <div class="page-head-actions">
-    <button type="button" class="linkbtn" id="pivot-toggle" aria-expanded="false" aria-controls="pivot-filters">Show filters</button>
-    <button type="button" class="linkbtn" id="pivot-reset-top">Reset filters</button>
+    <button type="button" class="linkbtn btn-ico" id="pivot-reset-top">` + iconReset + `Reset filters</button>
   </div>
 </header>
 
@@ -2649,6 +2825,96 @@ const pivotBody = `<header class="page-head">
 {{if .LoadError}}
 <p class="alert" role="alert">Some data could not be loaded. The view may be incomplete.</p>
 {{end}}
+
+<div class="pivot-toggle-row">
+  <button type="button" id="pivot-toggle" aria-expanded="false" aria-controls="pivot-filters">` + iconSettings + `Show filters &#9662;</button>
+</div>
+
+<div id="pivot-filters" hidden>
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Akun</span>
+    <span class="section-card-meta">
+      <button type="button" class="linkbtn btn-ico" data-akun-all>` + iconCheckSquare + `Select all</button>
+      &middot;
+      <button type="button" class="linkbtn btn-ico" data-akun-none>` + iconX + `Clear</button>
+    </span>
+  </div>
+  <div class="pivot-checks" id="pivot-akun">
+    {{range .Accounts}}<label class="pivot-check"><input type="checkbox" data-akun="{{.ID}}" checked> <span>{{.Name}}</span></label>{{else}}<p class="subtitle">No accounts.</p>{{end}}
+  </div>
+</section>
+
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Kategori</span>
+    <span class="section-card-meta">
+      <button type="button" class="linkbtn btn-ico" data-kat-all>` + iconCheckSquare + `Select all</button>
+      &middot;
+      <button type="button" class="linkbtn btn-ico" data-kat-none>` + iconX + `Clear</button>
+    </span>
+  </div>
+  {{range .Groups}}
+  <div class="pivot-group" data-group="{{.AccountID}}">
+    <div class="pivot-group-head">
+      <button type="button" class="linkbtn pivot-group-toggle" data-fgroup="{{.AccountID}}" aria-expanded="true"><span class="pivot-caret">&#9662;</span>{{.AccountName}}</button>
+      <span class="pivot-group-actions">
+        <button type="button" class="linkbtn btn-ico" data-group-all="{{.AccountID}}">` + iconCheckSquare + `Select all</button>
+        &middot;
+        <button type="button" class="linkbtn btn-ico" data-group-none="{{.AccountID}}">` + iconX + `Clear</button>
+      </span>
+    </div>
+    <div class="pivot-checks" data-fchecks="{{.AccountID}}">
+      {{range .Positions}}<label class="pivot-check" data-kat-label="{{.AccountID}}"><input type="checkbox" data-kat="{{.PosID}}" data-akun="{{.AccountID}}" checked> <span>{{.Name}} <span class="pivot-akun-tag">&middot; {{.AccountName}}</span></span></label>{{end}}
+    </div>
+  </div>
+  {{else}}<div class="pivot-checks"><p class="subtitle">No positions.</p></div>{{end}}
+  <div class="pivot-checks" id="pivot-nokat" hidden><p class="subtitle">Select an Akun above to see its Kategori.</p></div>
+</section>
+
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Filters</span>
+  </div>
+  <div class="pivot-panel">
+    <div class="pivot-row">
+      <span class="txn-filter-label">Period</span>
+      <span class="pivot-seg" id="pivot-preset" role="group" aria-label="Date range">
+        <button type="button" data-preset="month">` + iconCalendar + `This month</button>
+        <button type="button" data-preset="quarter">` + iconCalendar + `This quarter</button>
+        <button type="button" data-preset="year">` + iconCalendar + `This year</button>
+        <button type="button" data-preset="all" aria-pressed="true">` + iconClock + `All time</button>
+      </span>
+      <span class="txn-filter-dates">
+        <input type="date" id="pivot-from" aria-label="From">
+        <span class="sep">&rarr;</span>
+        <input type="date" id="pivot-to" aria-label="To">
+      </span>
+    </div>
+    <div class="pivot-row">
+      <span class="txn-filter-label">Movement</span>
+      <span class="pivot-seg" id="pivot-type" role="group" aria-label="Movement type">
+        <button type="button" data-type="all" aria-pressed="true">` + iconLayers + `All</button>
+        <button type="button" data-type="money_in">` + iconArrowDown + `Money in</button>
+        <button type="button" data-type="money_out">` + iconArrowUp + `Money out</button>
+      </span>
+      <input type="search" id="pivot-q" placeholder="Search Nama&hellip;" aria-label="Search Nama" autocomplete="off">
+    </div>
+    <div class="pivot-row">
+      <span class="txn-filter-label">View</span>
+      <label class="pivot-check"><input type="checkbox" id="pivot-empty"> <span>Show empty positions</span></label>
+      <label class="pivot-check"><input type="checkbox" id="pivot-akuntotal" checked> <span>Show Akun totals</span></label>
+      <span class="pivot-seg" id="pivot-sort" role="group" aria-label="Sort within Kategori">
+        <button type="button" data-sort="date" aria-pressed="true">` + iconCalendar + `By date</button>
+        <button type="button" data-sort="amount">` + iconBanknote + `By amount</button>
+      </span>
+      <button type="button" class="linkbtn btn-ico" id="pivot-expand">` + iconChevDown + `Expand all</button>
+      &middot;
+      <button type="button" class="linkbtn btn-ico" id="pivot-collapse">` + iconChevUp + `Collapse all</button>
+    </div>
+  </div>
+</section>
+</div>
 
 <section class="section-card">
   <div class="section-card-head">
@@ -2670,94 +2936,9 @@ const pivotBody = `<header class="page-head">
       <rect x="44" y="22" width="4" height="4" fill="currentColor" opacity="0.25"/>
     </svg>
     <p class="empty-state-text">No movements match the current filters.</p>
-    <p class="empty-state-action"><button type="button" class="linkbtn" id="pivot-reset-empty">Reset filters</button></p>
+    <p class="empty-state-action"><button type="button" class="linkbtn btn-ico" id="pivot-reset-empty">` + iconReset + `Reset filters</button></p>
   </div>
 </section>
-
-<div id="pivot-filters" hidden>
-<section class="section-card">
-  <div class="section-card-head">
-    <span class="section-card-title">Akun</span>
-    <span class="section-card-meta">
-      <button type="button" class="linkbtn" data-akun-all>Select all</button>
-      &middot;
-      <button type="button" class="linkbtn" data-akun-none>Clear</button>
-    </span>
-  </div>
-  <div class="pivot-checks" id="pivot-akun">
-    {{range .Accounts}}<label class="pivot-check"><input type="checkbox" data-akun="{{.ID}}" checked> <span>{{.Name}}</span></label>{{else}}<p class="subtitle">No accounts.</p>{{end}}
-  </div>
-</section>
-
-<section class="section-card">
-  <div class="section-card-head">
-    <span class="section-card-title">Kategori</span>
-    <span class="section-card-meta">
-      <button type="button" class="linkbtn" data-kat-all>Select all</button>
-      &middot;
-      <button type="button" class="linkbtn" data-kat-none>Clear</button>
-    </span>
-  </div>
-  {{range .Groups}}
-  <div class="pivot-group" data-group="{{.AccountID}}">
-    <div class="pivot-group-head">
-      <span class="pivot-group-name">{{.AccountName}}</span>
-      <span class="pivot-group-actions">
-        <button type="button" class="linkbtn" data-group-all="{{.AccountID}}">Select all</button>
-        &middot;
-        <button type="button" class="linkbtn" data-group-none="{{.AccountID}}">Clear</button>
-      </span>
-    </div>
-    <div class="pivot-checks">
-      {{range .Positions}}<label class="pivot-check" data-kat-label="{{.AccountID}}"><input type="checkbox" data-kat="{{.PosID}}" data-akun="{{.AccountID}}" checked> <span>{{.Name}} <span class="pivot-akun-tag">&middot; {{.AccountName}}</span></span></label>{{end}}
-    </div>
-  </div>
-  {{else}}<div class="pivot-checks"><p class="subtitle">No positions.</p></div>{{end}}
-</section>
-
-<section class="section-card">
-  <div class="section-card-head">
-    <span class="section-card-title">Filters</span>
-  </div>
-  <div class="pivot-panel">
-    <div class="pivot-row">
-      <span class="txn-filter-label">Period</span>
-      <span class="pivot-seg" id="pivot-preset" role="group" aria-label="Date range">
-        <button type="button" data-preset="month">This month</button>
-        <button type="button" data-preset="quarter">This quarter</button>
-        <button type="button" data-preset="year">This year</button>
-        <button type="button" data-preset="all" aria-pressed="true">All time</button>
-      </span>
-      <span class="txn-filter-dates">
-        <input type="date" id="pivot-from" aria-label="From">
-        <span class="sep">&rarr;</span>
-        <input type="date" id="pivot-to" aria-label="To">
-      </span>
-    </div>
-    <div class="pivot-row">
-      <span class="txn-filter-label">Movement</span>
-      <span class="pivot-seg" id="pivot-type" role="group" aria-label="Movement type">
-        <button type="button" data-type="all" aria-pressed="true">All</button>
-        <button type="button" data-type="money_in">Money in</button>
-        <button type="button" data-type="money_out">Money out</button>
-      </span>
-      <input type="search" id="pivot-q" placeholder="Search Nama&hellip;" aria-label="Search Nama" autocomplete="off">
-    </div>
-    <div class="pivot-row">
-      <span class="txn-filter-label">View</span>
-      <label class="pivot-check"><input type="checkbox" id="pivot-empty"> <span>Show empty positions</span></label>
-      <label class="pivot-check"><input type="checkbox" id="pivot-akuntotal" checked> <span>Show Akun totals</span></label>
-      <span class="pivot-seg" id="pivot-sort" role="group" aria-label="Sort within Kategori">
-        <button type="button" data-sort="date" aria-pressed="true">By date</button>
-        <button type="button" data-sort="amount">By amount</button>
-      </span>
-      <button type="button" class="linkbtn" id="pivot-expand">Expand all</button>
-      &middot;
-      <button type="button" class="linkbtn" id="pivot-collapse">Collapse all</button>
-    </div>
-  </div>
-</section>
-</div>
 
 <script type="application/json" id="pivot-data">{{.DataJSON}}</script>
 <script>
@@ -2775,7 +2956,7 @@ const pivotBody = `<header class="page-head">
   Object.keys(knownAkun).forEach(function(id){ akun[id] = true; });
   Object.keys(knownKat).forEach(function(id){ kat[id] = true; });
   var state = {preset: 'all', from: '', to: '', type: 'all', q: '',
-    showEmpty: false, showAkunTotal: true, sort: 'date', collapsed: {}, showFilters: false};
+    showEmpty: false, showAkunTotal: true, sort: 'date', collapsed: {}, showFilters: false, fgroups: {}};
   var lastVisibleKats = [];
 
   function $(s){ return document.querySelector(s); }
@@ -2803,6 +2984,10 @@ const pivotBody = `<header class="page-head">
     state.showAkunTotal = p.get('akuntotal') !== '0';
     if (p.get('sort') === 'amount') state.sort = 'amount';
     state.showFilters = p.get('filters') === '1';
+    state.fgroups = {};
+    (p.get('fgroups') || '').split(',').forEach(function(id){
+      if (knownAkun[id]) state.fgroups[id] = true;
+    });
     state.collapsed = {};
     (p.get('collapsed') || '').split(',').forEach(function(id){
       if (knownKat[id]) state.collapsed[id] = true;
@@ -2925,6 +3110,8 @@ const pivotBody = `<header class="page-head">
     if (!state.showAkunTotal) p.set('akuntotal', '0');
     if (state.sort !== 'date') p.set('sort', state.sort);
     if (state.showFilters) p.set('filters', '1');
+    var fg = Object.keys(state.fgroups).filter(function(id){ return state.fgroups[id]; });
+    if (fg.length) p.set('fgroups', fg.join(','));
     var c = Object.keys(state.collapsed).filter(function(id){ return state.collapsed[id]; });
     if (c.length) p.set('collapsed', c.join(','));
     var s = p.toString();
@@ -2953,17 +3140,28 @@ const pivotBody = `<header class="page-head">
     if (fw) fw.hidden = !state.showFilters;
     var tg = $('#pivot-toggle');
     if (tg) {
-      tg.textContent = state.showFilters ? 'Hide filters' : 'Show filters';
+      tg.textContent = state.showFilters ? 'Hide filters ▴' : 'Show filters ▾';
       tg.setAttribute('aria-expanded', state.showFilters ? 'true' : 'false');
     }
-    paintKatGrey();
+    $all('[data-fgroup]').forEach(function(btn){
+      var open = !state.fgroups[btn.getAttribute('data-fgroup')];
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    $all('[data-fchecks]').forEach(function(div){
+      div.hidden = !!state.fgroups[div.getAttribute('data-fchecks')];
+    });
+    paintKatVisibility();
   }
 
-  function paintKatGrey(){
-    $all('[data-kat-label]').forEach(function(label){
-      var aid = label.getAttribute('data-kat-label');
-      label.classList.toggle('is-off', !akun[aid]);
+  function paintKatVisibility(){
+    var anyVisible = false;
+    $all('[data-group]').forEach(function(div){
+      var visible = !!akun[div.getAttribute('data-group')];
+      div.hidden = !visible;
+      if (visible) anyVisible = true;
     });
+    var hint = $('#pivot-nokat');
+    if (hint) hint.hidden = anyVisible || !data.accounts.length;
   }
 
   function render(){
@@ -2985,7 +3183,7 @@ const pivotBody = `<header class="page-head">
             nMov++;
             var cls = m.Amount < 0 ? ' class="num pivot-neg"' : ' class="num"';
             html += '<tr><td class="pivot-akun-cell">' + (first ? esc(a.name) : '') + '</td>' +
-              '<td><a href="/pos/' + esc(m.PosID) + '">' + esc(m.PosName) + '</a></td>' +
+              '<td><a href="/pos/' + esc(m.PosID) + '" class="pivot-kat-link">' + esc(m.PosName) + '</a></td>' +
               '<td title="' + esc(m.Date) + '">' + esc(m.Nama) + '</td>' +
               '<td' + cls + '>' + fmt(m.Amount) + '</td></tr>';
             first = false;
@@ -3024,7 +3222,7 @@ const pivotBody = `<header class="page-head">
     syncURL();
   }
 
-  function refresh(){ paintKatGrey(); render(); }
+  function refresh(){ paintKatVisibility(); render(); }
 
   $all('#pivot-akun input[data-akun]').forEach(function(cb){
     cb.addEventListener('change', function(){
@@ -3067,6 +3265,14 @@ const pivotBody = `<header class="page-head">
       var aid = btn.getAttribute('data-group-none');
       data.positions.forEach(function(p){ if (p.AccountID === aid) delete kat[p.PosID]; });
       paintControls(); render();
+    });
+  });
+  $all('[data-fgroup]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var aid = btn.getAttribute('data-fgroup');
+      if (state.fgroups[aid]) delete state.fgroups[aid];
+      else state.fgroups[aid] = true;
+      paintControls(); syncURL();
     });
   });
 
@@ -3124,7 +3330,7 @@ const pivotBody = `<header class="page-head">
     kat = {};
     Object.keys(knownKat).forEach(function(id){ kat[id] = true; });
     state = {preset: 'all', from: '', to: '', type: 'all', q: '',
-      showEmpty: false, showAkunTotal: true, sort: 'date', collapsed: {}, showFilters: false};
+      showEmpty: false, showAkunTotal: true, sort: 'date', collapsed: {}, showFilters: false, fgroups: {}};
     $('#pivot-q').value = '';
     paintControls(); render();
   }
@@ -3170,8 +3376,12 @@ const posBody = `{{if .NotFound}}
 <p class="alert" role="alert">Some data could not be loaded. The view may be incomplete.</p>
 {{end}}
 
-<section class="card">
-<h2>Balance</h2>
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Balance</span>
+    <span class="section-card-meta">{{.Currency}}</span>
+  </div>
+  <div class="table-wrap">
 <table>
 <thead><tr><th>Cash</th><th class="num">Receivables</th><th class="num">Payables</th></tr></thead>
 <tbody>
@@ -3182,28 +3392,35 @@ const posBody = `{{if .NotFound}}
 </tr>
 </tbody>
 </table>
+  </div>
 </section>
 
 {{if .IsLoan}}
-<section class="card">
-<h2>Loan</h2>
-{{if .Flash}}<p class="success" role="status">{{.Flash}}</p>{{end}}
-{{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
-<div class="loan-summary">
-  <div class="loan-summary-head">
-    <span class="loan-summary-label">Outstanding</span>
-    <span class="loan-summary-amt">{{money .LoanOutstanding .Currency}}</span>
+<section class="section-card">
+  <div class="section-card-head"><span class="section-card-title">Loan</span></div>
+  <div class="card-pad">
+  {{if .Flash}}<p class="flash" role="status">{{.Flash}}</p>{{end}}
+  {{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
+  <div class="loan-summary">
+    <div class="loan-summary-head">
+      <span class="loan-summary-label">Outstanding</span>
+      <span class="loan-summary-amt">{{money .LoanOutstanding .Currency}}</span>
+    </div>
+    <div class="loan-progress"><div class="loan-progress-bar" style="width:{{.LoanPctRepaid}}%"></div></div>
+    <div class="loan-summary-meta">{{money .LoanRepaid .Currency}} repaid of {{money .Target .Currency}} &middot; {{.LoanPctRepaid}}%</div>
   </div>
-  <div class="loan-progress"><div class="loan-progress-bar" style="width:{{.LoanPctRepaid}}%"></div></div>
-  <div class="loan-summary-meta">{{money .LoanRepaid .Currency}} repaid of {{money .Target .Currency}} &middot; {{.LoanPctRepaid}}%</div>
-</div>
-<p class="subtitle">Borrower portal: <a href="{{.BorrowerLoginURL}}">{{.BorrowerLoginURL}}</a>{{if .HasBorrowerLogin}} &middot; username <strong>{{.BorrowerUsername}}</strong>{{else}} &middot; <em>no borrower login set yet</em>{{end}}</p>
+  <p class="subtitle">Borrower portal: <a href="{{.BorrowerLoginURL}}">{{.BorrowerLoginURL}}</a>{{if .HasBorrowerLogin}} &middot; username <strong>{{.BorrowerUsername}}</strong>{{else}} &middot; <em>no borrower login set yet</em>{{end}}</p>
+  </div>
 </section>
 
-<section class="card">
-<h2>Repayment submissions{{if .LoanPendingCount}} <span class="badge">{{.LoanPendingCount}}</span>{{end}}</h2>
-{{if .LoanSubmissions}}
-<table>
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Repayment submissions</span>
+    {{if .LoanPendingCount}}<span class="section-card-meta">{{.LoanPendingCount}} pending</span>{{end}}
+  </div>
+  {{if .LoanSubmissions}}
+  <div class="table-wrap">
+  <table>
 <thead><tr><th>Payer</th><th class="num">Amount</th><th>Date</th><th>Status</th><th></th></tr></thead>
 <tbody>
 {{range .LoanSubmissions}}
@@ -3214,63 +3431,70 @@ const posBody = `{{if .NotFound}}
 <td><span class="loan-status loan-status-{{.Status}}">{{.Status}}</span></td>
 <td class="num">
 {{if eq .Status "pending"}}
-<form method="post" action="/loan-submissions/{{.ID}}/approve" style="display:inline"><button type="submit" class="pill">Approve</button></form>
-<form method="post" action="/loan-submissions/{{.ID}}/reject" style="display:inline"><button type="submit" class="linkbtn">Reject</button></form>
+<form method="post" action="/loan-submissions/{{.ID}}/approve" class="inline-form"><button type="submit" class="pill btn-ico">` + iconCheck + `Approve</button></form>
+<form method="post" action="/loan-submissions/{{.ID}}/reject" class="inline-form"><button type="submit" class="linkbtn btn-ico">` + iconX + `Reject</button></form>
 {{end}}
 </td>
 </tr>
 {{end}}
 </tbody>
 </table>
-{{else}}<p class="subtitle">No repayment submissions yet.</p>{{end}}
+  </div>
+  {{else}}<div class="card-pad"><p class="subtitle">No repayment submissions yet.</p></div>{{end}}
 </section>
 {{end}}
 
-<section class="card">
-<h2>Funding account</h2>
-{{if .AccountFlash}}<p class="success" role="status">{{.AccountFlash}}</p>{{end}}
-<p class="subtitle">Currently held in <strong>{{.AccountName}}</strong>. Reassigning has snapshot semantics: per-account balances update retroactively, but this Pos's history is preserved.</p>
-<form method="post" action="/pos/{{.ID}}/account">
-<div class="field">
-<label for="change_account_id">Move to</label>
-<select id="change_account_id" name="account_id" required>
-{{range .Accounts}}<option value="{{.ID}}" {{if eq $.AccountID .ID}}selected{{end}}>{{.Name}}</option>
-{{end}}</select>
-</div>
-<button type="submit">Save</button>
-</form>
+<section class="section-card">
+  <div class="section-card-head"><span class="section-card-title">Funding account</span></div>
+  <div class="card-pad">
+  {{if .AccountFlash}}<p class="flash" role="status">{{.AccountFlash}}</p>{{end}}
+  <p class="subtitle">Currently held in <strong>{{.AccountName}}</strong>. Reassigning has snapshot semantics: per-account balances update retroactively, but this Pos's history is preserved.</p>
+  <form method="post" action="/pos/{{.ID}}/account">
+  <div class="field">
+  <label for="change_account_id">Move to</label>
+  <select id="change_account_id" name="account_id" required>
+  {{range .Accounts}}<option value="{{.ID}}" {{if eq $.AccountID .ID}}selected{{end}}>{{.Name}}</option>
+  {{end}}</select>
+  </div>
+  <button type="submit" class="btn-ico">` + iconCheck + `Save</button>
+  </form>
+  </div>
 </section>
 
 {{if not .Archived}}
-<section class="card">
-<h2>Edit</h2>
-<form method="post" action="/pos/{{.ID}}/rename">
-<div class="field">
-<label for="rename_name">Name</label>
-<input id="rename_name" name="name" type="text" value="{{.Name}}" required maxlength="80">
-</div>
-<div class="field">
-<label for="rename_target">Target <span style="color:var(--text-tertiary); font-weight:400;">(optional, smallest unit; leave blank to clear)</span></label>
-<input id="rename_target" name="target" type="text" inputmode="numeric" pattern="[0-9.,]*" maxlength="16" value="{{if .HasTarget}}{{.Target}}{{end}}">
-</div>
-<p class="hint">Currency ({{.Currency}}) is fixed; archive and recreate this Pos to change it.</p>
-<button type="submit">Save changes</button>
-</form>
+<section class="section-card">
+  <div class="section-card-head"><span class="section-card-title">Edit</span></div>
+  <div class="card-pad">
+  <form method="post" action="/pos/{{.ID}}/rename">
+  <div class="field">
+  <label for="rename_name">Name</label>
+  <input id="rename_name" name="name" type="text" value="{{.Name}}" required maxlength="80">
+  </div>
+  <div class="field">
+  <label for="rename_target">Target <span class="quiet">(optional, smallest unit; leave blank to clear)</span></label>
+  <input id="rename_target" name="target" type="text" inputmode="numeric" pattern="[0-9.,]*" maxlength="16" value="{{if .HasTarget}}{{.Target}}{{end}}">
+  </div>
+  <p class="hint">Currency ({{.Currency}}) is fixed; archive and recreate this Pos to change it.</p>
+  <button type="submit" class="btn-ico">` + iconCheck + `Save changes</button>
+  </form>
+  </div>
 </section>
 
-<section class="card">
-<h2>Archive</h2>
-<p class="subtitle">Archived Pos disappear from the home view but their history is preserved. Re-create or unarchive via SQL if needed.</p>
-<form method="post" action="/pos/{{.ID}}/archive" onsubmit="return confirm('Archive this Pos? It will hide from default views but past transactions stay.');">
-<button type="submit">Archive this Pos</button>
-</form>
+<section class="section-card">
+  <div class="section-card-head"><span class="section-card-title">Archive</span></div>
+  <div class="card-pad">
+  <p class="subtitle">Archived Pos disappear from the home view but their history is preserved. Re-create or unarchive via SQL if needed.</p>
+  <form method="post" action="/pos/{{.ID}}/archive" onsubmit="return confirm('Archive this Pos? It will hide from default views but past transactions stay.');">
+  <button type="submit" class="btn-ico">` + iconArchive + `Archive this Pos</button>
+  </form>
+  </div>
 </section>
 {{end}}
 
 {{if .Obligations}}
-<section class="card">
-<h2>Open obligations</h2>
-<div class="table-wrap">
+<section class="section-card">
+  <div class="section-card-head"><span class="section-card-title">Open obligations</span></div>
+  <div class="table-wrap">
 <table>
 <thead><tr><th>Direction</th><th>Counterparty Pos</th><th class="num">Outstanding</th><th>Since</th></tr></thead>
 <tbody>
@@ -3289,9 +3513,12 @@ const posBody = `{{if .NotFound}}
 {{end}}
 
 {{if .Transactions}}
-<section class="card">
-<h2>Transactions</h2>
-<div class="table-wrap">
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Transactions</span>
+    <span class="section-card-meta">{{len .Transactions}} items</span>
+  </div>
+  <div class="table-wrap">
 <table>
 <thead><tr><th>Date</th><th>Type</th><th class="num">Amount</th><th>Account</th><th>Counterparty</th><th>Note</th></tr></thead>
 <tbody>
@@ -3350,12 +3577,12 @@ const posListBody = `<header class="page-head">
     <h1>Pos</h1>
   </div>
   <div class="page-head-actions">
-    <a class="pill" href="/loans/new">+ Set up a loan</a>
-    <a class="pill primary" href="/pos/new">+ New Pos</a>
+    <a class="pill btn-ico" href="/loans/new">` + iconPlus + `Set up a loan</a>
+    <a class="pill primary btn-ico" href="/pos/new">` + iconPlus + `New Pos</a>
   </div>
 </header>
 
-{{if .Flash}}<p class="success" role="status">{{.Flash}}</p>{{end}}
+{{if .Flash}}<p class="flash" role="status">{{.Flash}}</p>{{end}}
 {{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
 {{if not .Poses}}
 <div class="section-card">
@@ -3379,20 +3606,20 @@ const posListBody = `<header class="page-head">
   <td><a href="/pos/{{.ID}}">{{.Name}}</a>{{if .HasTarget}} <span class="subtitle">&middot; target {{money .Target .Currency}}</span>{{end}}</td>
   <td>{{.Currency}}</td>
   <td>
-    <form method="post" action="/pos/{{.ID}}/account" style="display:flex; gap:8px; align-items:center; min-width:240px;">
+    <form method="post" action="/pos/{{.ID}}/account" class="inline-row-form">
       <input type="hidden" name="back" value="list">
-      <select name="account_id" required style="flex:1 1 auto; min-width:0;">
+      <select name="account_id" required>
         {{$cur := .AccountID}}
         {{range $.Accounts}}<option value="{{.ID}}"{{if eq .ID $cur}} selected{{end}}>{{.Name}}</option>{{end}}
       </select>
-      <button type="submit" style="white-space:nowrap;">Save</button>
+      <button type="submit" class="btn-ico btn-sm btn-outline">` + iconCheck + `Save</button>
     </form>
   </td>
   <td>{{if .Archived}}<span class="chip">archived</span>{{else}}<span class="chip chip-in">active</span>{{end}}</td>
-  <td><div style="display:flex; gap:6px; flex-wrap:wrap;">
+  <td><div class="inline-row-actions">
   {{if not .Archived}}
-    <form method="post" action="/pos/{{.ID}}/archive" onsubmit="return confirm('Archive this Pos? It will be hidden from default lists.');" style="display:inline;">
-      <button type="submit">Archive</button>
+    <form method="post" action="/pos/{{.ID}}/archive" onsubmit="return confirm('Archive this Pos? It will be hidden from default lists.');" class="inline-form">
+      <button type="submit" class="btn-sm btn-outline btn-ico">` + iconArchive + `Archive</button>
     </form>
   {{end}}
   </div></td>
@@ -3409,7 +3636,7 @@ const posNewBody = `<h1>New Pos</h1>
 {{if .Errors}}
 <div class="alert" role="alert">
 <strong>Couldn&rsquo;t save this Pos:</strong>
-<ul style="margin:8px 0 0 20px; padding:0;">
+<ul>
 {{range .Errors}}<li>{{.}}</li>{{end}}
 </ul>
 </div>
@@ -3439,7 +3666,7 @@ const posNewBody = `<h1>New Pos</h1>
 <p class="hint">The IDR account that funds this Pos. Required for every Pos, including non-IDR (gold-g, USD) — it's the IDR backing. You can move the Pos later (the per-account view updates retroactively).</p>
 </div>
 <div class="field">
-<label for="target">Target <span style="color:var(--text-tertiary); font-weight:400;">(optional)</span></label>
+<label for="target">Target <span class="quiet">(optional)</span></label>
 <input id="target" name="target" type="text" inputmode="numeric"
   value="{{.TargetRaw}}"
   autocapitalize="off" autocorrect="off" spellcheck="false"
@@ -3447,7 +3674,7 @@ const posNewBody = `<h1>New Pos</h1>
   placeholder="e.g. 12.000.000">
 <p class="hint">Whole number in the smallest unit (rupiah for IDR, cents for USD). Leave blank for an open-ended Pos.</p>
 </div>
-<button type="submit">Create Pos</button>
+<button type="submit" class="btn-ico">` + iconPlus + `Create Pos</button>
 </form>
 <p class="aside"><a class="linkbtn" href="/">&larr; Cancel</a></p>`
 
@@ -3457,8 +3684,8 @@ const transactionsBody = `<header class="page-head">
     <h1>Transactions</h1>
   </div>
   <div class="page-head-actions">
-    <a class="pill primary" href="/transactions/new?type=money_in">+ Income</a>
-    <a class="pill" href="/transactions/new?type=money_out">+ Spending</a>
+    <a class="pill primary btn-ico" href="/transactions/new?type=money_in">` + iconPlus + `Income</a>
+    <a class="pill btn-ico" href="/transactions/new?type=money_out">` + iconMinus + `Spending</a>
   </div>
 </header>
 
@@ -3489,7 +3716,7 @@ const transactionsBody = `<header class="page-head">
     <span class="sep">→</span>
     <input type="date" name="to"   value="{{.To}}"   aria-label="To">
   </span>
-  <button type="submit">Filter</button>
+  <button type="submit" class="btn-ico">` + iconFilter + `Filter</button>
   <span class="txn-presets" aria-label="Quick ranges">
     <a class="txn-preset" href="/transactions?preset=7d">Last 7 days</a>
     <a class="txn-preset" href="/transactions?preset=30d">30 days</a>
@@ -3583,7 +3810,7 @@ const transactionNewBody = `<h1>{{.Title}}</h1>
 {{if .Errors}}
 <div class="alert" role="alert">
 <strong>Couldn&rsquo;t save this transaction:</strong>
-<ul style="margin:8px 0 0 20px; padding:0;">
+<ul>
 {{range .Errors}}<li>{{.}}</li>{{end}}
 </ul>
 </div>
@@ -3618,10 +3845,10 @@ const transactionNewBody = `<h1>{{.Title}}</h1>
 <p class="hint">A new counterparty is created automatically if the name doesn&rsquo;t exist yet.</p>
 </div>
 <div class="field">
-<label for="note">Note <span style="color:var(--text-tertiary); font-weight:400;">(optional)</span></label>
+<label for="note">Note <span class="quiet">(optional)</span></label>
 <input id="note" name="note" type="text" maxlength="200" value="{{.Note}}">
 </div>
-<button type="submit">{{if .IsIncoming}}Record income{{else}}Record spending{{end}}</button>
+<button type="submit" class="btn-ico">{{if .IsIncoming}}` + iconPlus + `Record income{{else}}` + iconMinus + `Record spending{{end}}</button>
 </form>
 {{if and .IsIncoming .Templates}}
 <section class="section-card">
@@ -3656,7 +3883,7 @@ const homeBody = `<header class="home-greeting">
 </svg>
 <p class="empty-state-text">Nothing here yet.</p>
 <p class="empty-state-hint">Start by creating a Pos — your first budget envelope.</p>
-<p class="empty-state-action"><a class="linkbtn" href="/pos/new">+ New Pos</a></p>
+<p class="empty-state-action"><a class="linkbtn btn-ico" href="/pos/new">` + iconPlus + `New Pos</a></p>
 </div>
 {{end}}
 
@@ -3668,9 +3895,9 @@ const homeBody = `<header class="home-greeting">
     <p class="balance-hero-meta">Across <strong>{{len .Accounts}} accounts</strong>{{if .PosByCurrency}} &middot; <strong>{{len (index .PosByCurrency 0).Items}} pos in IDR</strong>{{end}}</p>
   </div>
   <div class="balance-hero-actions">
-    <a class="pill primary" href="/transactions/new?type=money_in">+ Income</a>
-    <a class="pill" href="/transactions/new?type=money_out">+ Spending</a>
-    <a class="pill" href="/pos/new">+ New Pos</a>
+    <a class="pill primary btn-ico" href="/transactions/new?type=money_in">` + iconPlus + `Income</a>
+    <a class="pill btn-ico" href="/transactions/new?type=money_out">` + iconMinus + `Spending</a>
+    <a class="pill btn-ico" href="/pos/new">` + iconPlus + `New Pos</a>
   </div>
 </section>
 {{end}}
@@ -3714,7 +3941,7 @@ const homeBody = `<header class="home-greeting">
       <tbody>
         {{range $g.Items}}
         <tr>
-          <td>{{if .ID}}<a href="/pos/{{.ID}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}{{if .AccountName}} <span style="color:var(--text-tertiary); font-weight:400;">· {{.AccountName}}</span>{{end}}</td>
+          <td>{{if .ID}}<a href="/pos/{{.ID}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}{{if .AccountName}} <span class="quiet">· {{.AccountName}}</span>{{end}}</td>
           <td class="num{{if lt .Cash 0}} neg-cash{{end}}">{{money .Cash $g.Currency}}</td>
           <td class="num">
             {{if .HasTarget}}
@@ -3890,7 +4117,7 @@ const incomeTemplatesListBody = `<header class="page-head">
     <h1>Income templates</h1>
   </div>
   <div class="page-head-actions">
-    <a class="pill primary" href="/income-templates/new">+ New template</a>
+    <a class="pill primary btn-ico" href="/income-templates/new">` + iconPlus + `New template</a>
   </div>
 </header>
 
@@ -3927,7 +4154,7 @@ const incomeTemplateNewBody = `<h1>New income template</h1>
 {{if .Errors}}
 <div class="alert" role="alert">
 <strong>Couldn&rsquo;t save template:</strong>
-<ul style="margin:8px 0 0 20px; padding:0;">
+<ul>
 {{range .Errors}}<li>{{.}}</li>{{end}}
 </ul>
 </div>
@@ -3941,7 +4168,7 @@ const incomeTemplateNewBody = `<h1>New income template</h1>
   placeholder="e.g. Riza monthly salary">
 </div>
 <div class="field">
-<label for="leftover_pos_id">Leftover Pos <span style="color:var(--text-tertiary); font-weight:400;">(optional)</span></label>
+<label for="leftover_pos_id">Leftover Pos <span class="quiet">(optional)</span></label>
 <select id="leftover_pos_id" name="leftover_pos_id">
 <option value="">— none (strict: amount must equal Σ(lines)) —</option>
 {{range .Pos}}
@@ -3950,7 +4177,7 @@ const incomeTemplateNewBody = `<h1>New income template</h1>
 </select>
 <p class="hint">If set, any amount above the lines&rsquo; total lands here. Otherwise a too-large amount is rejected.</p>
 </div>
-<h2 style="font-size: var(--font-base); font-weight: 600; margin: 24px 0 12px;">Lines</h2>
+<h2 class="section-h2">Lines</h2>
 <div class="alloc" id="alloc-lines">
 {{range $i, $line := .Lines}}
 <div class="alloc-row">
@@ -3979,9 +4206,9 @@ const incomeTemplateNewBody = `<h1>New income template</h1>
 {{end}}
 {{end}}
 </div>
-<p style="margin: 8px 0 0;"><a href="#" class="linkbtn" onclick="return addLine()">+ Add line</a></p>
+<p class="add-line"><a href="#" class="linkbtn btn-ico" onclick="return addLine()">` + iconPlus + `Add line</a></p>
 <p class="hint">Each line takes a fixed amount, a percent of the salary (e.g. 60%), or both.</p>
-<button type="submit" style="margin-top: 16px;">Create template</button>
+<button type="submit" class="btn-ico mt-4">` + iconPlus + `Create template</button>
 </form>
 <script>
 function addLine(){var c=document.getElementById("alloc-lines"),n=c.children.length,
@@ -4000,13 +4227,13 @@ const incomeTemplateDetailBody = `<header class="page-head">
   </div>
 </header>
 <p class="subtitle">Allocation total {{money .LinesTotal "idr"}}{{if .TotalPercentLabel}} + {{.TotalPercentLabel}} of salary{{end}}{{if .HasLeftoverPos}} &middot; leftover → <strong>{{.LeftoverPosName}}</strong>{{end}}</p>
-{{if .Flash}}<div class="alert" role="status">{{.Flash}}</div>{{end}}
+{{if .Flash}}<p class="flash" role="status">{{.Flash}}</p>{{end}}
 
 <section class="section-card">
   <div class="section-card-head">
     <span class="section-card-title">Edit template</span>
   </div>
-  <div style="padding: 16px;">
+  <div class="card-pad">
   <form method="post" action="/income-templates/{{.ID}}/edit" id="edit-form">
   <input type="hidden" name="line_count" id="edit-line-count" value="{{if .Lines}}{{len .Lines}}{{else}}1{{end}}">
   <div class="field">
@@ -4014,13 +4241,13 @@ const incomeTemplateDetailBody = `<header class="page-head">
   <input id="edit-name" name="name" type="text" value="{{.Name}}" required maxlength="80">
   </div>
   <div class="field">
-  <label for="edit-leftover">Leftover Pos <span style="color:var(--text-tertiary); font-weight:400;">(optional)</span></label>
+  <label for="edit-leftover">Leftover Pos <span class="quiet">(optional)</span></label>
   <select id="edit-leftover" name="leftover_pos_id">
   <option value="">— none —</option>
   {{range .Pos}}<option value="{{.ID}}"{{if eq .ID $.LeftoverPosID}} selected{{end}}>{{.Name}} ({{.Currency}}{{if .AccountName}}, {{.AccountName}}{{end}})</option>{{end}}
   </select>
   </div>
-  <h3 style="font-size: var(--font-sm); font-weight: 600; margin: 16px 0 8px;">Lines</h3>
+  <h3 class="section-h3">Lines</h3>
   <div class="alloc" id="edit-alloc-lines">
   {{if .Lines}}
   {{range $i, $line := .Lines}}
@@ -4046,8 +4273,8 @@ const incomeTemplateDetailBody = `<header class="page-head">
   </div>
   {{end}}
   </div>
-  <p style="margin: 8px 0 0;"><a href="#" class="linkbtn" onclick="return addEditLine()">+ Add line</a></p>
-  <button type="submit" style="margin-top: 16px;">Save changes</button>
+  <p class="add-line"><a href="#" class="linkbtn btn-ico" onclick="return addEditLine()">` + iconPlus + `Add line</a></p>
+  <button type="submit" class="btn-ico mt-4">` + iconCheck + `Save changes</button>
   </form>
   </div>
 </section>
@@ -4056,8 +4283,8 @@ const incomeTemplateDetailBody = `<header class="page-head">
   <div class="section-card-head">
     <span class="section-card-title">Apply &rarr; preview allocation</span>
   </div>
-  <div style="padding: 16px;">
-  <p class="subtitle" style="margin: 0 0 12px;">Enter the details; the next step shows the suggested split — you can adjust it before approving.</p>
+  <div class="card-pad">
+  <p class="subtitle">Enter the details; the next step shows the suggested split — you can adjust it before approving.</p>
   <form method="post" action="/income-templates/{{.ID}}/preview">
   <div class="field">
   <label for="amount">Incoming amount (IDR)</label>
@@ -4074,7 +4301,7 @@ const incomeTemplateDetailBody = `<header class="page-head">
   <input id="counterparty_name" name="counterparty_name" type="text" required maxlength="80"
     placeholder="e.g. PT Telkom">
   </div>
-  <button type="submit">Preview allocation</button>
+  <button type="submit" class="btn-ico">` + iconEye + `Preview allocation</button>
   </form>
   </div>
 </section>
@@ -4091,8 +4318,9 @@ c.appendChild(r);lc.value=n+1;return false}
 const incomeTemplatePreviewBody = `<h1>Review allocation</h1>
 <p class="subtitle">Template &middot; <strong>{{.TemplateName}}</strong></p>
 
-<section class="card">
-<h2>Incoming</h2>
+<section class="section-card">
+  <div class="section-card-head"><span class="section-card-title">Incoming</span></div>
+  <div class="table-wrap">
 <table>
 <tbody>
 <tr><td>Amount</td><td class="num"><strong>{{money .Amount "idr"}}</strong></td></tr>
@@ -4100,6 +4328,7 @@ const incomeTemplatePreviewBody = `<h1>Review allocation</h1>
 <tr><td>Counterparty</td><td class="num">{{.CounterpartyName}}</td></tr>
 </tbody>
 </table>
+  </div>
 </section>
 
 {{if .SuggestionNotice}}
@@ -4112,8 +4341,9 @@ const incomeTemplatePreviewBody = `<h1>Review allocation</h1>
 <input type="hidden" name="counterparty_name" value="{{.CounterpartyName}}">
 <input type="hidden" name="idempotency_key" value="{{.IdempotencyKey}}">
 
-<section class="card">
-<h2>Allocation</h2>
+<section class="section-card">
+  <div class="section-card-head"><span class="section-card-title">Allocation</span></div>
+  <div class="card-pad">
 <p class="subtitle">Adjust as needed. The rows must sum to {{money .Amount "idr"}}.</p>
 <div class="alloc">
 {{range $i, $row := .Rows}}
@@ -4129,9 +4359,10 @@ const incomeTemplatePreviewBody = `<h1>Review allocation</h1>
 <div class="alloc-total"><span>Salary total to allocate</span><strong>{{money .Amount "idr"}}</strong></div>
 </div>
 <p class="hint">Tip: leave a row empty to drop it. Add a Pos to a previously-empty row to introduce a new line. Each Pos can appear only once.</p>
+  </div>
 </section>
 
-<button type="submit">Approve and apply</button>
+<button type="submit" class="btn-ico">` + iconCheck + `Approve and apply</button>
 </form>
 <p class="aside"><a class="linkbtn" href="/income-templates/{{.ID}}">&larr; Back to template</a></p>`
 
@@ -4194,11 +4425,11 @@ const accountsBody = `<header class="page-head">
     <h1>Accounts</h1>
   </div>
   <div class="page-head-actions">
-    <a class="pill primary" href="/accounts/new">+ New Account</a>
+    <a class="pill primary btn-ico" href="/accounts/new">` + iconPlus + `New Account</a>
   </div>
 </header>
 
-{{if .Flash}}<p class="success" role="status">{{.Flash}}</p>{{end}}
+{{if .Flash}}<p class="flash" role="status">{{.Flash}}</p>{{end}}
 {{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
 {{if not .Accounts}}
 <div class="section-card">
@@ -4220,20 +4451,20 @@ const accountsBody = `<header class="page-head">
   {{range .Accounts}}
   <tr>
   <td>
-    <form method="post" action="/accounts/{{.ID}}/rename" style="display:flex; gap:8px; align-items:center; min-width:280px;">
-      <input type="text" name="name" value="{{.Name}}" required maxlength="80" style="flex:1 1 auto; min-width:0; width:100%;">
-      <button type="submit" style="white-space:nowrap;">Rename</button>
+    <form method="post" action="/accounts/{{.ID}}/rename" class="inline-row-form">
+      <input type="text" name="name" value="{{.Name}}" required maxlength="80" aria-label="Rename {{.Name}}">
+      <button type="submit" class="btn-sm btn-outline btn-ico">` + iconPencil + `Rename</button>
     </form>
   </td>
   <td>{{if .Archived}}<span class="chip">archived</span>{{else}}<span class="chip chip-in">active</span>{{end}}</td>
-  <td><div style="display:flex; gap:6px; flex-wrap:wrap;">
+  <td><div class="inline-row-actions">
   {{if not .Archived}}
-    <form method="post" action="/accounts/{{.ID}}/archive" onsubmit="return confirm('Archive this account? Existing Pos still pointing at it will keep working but the account will be hidden from default lists.');" style="display:inline;">
-      <button type="submit">Archive</button>
+    <form method="post" action="/accounts/{{.ID}}/archive" onsubmit="return confirm('Archive this account? Existing Pos still pointing at it will keep working but the account will be hidden from default lists.');">
+      <button type="submit" class="btn-sm btn-outline btn-ico">` + iconArchive + `Archive</button>
     </form>
   {{end}}
-    <form method="post" action="/accounts/{{.ID}}/delete" onsubmit="return confirm('Delete this account permanently? Only succeeds if no Pos points at it.');" style="display:inline;">
-      <button type="submit">Delete</button>
+    <form method="post" action="/accounts/{{.ID}}/delete" onsubmit="return confirm('Delete this account permanently? Only succeeds if no Pos points at it.');">
+      <button type="submit" class="btn-sm btn-danger-outline btn-ico">` + iconTrash + `Delete</button>
     </form>
   </div></td>
   </tr>
@@ -4249,7 +4480,7 @@ const accountNewBody = `<h1>New Account</h1>
 {{if .Errors}}
 <div class="alert" role="alert">
 <strong>Couldn&rsquo;t save this Account:</strong>
-<ul style="margin:8px 0 0 20px; padding:0;">
+<ul>
 {{range .Errors}}<li>{{.}}</li>{{end}}
 </ul>
 </div>
@@ -4262,7 +4493,7 @@ const accountNewBody = `<h1>New Account</h1>
   required maxlength="80"
   placeholder="e.g. BCA Joint, Cash, Mandiri Riza">
 </div>
-<button type="submit">Create Account</button>
+<button type="submit" class="btn-ico">` + iconPlus + `Create Account</button>
 </form>
 <p class="aside"><a class="linkbtn" href="/accounts">&larr; Cancel</a></p>`
 
@@ -4278,12 +4509,12 @@ const settingsBody = `<header class="page-head">
     <span class="section-card-title">Theme</span>
     <span class="section-card-meta">Currently: {{.CurrentTheme}}</span>
   </div>
-  <div style="padding: 16px;">
-    <p class="subtitle" style="margin: 0 0 12px;">Choose how the app looks on this device. <strong>Auto</strong> follows your system preference.</p>
+  <div class="card-pad">
+    <p class="subtitle">Choose how the app looks on this device. <strong>Auto</strong> follows your system preference.</p>
     <form method="post" action="/settings/theme" class="theme-switch">
-    <button type="submit" name="theme" value="light"{{if eq .CurrentTheme "light"}} class="active"{{end}}>☀ Light</button>
-    <button type="submit" name="theme" value="dark"{{if eq .CurrentTheme "dark"}} class="active"{{end}}>☾ Dark</button>
-    <button type="submit" name="theme" value="auto"{{if eq .CurrentTheme "auto"}} class="active"{{end}}>◐ Auto (follow OS)</button>
+    <button type="submit" name="theme" value="light" class="btn-ico{{if eq .CurrentTheme "light"}} active{{end}}">` + iconSun + `Light</button>
+    <button type="submit" name="theme" value="dark" class="btn-ico{{if eq .CurrentTheme "dark"}} active{{end}}">` + iconMoon + `Dark</button>
+    <button type="submit" name="theme" value="auto" class="btn-ico{{if eq .CurrentTheme "auto"}} active{{end}}">` + iconMonitor + `Auto (follow OS)</button>
     </form>
   </div>
 </section>`

@@ -71,6 +71,9 @@ func TestPivotGet_NilPool_RendersFiltersAndEmptyStateScaffolding(t *testing.T) {
 		`id="pivot-data"`,
 		`id="pivot-filters" hidden`,
 		`id="pivot-toggle"`,
+		`data-fgroup`,
+		`data-fchecks`,
+		`id="pivot-nokat"`,
 		`Show filters`,
 		`No movements match the current filters`,
 		`Reset filters`,
@@ -94,9 +97,10 @@ func TestPivotGet_NilPool_RendersFiltersAndEmptyStateScaffolding(t *testing.T) {
 	if !strings.Contains(body, `href="/notifications"`) {
 		t.Error("nav missing Notifications link on pivot page")
 	}
-	// Report renders before the (hidden) filter panels.
-	if strings.Index(body, `id="pivot-body"`) > strings.Index(body, `id="pivot-filters"`) {
-		t.Error("report table should come before the filter panels in source order")
+	// Order is toggle, filter panels, then the report table.
+	if !(strings.Index(body, `id="pivot-toggle"`) < strings.Index(body, `id="pivot-filters"`) &&
+		strings.Index(body, `id="pivot-filters"`) < strings.Index(body, `id="pivot-body"`)) {
+		t.Error("order should be filter toggle, filter panels, then report table")
 	}
 	// Empty dataset encodes as empty arrays so the client boots clean.
 	if !strings.Contains(body, `{"accounts":[],"movements":[],"positions":[]}`) &&
@@ -140,6 +144,9 @@ func TestPivotTemplate_PopulatedData(t *testing.T) {
 		`Sampah <span class="pivot-akun-tag">&middot; Dana</span>`,
 		`data-kat="p-sampah-bsi"`,
 		`data-kat="p-sampah-dana"`,
+		`data-group="a-bsi"`,
+		`data-fgroup="a-bsi"`,
+		`data-fchecks="a-bsi"`,
 		`"Nama":"Sept 26"`,
 		`"Amount":500000`,
 		`"Amount":-7350000`,
