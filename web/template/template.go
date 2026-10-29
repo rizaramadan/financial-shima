@@ -1829,7 +1829,7 @@ tr.totals td { font-weight: 600; }
 
 /* Pivot roll-forward report: filter checklists, segmented controls and
  * the grouped Akun | Kategori | Nama | Amount table. */
-.pivot-checks { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; }
+.pivot-checks { display: grid; gap: 2px; padding: 8px 16px 12px; }
 .pivot-check {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 4px 10px; font-size: 13px; color: var(--text-secondary);
@@ -1837,7 +1837,15 @@ tr.totals td { font-weight: 600; }
   border: 1px solid var(--border); border-radius: 999px;
   cursor: pointer;
 }
+.pivot-checks .pivot-check {
+  display: flex; width: 100%;
+  align-items: center; gap: 10px;
+  min-height: 44px; margin: 0; padding: 6px 0;
+  font-size: var(--font-base); color: var(--text);
+  background: transparent; border: 0; border-radius: 0;
+}
 .pivot-check input { width: auto; margin: 0; accent-color: var(--primary); }
+.pivot-checks .pivot-check input { width: 16px; height: 16px; flex: none; }
 .pivot-group { border-top: 1px solid var(--border-secondary); }
 .pivot-group:first-of-type { border-top: 0; }
 .pivot-group-head {
@@ -1888,6 +1896,8 @@ tr.totals td { font-weight: 600; }
 }
 .pivot-sub td { font-weight: 700; background: var(--bg-fill); cursor: pointer; }
 .pivot-sub:hover td { background: color-mix(in oklab, var(--primary) 8%, transparent); }
+.pivot-sub:focus { outline: none; }
+.pivot-sub:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .pivot-caret { display: inline-block; width: 1.2em; color: var(--text-tertiary); font-weight: 400; }
 .pivot-atotal td {
   font-weight: 700; border-top: 1px solid var(--border);
@@ -2989,9 +2999,15 @@ const pivotBody = `<header class="page-head">
       if (knownAkun[id]) state.fgroups[id] = true;
     });
     state.collapsed = {};
-    (p.get('collapsed') || '').split(',').forEach(function(id){
-      if (knownKat[id]) state.collapsed[id] = true;
-    });
+    if (p.has('collapsed')) {
+      (p.get('collapsed') || '').split(',').forEach(function(id){
+        if (id && knownKat[id]) state.collapsed[id] = true;
+      });
+    } else {
+      // Default: everything collapsed (totals only). An explicit
+      // ?collapsed= (empty) means "expand all"; a list collapses just those.
+      Object.keys(knownKat).forEach(function(id){ state.collapsed[id] = true; });
+    }
   }
 
   function pad(n){ return (n < 10 ? '0' : '') + n; }
@@ -3113,7 +3129,15 @@ const pivotBody = `<header class="page-head">
     var fg = Object.keys(state.fgroups).filter(function(id){ return state.fgroups[id]; });
     if (fg.length) p.set('fgroups', fg.join(','));
     var c = Object.keys(state.collapsed).filter(function(id){ return state.collapsed[id]; });
-    if (c.length) p.set('collapsed', c.join(','));
+    var allIds = Object.keys(knownKat);
+    var allCollapsed = allIds.length > 0 && allIds.every(function(id){ return !!state.collapsed[id]; });
+    if (allCollapsed) {
+      p.delete('collapsed'); // default state: totals only, clean URL
+    } else if (c.length || allIds.length) {
+      p.set('collapsed', c.join(',')); // empty value = explicitly expanded all
+    } else {
+      p.delete('collapsed');
+    }
     var s = p.toString();
     history.replaceState(null, '', location.pathname + (s ? '?' + s : ''));
   }
@@ -3172,6 +3196,9 @@ const pivotBody = `<header class="page-head">
     var nMov = 0;
     lastVisibleKats = [];
     rep.akuns.forEach(function(a){
+      a.korder.forEach(function(k){ nMov += k.rows.length; });
+    });
+    rep.akuns.forEach(function(a){
       var first = true;
       a.korder.forEach(function(k){
         lastVisibleKats.push(k.id);
@@ -3180,7 +3207,6 @@ const pivotBody = `<header class="page-head">
         var expanded = collapsed ? 'false' : 'true';
         if (!collapsed) {
           k.rows.forEach(function(m){
-            nMov++;
             var cls = m.Amount < 0 ? ' class="num pivot-neg"' : ' class="num"';
             html += '<tr><td class="pivot-akun-cell">' + (first ? esc(a.name) : '') + '</td>' +
               '<td><a href="/pos/' + esc(m.PosID) + '" class="pivot-kat-link">' + esc(m.PosName) + '</a></td>' +
@@ -3188,12 +3214,12 @@ const pivotBody = `<header class="page-head">
               '<td' + cls + '>' + fmt(m.Amount) + '</td></tr>';
             first = false;
           });
-        } else if (first) {
-          first = false;
         }
+        var akunCell = first ? esc(a.name) : '';
+        first = false;
         var subCls = k.sub < 0 ? ' class="num pivot-neg"' : ' class="num"';
-        html += '<tr class="pivot-sub" data-pos="' + esc(k.id) + '" tabindex="0" role="button" aria-expanded="' + expanded + '" title="Expand/collapse">' +
-          '<td></td><td><span class="pivot-caret">' + caret + '</span>' + esc(k.name) + ' Total</td><td></td>' +
+        html += '<tr class="pivot-sub" data-pos="' + esc(k.id) + '" tabindex="0" role="button" aria-expanded="' + expanded + '" title="Collapse/expand this Kategori\u2019s Nama rows">' +
+          '<td class="pivot-akun-cell">' + akunCell + '</td><td><span class="pivot-caret">' + caret + '</span>' + esc(k.name) + ' Total</td><td></td>' +
           '<td' + subCls + '>' + fmt(k.sub) + '</td></tr>';
       });
       if (state.showAkunTotal) {
@@ -3329,8 +3355,10 @@ const pivotBody = `<header class="page-head">
     Object.keys(knownAkun).forEach(function(id){ akun[id] = true; });
     kat = {};
     Object.keys(knownKat).forEach(function(id){ kat[id] = true; });
+    var _collapsed = {};
+    Object.keys(knownKat).forEach(function(id){ _collapsed[id] = true; });
     state = {preset: 'all', from: '', to: '', type: 'all', q: '',
-      showEmpty: false, showAkunTotal: true, sort: 'date', collapsed: {}, showFilters: false, fgroups: {}};
+      showEmpty: false, showAkunTotal: true, sort: 'date', collapsed: _collapsed, showFilters: false, fgroups: {}};
     $('#pivot-q').value = '';
     paintControls(); render();
   }
