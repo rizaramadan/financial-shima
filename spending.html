@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Spending — Riza + Shima shared ledger</title>
+    <link rel="stylesheet" href="./tokens.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__inner">
+        <a class="brand" href="index.html"><span class="brand__mark" aria-hidden="true">S</span> Riza + Shima <small>· shared ledger</small></a>
+        <nav class="nav" aria-label="Primary">
+          <a href="index.html">Home</a>
+          <a href="transactions.html">Transaksi</a>
+          <a href="pos.html">Pos</a>
+          <a href="spending.html" aria-current="page">Spending</a>
+          <a href="pivot.html">Pivot</a>
+          <a href="debts.html">Hutang</a>
+          <a href="recap.html">Rekap</a>
+        </nav>
+        <span class="topbar__spacer"></span>
+        <span class="userchip"><span class="avatar" aria-hidden="true">R</span> Riza</span>
+        <a class="bell" href="notifications.html" aria-label="Notifications, 3 unread"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="badge">3</span></a>
+      </div>
+    </header>
+
+    <div class="wrap">
+      <section class="hero" aria-label="Spending pivot">
+        <p class="eyebrow">Spending · months × top-N Pos</p>
+        <h1>Spending.</h1>
+        <p class="lede">Row/column totals. Mixed currency hides row total.</p>
+      </section>
+
+      <section class="block" aria-label="Spending table">
+        <div class="block__head"><h2>Pivot</h2><p>Top-5 Pos by money_out volume, newest month first.</p><span class="spec">GET /spending</span></div>
+        <div class="table-wrap">
+          <table>
+            <caption>Top-5 Pos by money_out volume, newest month first.</caption>
+            <thead><tr><th scope="col">Month</th><th scope="col" class="num">Dapur</th><th scope="col" class="num">Sewa</th><th scope="col" class="num">Sekolah</th><th scope="col" class="num">Transport</th><th scope="col" class="num">Jajan</th><th scope="col" class="num">Total</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Okt 2026</th><td class="num">1.840.000</td><td class="num">6.000.000</td><td class="num">950.000</td><td class="num">620.000</td><td class="num">410.000</td><td class="num">9.820.000</td></tr>
+              <tr><th scope="row">Sep 2026</th><td class="num">1.720.000</td><td class="num">6.000.000</td><td class="num">1.100.000</td><td class="num">580.000</td><td class="num">390.000</td><td class="num">9.790.000</td></tr>
+              <tr><th scope="row">Agu 2026</th><td class="num">1.650.000</td><td class="num">6.000.000</td><td class="num">400.000</td><td class="num">610.000</td><td class="num">370.000</td><td class="num">9.030.000</td></tr>
+              <tr><th scope="row">Jul 2026</th><td class="num">1.590.000</td><td class="num">0</td><td class="num">380.000</td><td class="num">590.000</td><td class="num">350.000</td><td class="num">2.910.000</td></tr>
+            </tbody>
+            <tfoot><tr><td>Column total</td><td class="num">6.800.000</td><td class="num">18.000.000</td><td class="num">2.830.000</td><td class="num">2.400.000</td><td class="num">1.520.000</td><td class="num">31.550.000</td></tr></tfoot>
+          </table>
+        </div>
+        <p class="note">Empty months still render rows for visual rhythm continuity.</p>
+      </section>
+
+      <footer class="site-footer"><div class="wrap"><p>financial-shima · append-only · money = integer cents · <a href="login.html">Keluar</a></p></div></footer>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "financial-shima",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host --strictPort --port 5297",
+    "build": "vite build",
+    "preview": "vite preview --host --strictPort --port 5297"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}

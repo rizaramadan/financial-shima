@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Home — Riza + Shima shared ledger</title>
+    <link rel="stylesheet" href="./tokens.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__inner">
+        <a class="brand" href="index.html"><span class="brand__mark" aria-hidden="true">S</span> Riza + Shima <small>· shared ledger</small></a>
+        <nav class="nav" aria-label="Primary">
+          <a href="index.html" aria-current="page">Home</a>
+          <a href="transactions.html">Transaksi</a>
+          <a href="pos.html">Pos</a>
+          <a href="spending.html">Spending</a>
+          <a href="pivot.html">Pivot</a>
+          <a href="debts.html">Hutang</a>
+          <a href="recap.html">Rekap</a>
+        </nav>
+        <span class="topbar__spacer"></span>
+        <span class="userchip"><span class="avatar" aria-hidden="true">R</span> Riza</span>
+        <a class="bell" href="notifications.html" aria-label="Notifications, 3 unread"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="badge">3</span></a>
+      </div>
+    </header>
+
+    <div class="wrap">
+      <section class="hero" aria-label="Home dashboard">
+        <p class="eyebrow">Home · Kamis, 29 Oktober · shared visibility, no privacy split</p>
+        <h1>Uang keluarga, satu halaman.</h1>
+        <p class="lede">Saldo tidak pernah disimpan — selalu dihitung dari ledger append-only. Koreksi hanya lewat baris reversal, tidak pernah edit.</p>
+        <div class="meta-row">
+          <span>Total IDR <strong class="num">Rp 20.650.000</strong></span>
+          <span>·</span><span>2 akun</span><span>·</span><span>7 Pos</span><span>·</span><span>Telegram OTP · sesi 7 hari</span>
+        </div>
+      </section>
+
+      <section class="block" aria-label="Accounts">
+        <div class="block__head"><h2>Akun</h2><p>Real IDR bank accounts. Balance derived by folding ledger.</p><span class="spec">web/handler/home.go</span></div>
+        <div class="grid grid--2">
+          <div class="card"><h3>BCA · Riza 3812</h3><p class="sub">Primary household account</p><p class="kpi num">Rp 12.450.000<small>folded from ledger · live</small></p></div>
+          <div class="card"><h3>Mandiri · Bersama 9901</h3><p class="sub">Bills + school</p><p class="kpi num">Rp 8.200.000<small>folded from ledger · live</small></p></div>
+        </div>
+      </section>
+
+      <section class="block" aria-label="Pos by currency">
+        <div class="block__head"><h2>Pos per currency</h2><p>Envelope buckets. Target progress rails. Negative cash is flagged, never blocked.</p><span class="spec">GET / · PosByCurrency</span></div>
+        <div class="grid grid--main">
+          <div class="card">
+            <div class="cur-group">
+              <div class="cur-group__head"><h3>IDR</h3><span class="cur-tag">default</span><span class="cur-total num">total Rp 19.150.000</span></div>
+              <div class="pos"><div class="pos__top"><span class="pos__name"><a href="pos.html">Dapur</a></span><span class="pos__acct">BCA</span><span class="pos__amt num">Rp 3.200.000</span></div><div class="rail" role="img" aria-label="Dapur 64 percent of 5 million target"><span style="width:64%"></span></div><div class="pos__meta"><span>target Rp 5.000.000</span><span>64%</span></div></div>
+              <div class="pos"><div class="pos__top"><span class="pos__name"><a href="pos.html">Sewa</a></span><span class="pos__acct">Mandiri</span><span class="pos__amt num">Rp 6.000.000</span></div><div class="rail" role="img" aria-label="Sewa 100 percent"><span style="width:100%"></span></div><div class="pos__meta"><span>target Rp 6.000.000</span><span>100%</span></div></div>
+              <div class="pos"><div class="pos__top"><span class="pos__name"><a href="pos.html">Sekolah</a></span><span class="pos__acct">Mandiri</span><span class="pos__amt pos__amt--neg num">Rp −250.000</span><span class="neg-flag">● negative — not blocked</span></div><div class="rail rail--warn" role="img" aria-label="Sekolah over budget"><span style="width:100%"></span></div><div class="pos__meta"><span>target Rp 4.000.000</span><span>cash below zero</span></div></div>
+              <div class="pos"><div class="pos__top"><span class="pos__name"><a href="pos.html">Darurat</a></span><span class="pos__acct">BCA</span><span class="pos__amt num">Rp 10.200.000</span></div><div class="rail" role="img" aria-label="Darurat 51 percent of 20 million"><span style="width:51%"></span></div><div class="pos__meta"><span>target Rp 20.000.000</span><span>51%</span></div></div>
+            </div>
+            <div class="cur-group">
+              <div class="cur-group__head"><h3>USD</h3><span class="cur-tag">cents</span><span class="cur-total num">$1,240.00</span></div>
+              <div class="pos"><div class="pos__top"><span class="pos__name">Freelance</span><span class="pos__acct">BCA</span><span class="pos__amt num">$1,240.00</span></div><div class="rail" role="img" aria-label="Freelance 62 percent"><span style="width:62%"></span></div><div class="pos__meta"><span>target $2,000.00</span><span>62%</span></div></div>
+            </div>
+            <div class="cur-group">
+              <div class="cur-group__head"><h3>GOLD-G</h3><span class="cur-tag">grams</span><span class="cur-total num">12,5 GOLD-G</span></div>
+              <div class="pos"><div class="pos__top"><span class="pos__name">Emas</span><span class="pos__acct">BCA</span><span class="pos__amt num">12,5 GOLD-G</span></div><div class="rail" role="img" aria-label="Emas 50 percent of 25 gram"><span style="width:50%"></span></div><div class="pos__meta"><span>target 25 GOLD-G</span><span>50%</span></div></div>
+            </div>
+          </div>
+          <div class="card" aria-label="Record money">
+            <h3>Catat</h3><p class="sub">money_in · money_out · inter_pos. Idempotent via idempotency_key.</p>
+            <div class="toolbar">
+              <a class="button button--primary" href="transactions.html">+ Income</a>
+              <a class="button" href="transactions.html">− Expense</a>
+              <a class="button button--ghost" href="pos.html">⇄ Transfer</a>
+            </div>
+            <hr class="rule" />
+            <h3>Income template</h3><p class="sub">Split one salary across N Pos by percent.</p>
+            <p class="note">Gajian Oktober → Dapur 50% · Sewa 30% · Darurat 20%</p>
+            <div class="rail" role="img" aria-label="Template split 50 30 20"><span style="width:100%"></span></div>
+            <p style="margin:var(--space-3) 0 0"><a class="button" href="transactions.html">Apply template</a></p>
+            <p class="note">POST /api/v1/income-templates/:id/apply</p>
+            <hr class="rule" />
+            <p class="note">Counterparty autocomplete (case-insensitive dedup): <strong>Indomaret, GoPay, Bu Sari…</strong></p>
+            <p class="inline-create">+ Inline counterparty create — ketik nama baru, Enter untuk buat.</p>
+          </div>
+        </div>
+      </section>
+
+      <footer class="site-footer"><div class="wrap"><p>financial-shima · Riza + Shima household ledger · append-only · money = integer cents · <a href="login.html">Keluar</a></p></div></footer>
+    </div>
+  </body>
+</html>

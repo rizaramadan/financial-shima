@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Masuk — Riza + Shima shared ledger</title>
+    <link rel="stylesheet" href="./tokens.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__inner">
+        <a class="brand" href="index.html"><span class="brand__mark" aria-hidden="true">S</span> Riza + Shima <small>· shared ledger</small></a>
+      </div>
+    </header>
+
+    <div class="wrap wrap--narrow">
+      <section class="hero" aria-label="Login">
+        <p class="eyebrow">Masuk · Telegram OTP</p>
+        <h1>Masuk.</h1>
+        <p class="lede">No registration, no passwords. One shared household ledger.</p>
+      </section>
+
+      <div class="card" aria-label="Telegram OTP login">
+        <h3>Telegram OTP</h3>
+        <p class="sub">identifier → 6-digit code · 5 min expiry · 3-attempt lockout · 60 s resend cooldown · 7-day rolling cookie (Secure/HttpOnly/SameSite=Lax)</p>
+        <label class="field">Telegram identifier<input type="text" value="@riza" aria-label="Telegram identifier" /></label>
+        <div class="otp" style="margin-top:var(--space-3)" role="group" aria-label="6-digit code"><input inputmode="numeric" aria-label="digit 1" value="4" /><input inputmode="numeric" aria-label="digit 2" value="8" /><input inputmode="numeric" aria-label="digit 3" value="1" /><input inputmode="numeric" aria-label="digit 4" value="9" /><input inputmode="numeric" aria-label="digit 5" value="0" /><input inputmode="numeric" aria-label="digit 6" value="2" /></div>
+        <div class="toolbar" style="margin-top:var(--space-3)"><a class="button button--primary" href="index.html">Verify</a><button class="button button--ghost" type="button">Resend (0:42)</button></div>
+        <p class="note">Delivered via OTP-assistant webhook · logout revokes DB row. States: loading → sent → error (locked) → expired.</p>
+      </div>
+
+      <footer class="site-footer"><div class="wrap"><p>financial-shima · shared-visibility household ledger</p></div></footer>
+    </div>
+  </body>
+</html>

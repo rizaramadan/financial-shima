@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rekap — Riza + Shima shared ledger</title>
+    <link rel="stylesheet" href="./tokens.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__inner">
+        <a class="brand" href="index.html"><span class="brand__mark" aria-hidden="true">S</span> Riza + Shima <small>· shared ledger</small></a>
+        <nav class="nav" aria-label="Primary">
+          <a href="index.html">Home</a>
+          <a href="transactions.html">Transaksi</a>
+          <a href="pos.html">Pos</a>
+          <a href="spending.html">Spending</a>
+          <a href="pivot.html">Pivot</a>
+          <a href="debts.html">Hutang</a>
+          <a href="recap.html" aria-current="page">Rekap</a>
+        </nav>
+        <span class="topbar__spacer"></span>
+        <span class="userchip"><span class="avatar" aria-hidden="true">R</span> Riza</span>
+        <a class="bell" href="notifications.html" aria-label="Notifications, 3 unread"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="badge">3</span></a>
+      </div>
+    </header>
+
+    <div class="wrap">
+      <section class="hero" aria-label="Recap and search">
+        <p class="eyebrow">Rekap · bucket week / month / year</p>
+        <h1>Rekap.</h1>
+        <p class="lede">Adjustable buckets per currency, plus global search.</p>
+      </section>
+
+      <section class="block" aria-label="Recap and search">
+        <div class="block__head"><h2>Rekap + cari</h2><p>Money_in / money_out sums per bucket.</p><span class="spec">GET /recap · /search</span></div>
+        <div class="grid grid--2">
+          <div class="card"><h3>Rekap</h3><p class="sub">Bucket week · month · year</p><p class="note">Okt 2026 — In <strong class="num amt-in">Rp 18.500.000</strong> · Out <strong class="num amt-out">Rp 9.820.000</strong> · Net <strong class="num">Rp 8.680.000</strong></p><hr class="rule" /><p class="note">Sep 2026 — In <strong class="num amt-in">Rp 17.900.000</strong> · Out <strong class="num amt-out">Rp 9.790.000</strong> · Net <strong class="num">Rp 8.110.000</strong></p></div>
+          <div class="card"><h3>Global search</h3><p class="sub">Akun · Pos · transaksi · counterparty · template</p><label class="field">Cari<input type="search" placeholder="cari akun, pos, counterparty…" aria-label="Global search" /></label><p class="note">Hits: 2 akun · 4 pos · 6 transaksi · 3 counterparties</p></div>
+        </div>
+      </section>
+
+      <footer class="site-footer"><div class="wrap"><p>financial-shima · append-only · money = integer cents · <a href="login.html">Keluar</a></p></div></footer>
+    </div>
+  </body>
+</html>

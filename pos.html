@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pos Dapur — Riza + Shima shared ledger</title>
+    <link rel="stylesheet" href="./tokens.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__inner">
+        <a class="brand" href="index.html"><span class="brand__mark" aria-hidden="true">S</span> Riza + Shima <small>· shared ledger</small></a>
+        <nav class="nav" aria-label="Primary">
+          <a href="index.html">Home</a>
+          <a href="transactions.html">Transaksi</a>
+          <a href="pos.html" aria-current="page">Pos</a>
+          <a href="spending.html">Spending</a>
+          <a href="pivot.html">Pivot</a>
+          <a href="debts.html">Hutang</a>
+          <a href="recap.html">Rekap</a>
+        </nav>
+        <span class="topbar__spacer"></span>
+        <span class="userchip"><span class="avatar" aria-hidden="true">R</span> Riza</span>
+        <a class="bell" href="notifications.html" aria-label="Notifications, 3 unread"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="badge">3</span></a>
+      </div>
+    </header>
+
+    <div class="wrap">
+      <section class="hero" aria-label="Pos detail">
+        <p class="eyebrow">Pos · Dapur · IDR · BCA 3812</p>
+        <h1>Dapur.</h1>
+        <p class="lede">Cash / Receivables / Payables · open obligations · scoped tx list. <a href="index.html">← semua Pos</a></p>
+      </section>
+
+      <section class="block" aria-label="Balances">
+        <div class="block__head"><h2>Saldo</h2><p>Cash derived from ledger. Receivables/payables from open obligations.</p><span class="spec">GET /pos/:id</span></div>
+        <div class="grid grid--3">
+          <div class="card"><h3>Cash</h3><p class="kpi num">Rp 3.200.000</p><p class="sub">IDR · BCA 3812</p></div>
+          <div class="card"><h3>Receivables</h3><p class="kpi num">Rp 1.500.000</p><p class="sub">2 open · Dapur is creditor</p></div>
+          <div class="card"><h3>Payables</h3><p class="kpi num">Rp 750.000</p><p class="sub">1 open · Dapur is debtor</p></div>
+        </div>
+      </section>
+
+      <section class="block" aria-label="Obligations and transactions">
+        <div class="block__head"><h2>Obligasi + transaksi</h2><p>FIFO matching. Partial repayment allowed.</p></div>
+        <div class="grid grid--main">
+          <div class="table-wrap">
+            <table>
+              <caption>Open obligations (FIFO). Partial repayment allowed.</caption>
+              <thead><tr><th scope="col">Direction</th><th scope="col">Counter-Pos</th><th scope="col" class="num">Outstanding</th><th scope="col">Since</th></tr></thead>
+              <tbody>
+                <tr><td><span class="chip chip--in">receivable</span></td><td>Sewa</td><td class="num">Rp 900.000</td><td>2026-10-27</td></tr>
+                <tr><td><span class="chip chip--in">receivable</span></td><td>Sekolah</td><td class="num">Rp 600.000</td><td>2026-10-20</td></tr>
+                <tr><td><span class="chip chip--out">payable</span></td><td>Darurat</td><td class="num">Rp 750.000</td><td>2026-10-18</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <caption>Scoped transactions — this Pos only.</caption>
+              <thead><tr><th scope="col">Date</th><th scope="col">Note</th><th scope="col" class="num">Amount</th></tr></thead>
+              <tbody>
+                <tr><td>10-29</td><td>Gaji → Dapur (template 50%)</td><td class="num amt-in">+Rp 6.000.000</td></tr>
+                <tr><td>10-29</td><td>Indomaret</td><td class="num amt-out">−Rp 185.000</td></tr>
+                <tr><td>10-26</td><td>LKS re-enter</td><td class="num amt-out">−Rp 320.000</td></tr>
+                <tr><td>10-27</td><td>Pinjam ke Sewa</td><td class="num amt-move">−Rp 1.500.000</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <footer class="site-footer"><div class="wrap"><p>financial-shima · append-only · money = integer cents · <a href="login.html">Keluar</a></p></div></footer>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,43 @@
+/* tokens.css — the design system's single source of values.
+   Every colour, space and type value in styles.css must come from here. */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces and ink */
+  --bg: #0e1116;
+  --surface: #161b22;
+  --surface-2: #1c2330;
+  --fg: #e6edf3;
+  --muted: #8b949e;
+  --border: #262d36;
+  --border-strong: #303a46;
+  --accent: #4ade80;
+
+  /* Semantic — money direction only (brief: signed colours, negative marker) */
+  --ok: #4ade80;
+  --neg: #f87171;
+  --warn: #fbbf24;
+
+  /* Type */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --step--1: 0.875rem;
+  --step-0: 1rem;
+  --step-1: 1.25rem;
+  --step-2: 1.563rem;
+  --step-3: 1.953rem;
+  --step-4: 2.441rem;
+  --leading-tight: 1.15;
+  --leading-body: 1.55;
+
+  /* Space and shape */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 40px;
+  --space-6: 64px;
+  --radius: 10px;
+  --radius-sm: 6px;
+  --measure: 68ch;
+}

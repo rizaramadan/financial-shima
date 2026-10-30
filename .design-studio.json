@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "name": "financial-shima",
+  "type": "hi-fi",
+  "url": "http://localhost:5297/",
+  "command": "npm run dev",
+  "entry": "index.html",
+  "harness": {
+    "direction": "auto",
+    "fidelity": "hi-fi"
+  }
+}

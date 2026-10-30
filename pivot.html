@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pivot — Riza + Shima shared ledger</title>
+    <link rel="stylesheet" href="./tokens.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__inner">
+        <a class="brand" href="index.html"><span class="brand__mark" aria-hidden="true">S</span> Riza + Shima <small>· shared ledger</small></a>
+        <nav class="nav" aria-label="Primary">
+          <a href="index.html">Home</a>
+          <a href="transactions.html">Transaksi</a>
+          <a href="pos.html">Pos</a>
+          <a href="spending.html">Spending</a>
+          <a href="pivot.html" aria-current="page">Pivot</a>
+          <a href="debts.html">Hutang</a>
+          <a href="recap.html">Rekap</a>
+        </nav>
+        <span class="topbar__spacer"></span>
+        <span class="userchip"><span class="avatar" aria-hidden="true">R</span> Riza</span>
+        <a class="bell" href="notifications.html" aria-label="Notifications, 3 unread"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="badge">3</span></a>
+      </div>
+    </header>
+
+    <div class="wrap">
+      <section class="hero" aria-label="Pivot roll-forward">
+        <p class="eyebrow">Pivot · Akun × Kategori</p>
+        <h1>Roll-forward.</h1>
+        <p class="lede">Filterable report · signed movements · filter state in URL.</p>
+      </section>
+
+      <section class="block" aria-label="Pivot report">
+        <div class="block__head"><h2>Report</h2><p>Pos tied to its Akun — no bare, ambiguous names.</p><span class="spec">GET /pivot</span></div>
+        <div class="grid grid--main">
+          <div class="card">
+            <h3>Filter</h3><p class="sub">Akun checklist · Pos tied to its Akun (no bare names).</p>
+            <div class="toolbar">
+              <label class="field"><input type="checkbox" checked aria-label="Include BCA Riza" /> BCA Riza</label>
+              <label class="field"><input type="checkbox" checked aria-label="Include Mandiri Bersama" /> Mandiri Bersama</label>
+              <button class="button" type="button">Reset</button>
+            </div>
+            <p class="note">BCA: Dapur · Darurat · Emas · Freelance — Mandiri: Sewa · Sekolah · Transport</p>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <caption>Signed movements (money_in +, money_out −).</caption>
+              <thead><tr><th scope="col">Nama</th><th scope="col">Akun · Pos</th><th scope="col">Date</th><th scope="col" class="num">Amount</th></tr></thead>
+              <tbody>
+                <tr><td>Gaji Oktober</td><td>BCA · Dapur</td><td>2026-10-29</td><td class="num amt-in">+12.000.000</td></tr>
+                <tr><td>Kontrakan Q4</td><td>Mandiri · Sewa</td><td>2026-10-01</td><td class="num amt-out">−6.000.000</td></tr>
+                <tr><td>SPP + LKS</td><td>Mandiri · Sekolah</td><td>2026-10-26</td><td class="num amt-out">−950.000</td></tr>
+                <tr><td>Milestone 2</td><td>BCA · Freelance</td><td>2026-10-24</td><td class="num amt-in">+420.00 USD</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <footer class="site-footer"><div class="wrap"><p>financial-shima · append-only · money = integer cents · <a href="login.html">Keluar</a></p></div></footer>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Notifikasi — Riza + Shima shared ledger</title>
+    <link rel="stylesheet" href="./tokens.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__inner">
+        <a class="brand" href="index.html"><span class="brand__mark" aria-hidden="true">S</span> Riza + Shima <small>· shared ledger</small></a>
+        <nav class="nav" aria-label="Primary">
+          <a href="index.html">Home</a>
+          <a href="transactions.html">Transaksi</a>
+          <a href="pos.html">Pos</a>
+          <a href="spending.html">Spending</a>
+          <a href="pivot.html">Pivot</a>
+          <a href="debts.html">Hutang</a>
+          <a href="recap.html">Rekap</a>
+        </nav>
+        <span class="topbar__spacer"></span>
+        <span class="userchip"><span class="avatar" aria-hidden="true">R</span> Riza</span>
+        <a class="bell" href="notifications.html" aria-label="Notifications, 3 unread, current page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="badge">3</span></a>
+      </div>
+    </header>
+
+    <div class="wrap">
+      <section class="hero" aria-label="Notifications">
+        <p class="eyebrow">Notifikasi · per-user feed</p>
+        <h1>Notifikasi.</h1>
+        <p class="lede">Fired atomically in the same DB tx as insert · excludes creator.</p>
+      </section>
+
+      <section class="block" aria-label="Feed">
+        <div class="block__head"><h2>Feed</h2><p>Newest first. Server-rendered, no polling.</p><span class="spec">GET /notifications</span></div>
+        <div class="card">
+          <div class="toolbar"><strong>3 unread</strong><span style="flex:1"></span><button class="button" type="button">Mark all read</button></div>
+          <ul class="feed" aria-live="polite">
+            <li class="unread"><strong>Repayment received</strong><br /><span class="note">Shima repaid Rp 500.000 Sewa → Darurat · 12 min ago</span><br /><time>2026-10-29 09:41</time> · <a href="transactions.html">view txn</a> · <a href="notifications.html">Mark read</a></li>
+            <li class="unread"><strong>Template applied</strong><br /><span class="note">Gajian Oktober split to 3 Pos · 2 h ago</span><br /><time>2026-10-29 07:30</time> · <a href="notifications.html">Mark read</a></li>
+            <li class="unread"><strong>Loan submission pending</strong><br /><span class="note">Adik submitted Rp 1.000.000 · needs approval · 1 d ago</span><br /><time>2026-10-28 18:02</time> · <a href="debts.html">review</a> · <a href="notifications.html">Mark read</a></li>
+            <li><strong>Reversal posted</strong><br /><span class="note">LKS moved Sekolah → Dapur (read) · 2 d ago</span><br /><time>2026-10-27 20:15</time></li>
+          </ul>
+        </div>
+      </section>
+
+      <footer class="site-footer"><div class="wrap"><p>financial-shima · append-only · money = integer cents · <a href="login.html">Keluar</a></p></div></footer>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hutang — Riza + Shima shared ledger</title>
+    <link rel="stylesheet" href="./tokens.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__inner">
+        <a class="brand" href="index.html"><span class="brand__mark" aria-hidden="true">S</span> Riza + Shima <small>· shared ledger</small></a>
+        <nav class="nav" aria-label="Primary">
+          <a href="index.html">Home</a>
+          <a href="transactions.html">Transaksi</a>
+          <a href="pos.html">Pos</a>
+          <a href="spending.html">Spending</a>
+          <a href="pivot.html">Pivot</a>
+          <a href="debts.html" aria-current="page">Hutang</a>
+          <a href="recap.html">Rekap</a>
+        </nav>
+        <span class="topbar__spacer"></span>
+        <span class="userchip"><span class="avatar" aria-hidden="true">R</span> Riza</span>
+        <a class="bell" href="notifications.html" aria-label="Notifications, 3 unread"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="badge">3</span></a>
+      </div>
+    </header>
+
+    <div class="wrap">
+      <section class="hero" aria-label="Debts and loans">
+        <p class="eyebrow">Hutang · sisa hutang per currency</p>
+        <h1>Hutang.</h1>
+        <p class="lede">Open inter-Pos obligations · loan progress · partial repayment OK.</p>
+      </section>
+
+      <section class="block" aria-label="Debts">
+        <div class="block__head"><h2>Sisa hutang</h2><p>Every open obligation with its outstanding remainder.</p><span class="spec">GET /debts</span></div>
+        <div class="grid grid--3">
+          <div class="card"><h3>Sisa hutang</h3><p class="sub">Open inter-Pos obligations</p><p class="kpi num">Rp 2.250.000<small>IDR · 3 open</small></p><p class="kpi num" style="margin-top:var(--space-2)">$300.00<small>USD · 1 open</small></p><p style="margin:var(--space-3) 0 0"><a class="button" href="pos.html">Repay (partial OK)</a></p></div>
+          <div class="card"><h3>Loan — Motor Adik</h3><p class="sub">Target Rp 15.000.000 · repaid from Cash</p><p class="kpi num">Rp 9.000.000<small>repaid · 60%</small></p><div class="rail" role="img" aria-label="Loan 60 percent repaid" style="margin-top:var(--space-2)"><span style="width:60%"></span></div><p class="note">Outstanding Rp 6.000.000 · borrower login /loan/:id/login · 1 pending submission</p></div>
+          <div class="card"><h3>Aturan main</h3><p class="sub">Borrow, repay, overpay</p><p class="note">inter_pos borrow spawns pos_obligation, FIFO-matched. Repayment can be partial or full; overpay spawns a reverse obligation. All in integer cents.</p><p style="margin:var(--space-3) 0 0"><a class="button button--ghost" href="transactions.html">Lihat transfer →</a></p></div>
+        </div>
+      </section>
+
+      <footer class="site-footer"><div class="wrap"><p>financial-shima · append-only · money = integer cents · <a href="login.html">Keluar</a></p></div></footer>
+    </div>
+  </body>
+</html>

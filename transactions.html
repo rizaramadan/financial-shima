@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Transaksi — Riza + Shima shared ledger</title>
+    <link rel="stylesheet" href="./tokens.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__inner">
+        <a class="brand" href="index.html"><span class="brand__mark" aria-hidden="true">S</span> Riza + Shima <small>· shared ledger</small></a>
+        <nav class="nav" aria-label="Primary">
+          <a href="index.html">Home</a>
+          <a href="transactions.html" aria-current="page">Transaksi</a>
+          <a href="pos.html">Pos</a>
+          <a href="spending.html">Spending</a>
+          <a href="pivot.html">Pivot</a>
+          <a href="debts.html">Hutang</a>
+          <a href="recap.html">Rekap</a>
+        </nav>
+        <span class="topbar__spacer"></span>
+        <span class="userchip"><span class="avatar" aria-hidden="true">R</span> Riza</span>
+        <a class="bell" href="notifications.html" aria-label="Notifications, 3 unread"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="badge">3</span></a>
+      </div>
+    </header>
+
+    <div class="wrap">
+      <section class="hero" aria-label="Transactions list">
+        <p class="eyebrow">Transaksi · last-30d default</p>
+        <h1>Transaksi.</h1>
+        <p class="lede">Type chips · signed coloured amounts · reversal strikethrough + reverses link.</p>
+      </section>
+
+      <section class="block" aria-label="Filter and totals">
+        <div class="block__head"><h2>Filter</h2><p>Date-range filter. Invalid dates fall back to defaults silently.</p><span class="spec">GET /transactions</span></div>
+        <div class="card">
+          <form class="toolbar" aria-label="Date range filter" onsubmit="return false">
+            <label class="field">From<input type="date" value="2026-09-29" /></label>
+            <label class="field">To<input type="date" value="2026-10-29" /></label>
+            <button class="button" type="button">7d</button>
+            <button class="button button--primary" type="button">30d</button>
+            <button class="button button--ghost" type="button">MTD</button>
+            <span class="note">Range: 29 Sep → 29 Okt · In <strong class="num amt-in">+Rp 18.500.000</strong> · Out <strong class="num amt-out">−Rp 6.340.000</strong> · Net <strong class="num">Rp 12.160.000</strong></span>
+          </form>
+        </div>
+      </section>
+
+      <section class="block" aria-label="Ledger rows">
+        <div class="block__head"><h2>Ledger</h2><p>Day-grouped rows, newest first.</p></div>
+        <div class="table-wrap">
+          <table>
+            <caption>Day-grouped ledger rows, newest first.</caption>
+            <thead><tr><th scope="col">Date</th><th scope="col">Type</th><th scope="col">Pos · Akun</th><th scope="col">Counterparty / note</th><th scope="col" class="num">Amount</th></tr></thead>
+            <tbody>
+              <tr class="day-head"><td colspan="4">Rabu, 29 Oktober</td><td class="num">+Rp 12.000.000 / −Rp 185.000</td></tr>
+              <tr><td>2026-10-29</td><td><span class="chip chip--in">Income</span></td><td>Dapur · BCA</td><td>PT Maju — Gaji Oktober</td><td class="num amt-in">+Rp 12.000.000</td></tr>
+              <tr><td>2026-10-29</td><td><span class="chip chip--out">Expense</span></td><td>Dapur · BCA</td><td>Indomaret — belanja mingguan</td><td class="num amt-out">−Rp 185.000</td></tr>
+              <tr class="day-head"><td colspan="4">Senin, 27 Oktober</td><td class="num">−Rp 6.000.000 (transfer)</td></tr>
+              <tr><td>2026-10-27</td><td><span class="chip chip--move">Transfer</span></td><td>Darurat ⇄ Sewa · borrow</td><td>Pinjam intra-Pos · FIFO-matched</td><td class="num amt-move">Rp 1.500.000</td></tr>
+              <tr><td>2026-10-26</td><td><span class="chip chip--out">Expense</span></td><td>Sekolah · Mandiri</td><td><span class="strike">Toko Buku — LKS (salah pos)</span><span class="rev-link">reverses → <a href="pos.html">#a91f</a> · reversed by <a href="pos.html">#b002</a></span></td><td class="num amt-out strike">−Rp 320.000</td></tr>
+              <tr><td>2026-10-26</td><td><span class="chip chip--out">Expense</span></td><td>Dapur · BCA</td><td>Toko Buku — LKS (re-enter, pos benar)</td><td class="num amt-out">−Rp 320.000</td></tr>
+              <tr><td>2026-10-24</td><td><span class="chip chip--in">Income</span></td><td>Freelance · USD</td><td>Upwork — milestone 2</td><td class="num amt-in">+$420.00</td></tr>
+            </tbody>
+            <tfoot><tr><td colspan="4">30-day total</td><td class="num">Rp 12.160.000 net</td></tr></tfoot>
+          </table>
+        </div>
+        <p class="note">Append-only: hard-edit hanya note/counterparty · hapus logis via reversal · overpay repayment spawns reverse obligation.</p>
+      </section>
+
+      <footer class="site-footer"><div class="wrap"><p>financial-shima · append-only · money = integer cents · <a href="login.html">Keluar</a></p></div></footer>
+    </div>
+  </body>
+</html>
