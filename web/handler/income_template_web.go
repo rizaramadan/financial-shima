@@ -22,6 +22,16 @@ import (
 	"github.com/rizaramadan/financial-shima/web/template"
 )
 
+// allocSpareRows are the empty allocation slots the preview appends
+// after the template's lines so the operator can add lines without
+// dynamic JS.
+const allocSpareRows = 5
+
+// maxAllocRows caps the allocation rows the preview renders and the
+// apply form reads. The edit form allows up to 200 template lines, so
+// this covers every template the web UI can build plus spare slots.
+const maxAllocRows = 200 + allocSpareRows
+
 // IncomeTemplatesGet renders the list of templates.
 func (h *Handlers) IncomeTemplatesGet(c echo.Context) error {
 	u, ok := mw.CurrentUser(c)
@@ -571,16 +581,21 @@ func (h *Handlers) IncomeTemplatePreviewPost(c echo.Context) error {
 		}
 	}
 
-	// Build the suggested rows for rendering. Pad with empty rows so
-	// the operator has slots to add more lines without dynamic JS.
-	const editableRows = 10
+	// Build the suggested rows for rendering. One row per template
+	// line — the old fixed 10-row form silently dropped every line
+	// past the 10th — plus spare empty rows so the operator has slots
+	// to add more lines without dynamic JS.
 	posByID, posOpts, err := loadPosOptions(ctx, q)
 	if err != nil {
 		return flashTo(c, tmplID, "Could not load Pos list.")
 	}
-	rows := make([]template.IncomeAllocationRow, editableRows)
+	rowCount := len(allocations) + allocSpareRows
+	if rowCount > maxAllocRows {
+		rowCount = maxAllocRows
+	}
+	rows := make([]template.IncomeAllocationRow, rowCount)
 	for i, a := range allocations {
-		if i >= editableRows {
+		if i >= len(rows) {
 			break
 		}
 		opt := posByID[a.PosID]
@@ -710,8 +725,8 @@ func (h *Handlers) IncomeTemplateApplyPost(c echo.Context) error {
 		idemKey = uuid.NewString()
 	}
 
-	// Read the editable allocation rows.
-	const maxRows = 10
+	// Read the editable allocation rows. maxAllocRows matches the
+	// preview's render bound, so every row the preview posts is read.
 	type row struct {
 		PosID  uuid.UUID
 		Amount int64
@@ -719,7 +734,7 @@ func (h *Handlers) IncomeTemplateApplyPost(c echo.Context) error {
 	var rows []row
 	seenPos := map[uuid.UUID]bool{}
 	var sum int64
-	for i := 0; i < maxRows; i++ {
+	for i := 0; i < maxAllocRows; i++ {
 		idx := strconv.Itoa(i)
 		posStr := strings.TrimSpace(c.FormValue("alloc_pos_" + idx))
 		amtStr := strings.TrimSpace(c.FormValue("alloc_amount_" + idx))
