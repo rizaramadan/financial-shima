@@ -1169,13 +1169,18 @@ const layoutOpen = `<!doctype html>
 :root[data-theme="dark"] .chip-out      { color: var(--error); background: color-mix(in oklab, var(--error) 12%, transparent); border-color: color-mix(in oklab, var(--error) 30%, transparent); }
 :root[data-theme="dark"] .chip-transfer { color: var(--info); background: color-mix(in oklab, var(--info) 12%, transparent); border-color: color-mix(in oklab, var(--info) 30%, transparent); }
 /* ── Pico v2 bridge: Shima tokens win, compact sheet density ──────────
- * Pico is loaded from /static/pico.min.css above. These overrides come
- * later in the cascade so they beat Pico's defaults at equal specificity,
- * including Pico's responsive --pico-font-size bumps (our single :root
- * rule is later in document order). All theme-aware values go through
- * var(--primary) / var(--bg-*) so light, dark and OS-auto all follow the
- * shima_theme data-theme contract without duplicating the palette. */
-:root {
+ * Pico is loaded from /static/pico.min.css above. Pico scopes its own
+ * --pico-* defaults under :root:not([data-theme=dark]) (specificity
+ * 0,2,0), so a plain :root bridge loses to it regardless of document
+ * order. This block repeats that scoping — :root:not([data-theme=dark])
+ * plus :root[data-theme=dark] — to meet Pico at 0,2,0 and win on later
+ * document order in every theme state: explicit dark, explicit light and
+ * OS-auto (where <html> carries no data-theme). All theme-aware values go
+ * through var(--primary) / var(--bg-*) so light, dark and OS-auto all
+ * follow the shima_theme data-theme contract without duplicating the
+ * palette. */
+:root:not([data-theme=dark]),
+:root[data-theme=dark] {
   --pico-font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --pico-font-size: 12px;
   --pico-line-height: 1.45;

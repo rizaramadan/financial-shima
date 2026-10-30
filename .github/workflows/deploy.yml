@@ -34,6 +34,10 @@ jobs:
           echo "Uploading binary..."
           scp server "${SERVER}:/tmp/duit-server"
 
+          echo "Uploading static assets (served from /opt/duit/web/static)..."
+          ssh "${SERVER}" "mkdir -p /opt/duit/web"
+          scp -r web/static "${SERVER}:/opt/duit/web/"
+
           echo "Stopping service..."
           ssh "${SERVER}" "sudo systemctl stop duit"
 
