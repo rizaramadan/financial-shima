@@ -36,6 +36,7 @@ func (h *Handlers) PivotGet(c echo.Context) error {
 		Title:       "Pivot",
 		DisplayName: u.DisplayName,
 	}
+	data.SavedFilters = h.loadPivotFilters(c.Request().Context(), c, u.ID)
 
 	if h.DB == nil {
 		return c.Render(http.StatusOK, "pivot", data)

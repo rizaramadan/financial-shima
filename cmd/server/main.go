@@ -116,6 +116,7 @@ func newServerWithDeps(a *auth.Auth, ac assistant.Client, db *pgxpool.Pool) *ech
 	e := echo.New()
 	setup.Apply(e)
 	e.Renderer = template.New()
+	e.Static("/static", "web/static")
 	e.Use(mw.Session(a))
 	e.Use(mw.Theme())
 
@@ -153,6 +154,7 @@ func newServerWithDeps(a *auth.Auth, ac assistant.Client, db *pgxpool.Pool) *ech
 	e.GET("/debts", h.DebtsGet)
 	e.GET("/recap", h.RecapGet)
 	e.GET("/pivot", h.PivotGet)
+	e.POST("/pivot/filters", h.PivotFiltersPost)
 	e.GET("/income-templates", h.IncomeTemplatesGet)
 	e.GET("/income-templates/new", h.IncomeTemplateNewGet)
 	e.POST("/income-templates", h.IncomeTemplateNewPost)

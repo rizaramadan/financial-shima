@@ -563,6 +563,10 @@ type PivotData struct {
 	Groups      []PivotAkunGroup
 	Movements   []PivotMovement
 	LoadError   bool
+	// SavedFilters is the user's last persisted filter query string
+	// (no leading '?'). A fresh visit with no URL params restores it;
+	// explicit URL params always win for the current view.
+	SavedFilters string
 }
 
 func (d PivotData) SignedIn() bool { return d.DisplayName != "" }
@@ -582,6 +586,17 @@ func (d *PivotData) GroupFor(accountID string) *PivotAkunGroup {
 	}
 	d.Groups = append(d.Groups, PivotAkunGroup{AccountID: accountID})
 	return &d.Groups[len(d.Groups)-1]
+}
+
+// SavedFiltersJSON embeds the persisted filter query string as a JSON
+// string so the client can replay it through the same parse path as URL
+// params. Empty saves encode as "".
+func (d PivotData) SavedFiltersJSON() template.JS {
+	b, err := json.Marshal(d.SavedFilters)
+	if err != nil {
+		return template.JS(`""`)
+	}
+	return template.JS(b)
 }
 
 // DataJSON embeds the client-side dataset (accounts, positions,
@@ -1006,7 +1021,13 @@ const layoutOpen = `<!doctype html>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/pico.min.css">
 <style>
+/* Pico v2 base is loaded above (vendored at web/static/pico.min.css for
+ * offline dev). The block below maps Pico's custom properties onto Shima
+ * tokens and tightens everything to a compact Google-Sheets density.
+ * Generic element resets, typography scale and form primitives come from
+ * Pico; only Shima layout + app components live here. */
 /* shadcn-style design tokens — adapted for plain CSS (no Tailwind).
  * Neutral scale follows shadcn's zinc; the primary is green (green-700
  * in light mode so primary text on white meets WCAG AA ≥4.5:1,
@@ -1049,8 +1070,8 @@ const layoutOpen = `<!doctype html>
 
   --shadow-sm: 0 1px 2px 0 rgb(0, 0, 0, 0.05);
 
-  --font-sm: 12px; --font-base: 14px; --font-lg: 16px;
-  --font-h5: 16px; --font-h4: 20px; --font-h3: 24px; --font-h2: 30px; --font-h1: 38px;
+  --font-sm: 11px; --font-base: 12px; --font-lg: 14px;
+  --font-h5: 14px; --font-h4: 16px; --font-h3: 18px; --font-h2: 22px; --font-h1: 28px;
 
   accent-color: var(--primary);
 }
@@ -1147,9 +1168,85 @@ const layoutOpen = `<!doctype html>
 :root[data-theme="dark"] .chip-in       { color: var(--success); background: color-mix(in oklab, var(--success) 12%, transparent); border-color: color-mix(in oklab, var(--success) 30%, transparent); }
 :root[data-theme="dark"] .chip-out      { color: var(--error); background: color-mix(in oklab, var(--error) 12%, transparent); border-color: color-mix(in oklab, var(--error) 30%, transparent); }
 :root[data-theme="dark"] .chip-transfer { color: var(--info); background: color-mix(in oklab, var(--info) 12%, transparent); border-color: color-mix(in oklab, var(--info) 30%, transparent); }
+/* ── Pico v2 bridge: Shima tokens win, compact sheet density ──────────
+ * Pico is loaded from /static/pico.min.css above. These overrides come
+ * later in the cascade so they beat Pico's defaults at equal specificity,
+ * including Pico's responsive --pico-font-size bumps (our single :root
+ * rule is later in document order). All theme-aware values go through
+ * var(--primary) / var(--bg-*) so light, dark and OS-auto all follow the
+ * shima_theme data-theme contract without duplicating the palette. */
+:root {
+  --pico-font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --pico-font-size: 12px;
+  --pico-line-height: 1.45;
+  --pico-border-radius: 4px;
+  --pico-spacing: 0.5rem;
+  --pico-typography-spacing-vertical: 0.5rem;
+  --pico-block-spacing-vertical: 0;
+  --pico-block-spacing-horizontal: 0.75rem;
+  --pico-grid-column-gap: 0.5rem;
+  --pico-grid-row-gap: 0.5rem;
+  --pico-form-element-spacing-vertical: 0.375rem;
+  --pico-form-element-spacing-horizontal: 0.5rem;
+  --pico-nav-element-spacing-vertical: 0.5rem;
+  --pico-nav-element-spacing-horizontal: 0.5rem;
+  --pico-nav-link-spacing-vertical: 0.375rem;
+  --pico-nav-link-spacing-horizontal: 0.5rem;
+  --pico-background-color: var(--bg-page);
+  --pico-color: var(--text);
+  --pico-muted-color: var(--text-secondary);
+  --pico-muted-border-color: var(--border-secondary);
+  --pico-primary: var(--primary);
+  --pico-primary-background: var(--primary);
+  --pico-primary-border: var(--primary);
+  --pico-primary-underline: var(--primary);
+  --pico-primary-hover: var(--primary-hover);
+  --pico-primary-hover-background: var(--primary-hover);
+  --pico-primary-hover-border: var(--primary-hover);
+  --pico-primary-hover-underline: var(--primary-hover);
+  --pico-primary-focus: color-mix(in oklab, var(--primary) 35%, transparent);
+  --pico-primary-inverse: var(--primary-foreground);
+  --pico-secondary: var(--text-secondary);
+  --pico-secondary-background: var(--bg-fill);
+  --pico-secondary-border: var(--border);
+  --pico-secondary-hover-background: var(--bg-fill);
+  --pico-contrast: var(--text);
+  --pico-table-border-color: var(--border);
+  --pico-table-row-stripped-background-color: color-mix(in oklab, var(--primary) 4%, transparent);
+  --pico-form-element-background-color: var(--bg-container);
+  --pico-form-element-selected-background-color: var(--border-secondary);
+  --pico-form-element-border-color: var(--border);
+  --pico-form-element-color: var(--text);
+  --pico-form-element-placeholder-color: var(--text-tertiary);
+  --pico-form-element-active-background-color: var(--bg-container);
+  --pico-form-element-active-border-color: var(--primary);
+  --pico-form-element-focus-color: var(--primary);
+  --pico-form-element-invalid-border-color: var(--error);
+  --pico-form-element-invalid-active-border-color: var(--error);
+  --pico-form-element-invalid-focus-color: var(--error);
+  --pico-form-element-valid-border-color: var(--success);
+  --pico-form-element-valid-active-border-color: var(--success);
+  --pico-form-element-valid-focus-color: var(--success);
+  --pico-ins-color: var(--success);
+  --pico-del-color: var(--error);
+  --pico-mark-background-color: color-mix(in oklab, var(--warning) 25%, transparent);
+  --pico-mark-color: var(--text);
+  --pico-code-background-color: var(--bg-fill);
+  --pico-code-color: var(--text-secondary);
+}
 ::selection { background: color-mix(in oklab, var(--primary) 25%, transparent); }
-* { box-sizing: border-box; }
+/* Pico already sets box-sizing + body margin; keep our explicit reset for
+ * specificity without duplicating its preflight. */
 html, body { margin: 0; padding: 0; }
+html, body { max-width: 100%; overflow-x: clip; }
+/* Every interactive element shows a visible keyboard focus ring. Pico
+ * supplies its own :focus; this guarantees a green ring even where Pico
+ * is subtle, and covers our custom rows (pivot-sub) and links. */
+*:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
 /* Layout. Two body modes:
  *   .signed-in → grid with sidebar (left) + main (right). Sidebar is
  *      fixed-position on mobile and slid in via a CSS-only checkbox
@@ -1180,17 +1277,10 @@ body.signed-in {
 main {
   position: relative; /* anchor for the bell */
   width: 100%; max-width: 720px;
-  /* Body is display:grid, so main as a grid item defaults to
-   * min-width: auto (= min-content). Without this override, the
-   * sticky .nav with its overflow-x:auto child cannot shrink — main
-   * grows to fit the nav's full unbroken width (~486px), pushes past
-   * the 375px viewport, and the browser auto-zooms-out the whole
-   * page. min-width:0 lets main collapse so the nav scrolls
-   * internally as designed. */
   min-width: 0;
   background: var(--bg-container);
   border-radius: 0;
-  padding: 16px;
+  padding: 8px;
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--border-secondary);
   border-left: 0; border-right: 0;
@@ -1601,11 +1691,11 @@ a.pill:hover, button.pill:hover:not(:disabled) {
 }
 .pill.primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); color: var(--primary-foreground); }
 
-/* Content links inherit text styling (shadcn: subtle until hovered)
- * instead of browser-default blue. Badges keep their own tone. */
-main table a:not(.badge-rev) { color: inherit; text-decoration: none; font-weight: 500; }
-main table a:not(.badge-rev):visited { color: inherit; }
-main table a:not(.badge-rev):hover { color: var(--primary); }
+/* Content links use the primary green (never browser-default blue).
+ * Badges keep their own tone. */
+main table a:not(.badge-rev) { color: var(--primary); text-decoration: none; font-weight: 500; }
+main table a:not(.badge-rev):visited { color: var(--primary); }
+main table a:not(.badge-rev):hover { color: var(--primary-hover); text-decoration: underline; }
 
 /* Icon + label buttons: every action button carries a leading icon.
  * Placed after .linkbtn so the flex layout wins ties for link-styled
@@ -1655,26 +1745,42 @@ main table a:not(.badge-rev):hover { color: var(--primary); }
   color: var(--text-tertiary); }
 .aside form { display: inline; }
 
-/* AntD Table — tighter cell padding on mobile to fit more columns
- * before .table-wrap kicks in horizontal scroll. */
+/* Google-Sheets grid: full cell borders, compact rows, sticky header.
+ * Pico supplies the table primitive; this layer tightens it to sheet
+ * density (2-4px vertical padding), forces gridlines on every cell,
+ * right-aligns numbers in monospace tabular figures, and keeps long
+ * rows on one line with the wrapper scrolling instead of the page. */
 table {
-  width: 100%; border-collapse: collapse;
-  font-size: var(--font-base); color: var(--text);
+  width: 100%; border-collapse: collapse; border-spacing: 0;
+  font-size: var(--font-base); line-height: 1.45; color: var(--text);
+  border: 1px solid var(--border);
+  background: var(--bg-container);
+  font-variant-numeric: tabular-nums;
 }
 thead th {
-  background: var(--bg-fill); color: var(--text);
-  font-weight: 500; padding: 10px 8px;
-  border-bottom: 1px solid var(--border-secondary); text-align: left;
+  background: var(--bg-fill); color: var(--text-secondary);
+  font-weight: 600; font-size: 11px; padding: 3px 6px; text-align: left;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  position: sticky; top: 0; z-index: 2;
 }
-tbody td {
-  padding: 10px 8px;
-  border-bottom: 1px solid var(--border-secondary);
+tbody td, tfoot td, tfoot th {
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 320px;
 }
 @media (min-width: 480px) {
-  thead th, tbody td { padding: 12px 16px; }
+  thead th, tbody td, tfoot td, tfoot th { padding: 3px 8px; }
 }
-tbody tr:hover { background: color-mix(in oklab, var(--primary) 4%, transparent); }
-.num { text-align: right; font-variant-numeric: tabular-nums; }
+tbody tr:hover td { background: color-mix(in oklab, var(--primary) 4%, transparent); }
+.num, td.num, th.num {
+  text-align: right;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  white-space: nowrap;
+}
 .section-card td.num { white-space: nowrap; }
 
 /* AntD Badge — count pip rendered next to the Notifications nav link.
@@ -1793,15 +1899,14 @@ tbody tr:hover { background: color-mix(in oklab, var(--primary) 4%, transparent)
 .chip-transfer { color: var(--info); background: var(--info-bg); border-color: var(--info-border); }
 .chip-neutral  { color: var(--text-secondary); background: var(--bg-fill); border-color: var(--border-secondary); }
 
-/* Colored amounts in transaction listings — fintech standard:
- * income green (` + `), expense default (chip carries red), transfers muted. */
-.amt-in      { color: var(--success); font-weight: 500; }
-.amt-out     { color: var(--text); font-weight: 500; }
-.amt-neutral { color: var(--text-secondary); }
+/* Colored amounts — tabular figures everywhere money appears. */
+.amt-in      { color: var(--success); font-weight: 500; font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+.amt-out     { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+.amt-neutral { color: var(--text-secondary); font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
 
-/* Wrap data-dense tables so the card width stays disciplined on narrow
- * viewports without truncating cells. */
-.table-wrap { width: 100%; overflow-x: auto; margin: 0 0 8px; }
+/* Sheet scroll regions: the wrapper scrolls, never the page. */
+.table-wrap { width: 100%; max-width: 100%; overflow-x: auto; margin: 0 0 8px; -webkit-overflow-scrolling: touch; }
+.table-wrap table { min-width: 560px; }
 
 /* Pos budget progress rail — slim, sits next to the target amount on
  * /home rows. */
@@ -1872,9 +1977,13 @@ tr.totals td { font-weight: 600; }
   color: var(--primary); border-color: var(--primary); background: var(--primary-bg);
 }
 #pivot-q { flex: 1 1 160px; width: auto; max-width: 280px; }
-.pivot-table thead th {
-  position: sticky; top: 0; z-index: 2;
+.section-card .pivot-table thead th {
   background: var(--bg-fill);
+  font-size: 11px;
+  font-weight: 600; text-transform: none; letter-spacing: normal;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 2;
 }
 .pivot-toggle-row { display: flex; justify-content: center; margin: 0 0 16px; }
 #pivot-toggle {
@@ -1886,32 +1995,55 @@ tr.totals td { font-weight: 600; }
 }
 #pivot-toggle:hover { color: var(--primary); border-color: var(--primary); }
 .pivot-table td.num, .pivot-table th.num { white-space: nowrap; }
-/* The report table lives in its own scroll region: the wrapper scrolls
- * both axes (horizontal for narrow screens, vertical past max-height),
- * so the thead pins to the region top and the grand total pins to its
- * bottom while rows scroll beneath. */
+/* Sheet scroll region: horizontal on narrow screens, vertical past
+ * max-height; thead pins to region top, grand total pins to bottom. */
 .pivot-wrap {
   overflow: auto;
+  max-width: 100%;
   max-height: calc(100vh - 220px);
+  border: 1px solid var(--border);
+  background: var(--bg-container);
 }
-.pivot-sub td { font-weight: 700; background: var(--bg-fill); cursor: pointer; }
+.pivot-wrap .pivot-table { border: 0; }
+.pivot-table { font-size: 12px; }
+.pivot-table td, .pivot-table th { padding: 2px 6px; border: 1px solid var(--border); white-space: nowrap; }
+.pivot-sub td { font-weight: 700; cursor: pointer; border: 1px solid var(--border); background: var(--bg-fill); }
 .pivot-sub:hover td { background: color-mix(in oklab, var(--primary) 8%, transparent); }
 .pivot-sub:focus { outline: none; }
 .pivot-sub:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .pivot-caret { display: inline-block; width: 1.2em; color: var(--text-tertiary); font-weight: 400; }
 .pivot-atotal td {
-  font-weight: 700; border-top: 1px solid var(--border);
-  background: color-mix(in oklab, var(--primary) 5%, transparent);
+  font-weight: 700; border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--primary) 6%, transparent);
+  font-variant-numeric: tabular-nums;
 }
 .pivot-grand td {
-  font-weight: 600; border-top: 2px solid var(--border);
+  font-weight: 700; border: 1px solid var(--border);
   position: sticky; bottom: 0; background: var(--bg-fill);
+  font-variant-numeric: tabular-nums;
 }
 .pivot-neg { color: var(--error); font-weight: 500; }
 .pivot-akun-cell { color: var(--text-secondary); }
-.pivot-kat-link { color: var(--text); text-decoration: none; font-weight: 500; }
-.pivot-kat-link:visited { color: var(--text); }
-.pivot-kat-link:hover { color: var(--primary); }
+.pivot-kat-link { color: var(--primary); text-decoration: none; font-weight: 500; }
+.pivot-kat-link:visited { color: var(--primary); }
+.pivot-kat-link:hover { color: var(--primary-hover); text-decoration: underline; }
+
+/* Page-level overflow guard: wrappers scroll internally, the page never
+ * scrolls sideways. overflow-x: clip (not hidden) preserves sticky
+ * headers inside .table-wrap / .pivot-wrap / .nav. */
+main { min-width: 0; max-width: 100%; overflow-x: clip; }
+body.signed-in > main { min-width: 0; overflow-x: clip; }
+.section-card { max-width: 100%; overflow-x: clip; }
+.section-card .table-wrap, .section-card .pivot-wrap { max-width: 100%; }
+/* Compact tap targets: 44px minimum on touch layouts. Desktop keeps the
+ * denser 32px controls via the min-width queries below. */
+@media (max-width: 767px) {
+  button, input, select { min-height: 44px; }
+  .sidebar a, .sidebar form button { min-height: 44px; }
+  .pill, .txn-preset, .pivot-seg button, #pivot-toggle,
+  .page-head-actions .pill, .balance-hero-actions .pill { min-height: 44px; }
+  .topbar-icon { min-width: 44px; min-height: 44px; }
+}
 
 /* Mobile: horizontally scrollable tab strip — five+ items don't fit on
  * narrow screens, so let users swipe rather than wrap to multiple rows
@@ -1927,9 +2059,9 @@ tr.totals td { font-weight: 600; }
  * Tap targets: padding-top + padding-bottom each 12px → ~44px nav-link
  * height including the text glyph (Apple HIG min). */
 .nav {
-  display: flex; gap: 16px; align-items: baseline; margin: -16px -16px 16px;
+  display: flex; gap: 16px; align-items: baseline; margin: -8px -8px 16px;
   font-size: var(--font-base);
-  padding: 0 16px;
+  padding: 0 8px;
   border-bottom: 1px solid var(--border-secondary);
   overflow-x: auto;
   scrollbar-width: none;
@@ -2099,16 +2231,16 @@ tr.totals td { font-weight: 600; }
 .section-card-head a.linkbtn { font-size: var(--font-sm); }
 .section-card table { margin: 0; }
 .section-card thead th {
-  background: var(--home-row-stripe);
-  font-family: var(--home-font-mono);
-  font-size: 10px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.08em;
-  color: var(--text-tertiary);
-  padding: 8px 16px;
-  border-bottom: 1px solid var(--border-secondary);
+  background: var(--bg-fill);
+  font-size: 11px; font-weight: 600;
+  text-transform: none; letter-spacing: normal;
+  color: var(--text-secondary);
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
 }
-.section-card tbody td { padding: 12px 16px; }
-.section-card tbody tr:first-child td { border-top: 0; }
+.section-card tbody td { padding: 3px 8px; border: 1px solid var(--border); white-space: nowrap; }
+.section-card tbody tr:first-child td { border-top: 1px solid var(--border); }
 .bank-cell { display: inline-flex; align-items: center; gap: 10px; }
 .bank-dot {
   width: 8px; height: 8px; border-radius: 2px;
@@ -2249,13 +2381,11 @@ tr.totals td { font-weight: 600; }
 .section-card .col-date { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
 .section-card .col-amount { font-variant-numeric: tabular-nums; }
 .day-strip td {
-  background: var(--home-row-stripe);
-  font-family: var(--home-font-mono); font-size: 10px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.08em;
-  color: var(--text-tertiary);
-  padding: 8px 16px !important;
-  border-top: 1px solid var(--border-secondary);
-  border-bottom: 1px solid var(--border-secondary);
+  background: var(--bg-fill);
+  font-size: 11px; font-weight: 600;
+  color: var(--text-secondary);
+  padding: 3px 8px !important;
+  border: 1px solid var(--border);
 }
 .day-strip .day-net { float: right; color: var(--text-secondary); }
 .day-strip .day-net.in  { color: var(--success); }
@@ -2951,11 +3081,15 @@ const pivotBody = `<header class="page-head">
 </section>
 
 <script type="application/json" id="pivot-data">{{.DataJSON}}</script>
+<script type="application/json" id="pivot-saved">{{.SavedFiltersJSON}}</script>
 <script>
 (function(){
   var el = document.getElementById('pivot-data');
   var data = {accounts: [], positions: [], movements: []};
   try { data = Object.assign(data, JSON.parse(el.textContent)); } catch (e) {}
+  var savedQ = '';
+  try { savedQ = JSON.parse(document.getElementById('pivot-saved').textContent || '""'); } catch (e) {}
+  var savedParams = new URLSearchParams(savedQ);
   var knownAkun = {};
   var knownKat = {};
   data.accounts.forEach(function(a){ knownAkun[a.ID] = true; });
@@ -2974,33 +3108,40 @@ const pivotBody = `<header class="page-head">
 
   function parseURL(){
     var p = new URLSearchParams(location.search);
-    if (p.has('akun')) {
+    // Fresh visit (no filter params in the URL) restores the user's saved
+    // view; explicit URL params (shared links) always win for the current
+    // view. Panel chrome (filters, fgroups) is never restored — it always
+    // follows the URL.
+    var hasFilters = ['akun','kat','preset','from','to','type','q','empty','akuntotal','sort','collapsed']
+      .some(function(k){ return p.has(k); });
+    var src = hasFilters ? p : savedParams;
+    if (src.has('akun')) {
       akun = {};
-      p.get('akun').split(',').forEach(function(id){ if (knownAkun[id]) akun[id] = true; });
+      src.get('akun').split(',').forEach(function(id){ if (knownAkun[id]) akun[id] = true; });
     }
-    if (p.has('kat')) {
+    if (src.has('kat')) {
       kat = {};
-      p.get('kat').split(',').forEach(function(id){ if (knownKat[id]) kat[id] = true; });
+      src.get('kat').split(',').forEach(function(id){ if (knownKat[id]) kat[id] = true; });
     }
-    var preset = p.get('preset');
+    var preset = src.get('preset');
     if (preset === 'month' || preset === 'quarter' || preset === 'year' ||
         preset === 'custom' || preset === 'all') state.preset = preset;
-    state.from = p.get('from') || '';
-    state.to = p.get('to') || '';
-    var type = p.get('type');
+    state.from = src.get('from') || '';
+    state.to = src.get('to') || '';
+    var type = src.get('type');
     if (type === 'money_in' || type === 'money_out') state.type = type;
-    state.q = p.get('q') || '';
-    state.showEmpty = p.get('empty') === '1';
-    state.showAkunTotal = p.get('akuntotal') !== '0';
-    if (p.get('sort') === 'amount') state.sort = 'amount';
+    state.q = src.get('q') || '';
+    state.showEmpty = src.get('empty') === '1';
+    state.showAkunTotal = src.get('akuntotal') !== '0';
+    if (src.get('sort') === 'amount') state.sort = 'amount';
     state.showFilters = p.get('filters') === '1';
     state.fgroups = {};
     (p.get('fgroups') || '').split(',').forEach(function(id){
       if (knownAkun[id]) state.fgroups[id] = true;
     });
     state.collapsed = {};
-    if (p.has('collapsed')) {
-      (p.get('collapsed') || '').split(',').forEach(function(id){
+    if (src.has('collapsed')) {
+      (src.get('collapsed') || '').split(',').forEach(function(id){
         if (id && knownKat[id]) state.collapsed[id] = true;
       });
     } else {
@@ -3109,7 +3250,7 @@ const pivotBody = `<header class="page-head">
     return {akuns: order, grand: grand};
   }
 
-  function syncURL(){
+  function currentQuery(){
     var p = new URLSearchParams();
     var akunIds = Object.keys(akun).filter(function(id){ return akun[id]; });
     if (akunIds.length !== data.accounts.length) p.set('akun', akunIds.join(','));
@@ -3138,8 +3279,36 @@ const pivotBody = `<header class="page-head">
     } else {
       p.delete('collapsed');
     }
-    var s = p.toString();
+    return p.toString();
+  }
+
+  function syncURL(){
+    var s = currentQuery();
     history.replaceState(null, '', location.pathname + (s ? '?' + s : ''));
+  }
+
+  // Persist the filter view per user so a fresh visit (new session, no
+  // URL params) restores it. Debounced; skips the initial render so
+  // loading a shared link never clobbers the user's saved view until
+  // they actually change something. Server no-ops without a DB.
+  var lastSaved = null;
+  var saveTimer = null;
+  var hydrated = false;
+  function scheduleSave(){
+    if (saveTimer) return;
+    saveTimer = setTimeout(function(){
+      saveTimer = null;
+      var s = currentQuery();
+      if (s === lastSaved) return;
+      lastSaved = s;
+      try {
+        fetch('/pivot/filters', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({filters: s})
+        }).catch(function(){});
+      } catch (e) {}
+    }, 500);
   }
 
   function paintControls(){
@@ -3246,6 +3415,11 @@ const pivotBody = `<header class="page-head">
     document.querySelector('.pivot-wrap').hidden = empty;
     $('#pivot-empty-state').hidden = !empty;
     syncURL();
+    // Record the state only after the first (hydrating) render, so a
+    // shared link or a restored view never rewrites the saved settings
+    // before the user changes anything.
+    if (hydrated) scheduleSave();
+    hydrated = true;
   }
 
   function refresh(){ paintKatVisibility(); render(); }

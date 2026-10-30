@@ -8,3 +8,5 @@ old/
 /server
 scripts/playwright/node_modules/
 scripts/playwright/out/
+node_modules/
+.opencode/
