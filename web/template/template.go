@@ -1277,12 +1277,8 @@ body {
   padding: 0;
 }
 body.signed-in {
-  /* Mobile: single column. Topbar row above main.
-   * minmax(0, 1fr), not bare 1fr: the implicit auto minimum of a 1fr
-   * track propagates the widest content's min-content (a dense table)
-   * and widens the whole layout past the viewport on phones. With the
-   * floor at 0, wide tables stay inside .table-wrap and scroll there. */
-  grid-template-columns: minmax(0, 1fr);
+  /* Mobile: single column. Topbar row above main. */
+  grid-template-columns: 1fr;
   grid-template-rows: auto 1fr;
   grid-template-areas: "topbar" "main";
   justify-items: stretch;

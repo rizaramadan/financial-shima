@@ -475,7 +475,7 @@ func (h *Handlers) IncomeTemplateEditPost(c echo.Context) error {
 }
 
 // IncomeTemplatePreviewPost — Step 1 of the human-in-the-loop apply
-// flow. Receives the operator's intent (amount/date/account/
+// flow. Receives the operator's intent (amount/date/
 // counterparty), runs the template's allocation logic to produce a
 // SUGGESTED breakdown, and renders an editable preview page so the
 // human can adjust before approving.
@@ -508,10 +508,6 @@ func (h *Handlers) IncomeTemplatePreviewPost(c echo.Context) error {
 	effDate, err := time.Parse("2006-01-02", effDateStr)
 	if err != nil {
 		return flashTo(c, tmplID, "Effective date is required (YYYY-MM-DD).")
-	}
-	accountIDStr := strings.TrimSpace(c.FormValue("account_id"))
-	if _, err := uuid.Parse(accountIDStr); err != nil {
-		return flashTo(c, tmplID, "Account is required.")
 	}
 	cpName := strings.TrimSpace(c.FormValue("counterparty_name"))
 	if cpName == "" {
@@ -615,19 +611,12 @@ func (h *Handlers) IncomeTemplatePreviewPost(c echo.Context) error {
 		Amount:           amount,
 		AmountRaw:        rawAmount,
 		EffectiveDate:    effDateStr,
-		AccountID:        accountIDStr,
-		AccountName:      "", // resolved below
 		CounterpartyName: cpName,
 		IdempotencyKey:   idemKey,
 		PosOptions:       posOpts,
 		Rows:             rows,
 		SuggestionNotice: suggestionNotice,
 		UnreadCount:      h.loadBellCount(ctx, c, u.ID),
-	}
-	if accountID, err := uuid.Parse(accountIDStr); err == nil {
-		if acc, err := q.GetAccount(ctx, pgtype.UUID{Bytes: accountID, Valid: true}); err == nil {
-			data.AccountName = acc.Name
-		}
 	}
 	// Derive the running expected total. If user-supplied amount is
 	// less than Σ(lines) (the rejected case), we still show the lines
