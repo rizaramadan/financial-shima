@@ -143,8 +143,8 @@ scenario.
 
 `/spending` defaults to last 6 months × top-N Pos by spending volume.
 Months are rows, Pos are columns; per-cell currency formatting; row
-totals + Pos totals on edges. Wide card modifier (`max-width:
-920px`) for data density.
+totals + Pos totals on edges. Full-bleed content column (no max-width
+cap) for data density.
 
 The flat 8.5M monthly Mortgage column is the household's most
 predictable outflow; Belanja varies; Anak Sekolah only shows in

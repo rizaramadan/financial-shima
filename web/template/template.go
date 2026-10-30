@@ -1305,14 +1305,16 @@ body.signed-in > main {
   border: 0; border-radius: 0; box-shadow: none;
 }
 body.signed-in > main.compact { max-width: 420px; margin: 0 auto; }
-body.signed-in > main.wide    { max-width: 920px; margin: 0 auto; }
+/* Wide pages (transactions, spending, recap) are full-bleed: they use
+ * the whole content column so tables get maximum horizontal room. */
+body.signed-in > main.wide    { max-width: none; margin: 0; }
 @media (min-width: 480px) {
   body { padding: 16px; }
   body.signed-in { padding: 0; }
   main { padding: 24px; border-radius: var(--radius-lg);
     border-left: 1px solid var(--border-secondary);
     border-right: 1px solid var(--border-secondary); }
-  body.signed-in > main { border: 0; border-radius: 0; }
+  body.signed-in > main { border: 0; border-radius: 0; padding: 16px; }
 }
 @media (min-width: 768px) {
   body { padding: 24px; }
@@ -1326,7 +1328,7 @@ body.signed-in > main.wide    { max-width: 920px; margin: 0 auto; }
   }
   main { padding: 32px; }
   main.compact { padding: 32px 28px; }
-  body.signed-in > main { padding: 32px 40px; }
+  body.signed-in > main { padding: 20px 40px 32px; }
 }
 
 /* ── Sidebar + topbar (signed-in only) ─────────────────────────────
@@ -1504,7 +1506,7 @@ label.sidebar-overlay {
 .breadcrumb {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
   font-size: var(--font-sm); color: var(--text-tertiary);
-  margin: 0 0 16px;
+  margin: 0 0 8px;
 }
 .breadcrumb a { color: var(--text-tertiary); text-decoration: none; }
 .breadcrumb a:hover { color: var(--primary); }
@@ -2192,7 +2194,7 @@ body.signed-in > main { min-width: 0; overflow-x: clip; }
 }
 .home-greeting {
   display: flex; align-items: flex-end; justify-content: space-between;
-  gap: 12px; margin: 0 0 20px;
+  gap: 12px; margin: 0 0 12px;
 }
 .home-greeting h1 { margin: 0; font-size: var(--font-h3); line-height: 1.2; }
 @media (min-width: 480px) {
@@ -2214,7 +2216,7 @@ body.signed-in > main { min-width: 0; overflow-x: clip; }
   border: 1px solid var(--border-secondary);
   border-radius: var(--radius-lg);
   padding: 16px 18px;
-  margin: 0 0 16px;
+  margin: 0 0 12px;
   display: grid; gap: 14px;
   position: relative; overflow: hidden;
 }
@@ -2327,7 +2329,7 @@ body.signed-in > main { min-width: 0; overflow-x: clip; }
 
 .page-head {
   display: flex; align-items: flex-end; justify-content: space-between;
-  gap: 12px; margin: 0 0 20px; flex-wrap: wrap;
+  gap: 8px; margin: 0 0 12px; flex-wrap: wrap;
 }
 .page-head h1 {
   margin: 0; font-size: var(--font-h3); line-height: 1.2; font-weight: 600;
@@ -2354,7 +2356,7 @@ body.signed-in > main { min-width: 0; overflow-x: clip; }
 }
 .stats-row {
   display: grid; gap: 10px;
-  grid-template-columns: 1fr; margin: 0 0 16px;
+  grid-template-columns: 1fr; margin: 0 0 12px;
 }
 @media (min-width: 480px) {
   .stats-row { grid-template-columns: repeat(3, 1fr); gap: 12px; }
@@ -2363,7 +2365,7 @@ body.signed-in > main { min-width: 0; overflow-x: clip; }
   background: var(--bg-elevated);
   border: 1px solid var(--border-secondary);
   border-radius: var(--radius-lg);
-  padding: 14px 16px;
+  padding: 10px 12px;
   position: relative; overflow: hidden;
   box-shadow: var(--shadow-sm);
 }
@@ -2379,7 +2381,7 @@ body.signed-in > main { min-width: 0; overflow-x: clip; }
   color: var(--text-tertiary); margin: 0 0 6px;
 }
 .stat-amount {
-  margin: 0; font-size: 22px; font-weight: 700; line-height: 1;
+  margin: 0; font-size: 18px; font-weight: 700; line-height: 1;
   letter-spacing: -0.01em; font-variant-numeric: tabular-nums;
   color: var(--text);
 }
@@ -2387,14 +2389,14 @@ body.signed-in > main { min-width: 0; overflow-x: clip; }
 .stat-card.out .stat-amount { color: var(--error); }
 .stat-meta { margin: 6px 0 0; font-size: 11px; color: var(--text-tertiary); }
 @media (min-width: 480px) {
-  .stat-amount { font-size: 24px; }
+  .stat-amount { font-size: 20px; }
 }
 .txn-filter {
   background: var(--bg-elevated);
   border: 1px solid var(--border-secondary);
   border-radius: var(--radius-lg);
-  padding: 12px 14px;
-  margin: 0 0 16px;
+  padding: 8px 10px;
+  margin: 0 0 12px;
   display: flex; flex-wrap: wrap; align-items: center;
   gap: 10px;
 }
