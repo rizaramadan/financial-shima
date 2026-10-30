@@ -125,3 +125,34 @@ func TestTransactionsGet_InvalidQueryParams_FallsBackToDefault(t *testing.T) {
 		t.Error("body echoed invalid date verbatim; should have fallen back to default")
 	}
 }
+
+// TestTransactionsGet_ReversedRange_ShowsInlineError: From after To is a
+// user error, not a silent fallback — the page keeps the input values
+// and renders an inline error instead of a misleading empty state.
+func TestTransactionsGet_ReversedRange_ShowsInlineError(t *testing.T) {
+	t.Parallel()
+	signedIn := user.User{ID: "u-1", DisplayName: "Tester"}
+	e := txnsTestServer(t, signedIn, true)
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/transactions?from=2026-12-01&to=2026-11-30", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (reversed range re-renders, never 400)", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `value="2026-12-01"`) {
+		t.Error("body did not preserve from=2026-12-01 for correction")
+	}
+	if !strings.Contains(body, `value="2026-11-30"`) {
+		t.Error("body did not preserve to=2026-11-30 for correction")
+	}
+	if !strings.Contains(body, `role="alert"`) {
+		t.Error("body missing inline error (role=alert) for reversed range")
+	}
+	if !strings.Contains(body, "From date must be on or before To date.") {
+		t.Error("body missing the reversed-range error message")
+	}
+}

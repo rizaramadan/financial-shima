@@ -53,7 +53,9 @@ const (
 //	?to=YYYY-MM-DD    defaults to today
 //
 // Invalid dates fall back to the defaults silently — the user sees what
-// they meant rather than a 400.
+// they meant rather than a 400. A reversed range (From after To) is a
+// user error, not a silent fallback: the page re-renders with an inline
+// error and keeps the input for correction.
 func (h *Handlers) TransactionsGet(c echo.Context) error {
 	u, ok := mw.CurrentUser(c)
 	if !ok {
@@ -92,7 +94,16 @@ func (h *Handlers) TransactionsGet(c echo.Context) error {
 		From:        from.Format(dateLayout),
 		To:          to.Format(dateLayout),
 	}
+	if msg := reversedRangeError(from, to); msg != "" {
+		data.Errors = []string{msg}
+	}
 	if h.DB == nil {
+		return c.Render(http.StatusOK, "transactions", data)
+	}
+	if len(data.Errors) > 0 {
+		// Reversed range: keep the echoed input, explain inline, and
+		// skip the query rather than showing a misleading empty state.
+		data.RangeLabel = rangeLabel(data.From, data.To)
 		return c.Render(http.StatusOK, "transactions", data)
 	}
 
@@ -110,8 +121,8 @@ func (h *Handlers) TransactionsGet(c echo.Context) error {
 	for _, r := range rows {
 		var (
 			account, pos, ccy, cp, note, revID string
-			isReversal                          bool
-			amount                              int64
+			isReversal                         bool
+			amount                             int64
 		)
 		if r.AccountName != nil {
 			account = *r.AccountName

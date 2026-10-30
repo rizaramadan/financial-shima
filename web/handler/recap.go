@@ -55,6 +55,11 @@ func (h *Handlers) RecapGet(c echo.Context) error {
 	if toErr != nil {
 		data.Errors = append(data.Errors, "To must be YYYY-MM-DD.")
 	}
+	if len(data.Errors) == 0 {
+		if msg := reversedRangeError(from, to); msg != "" {
+			data.Errors = append(data.Errors, msg)
+		}
+	}
 
 	if h.DB == nil || len(data.Errors) > 0 {
 		return c.Render(http.StatusOK, "recap", data)

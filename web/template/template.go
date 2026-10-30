@@ -394,6 +394,7 @@ type SpendingData struct {
 	TopN        int
 	Columns     []SpendingColumn // top-N pos, in rank order
 	Rows        []SpendingRow    // one per month in range, newest first
+	Errors      []string         // e.g. From after To; rendered inline above results
 	// MixedCurrency is true when the top-N columns span more than one
 	// currency. Per spec §10.5 currencies reconcile separately, so a
 	// cross-currency row total is meaningless — the template hides it.
@@ -731,6 +732,7 @@ type TransactionsData struct {
 	Net         int64
 	Items       []TransactionRow
 	Days        []DayGroup
+	Errors      []string // e.g. From after To; rendered inline above results
 	LoadError   bool
 	UnreadCount int
 }
@@ -1032,7 +1034,8 @@ const layoutOpen = `<!doctype html>
  * Neutral scale follows shadcn's zinc; the primary is green (green-700
  * in light mode so primary text on white meets WCAG AA ≥4.5:1,
  * green-400 in dark mode) instead of shadcn's default near-black.
- * Functional: success green-600, warning amber-600, error red-600.
+ * Functional: success green-700 (≥4.5:1 on light surfaces),
+ * warning amber-600, error red-600.
  */
 :root {
   /* Brand / interactive — green-700 (light) so primary text on white
@@ -1043,8 +1046,9 @@ const layoutOpen = `<!doctype html>
   --primary-bg:     #F0FDF4;
   --primary-foreground: #FFFFFF;
 
-  /* Functional */
-  --success: #16A34A;
+  /* Functional — success is green-700 (not green-600) so small
+   * income text on light surfaces meets WCAG AA ≥4.5:1. */
+  --success: #15803D;
   --warning: #D97706;
   --error:   #DC2626;
   --error-bg:#FEF2F2;
@@ -1120,7 +1124,8 @@ const layoutOpen = `<!doctype html>
   --primary-bg:     #F0FDF4;
   --primary-foreground: #FFFFFF;
 
-  --success: #16A34A;
+  /* Same green-700 success as the default block above (≥4.5:1). */
+  --success: #15803D;
   --warning: #D97706;
   --error:    #DC2626;
   --error-bg: #FEF2F2;
@@ -1342,10 +1347,15 @@ body.signed-in > main.wide    { max-width: 920px; margin: 0 auto; }
   border-bottom: 1px solid var(--border-secondary);
   position: sticky; top: 0; z-index: 40;
 }
-.hamburger {
+/* Pico styles any [role=button] as a primary (green) button; the menu
+ * label is not one, so reset Pico's button paint and keep a 44px target. */
+label.hamburger {
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 22px; line-height: 1;
-  width: 40px; height: 40px;
+  width: 44px; height: 44px; padding: 0;
+  background-color: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
   border-radius: var(--radius);
   cursor: pointer; color: var(--text);
   user-select: none;
@@ -1423,14 +1433,25 @@ body.signed-in > main.wide    { max-width: 920px; margin: 0 auto; }
   overflow-y: auto;
 }
 .sidebar-toggle:checked ~ .sidebar { transform: translateX(0); }
-.sidebar-overlay {
+/* Pico's [type=checkbox]~label rule (0,1,1) would otherwise beat a
+ * plain class and keep the backdrop painted at all times, so these
+ * selectors repeat the element (label.sidebar-overlay, 0,1,1) and win
+ * on later document order. The backdrop paints only while the mobile
+ * drawer is open; it is inert otherwise. */
+label.sidebar-overlay {
   display: none;
+  visibility: hidden;
+  pointer-events: none;
   position: fixed; inset: 0;
   background: rgba(0, 0, 0, 0.4);
   z-index: 20;
   cursor: pointer;
 }
-.sidebar-toggle:checked ~ .sidebar-overlay { display: block; }
+.sidebar-toggle:checked ~ label.sidebar-overlay {
+  display: block;
+  visibility: visible;
+  pointer-events: auto;
+}
 /* Mobile drawer keeps a brand row; desktop hides it (brand lives in topbar). */
 .sidebar-brand {
   font-weight: 700; color: var(--text);
@@ -1572,14 +1593,18 @@ body.signed-in > main.wide    { max-width: 920px; margin: 0 auto; }
 @media (min-width: 768px) {
   .topbar .hamburger { display: none; }
   .topbar-search { display: inline-flex; }
-  .sidebar-overlay { display: none; }
+  label.sidebar-overlay,
+  .sidebar-toggle:checked ~ label.sidebar-overlay {
+    display: none;
+    visibility: hidden;
+    pointer-events: none;
+  }
   .sidebar-brand { display: none; }
   .sidebar {
     position: sticky; top: 56px; transform: none; transition: none;
     width: auto; z-index: auto;
     height: calc(100vh - 56px); align-self: start;
   }
-  .sidebar-toggle:checked ~ .sidebar-overlay { display: none; }
 }
 h1 { font-size: var(--font-h3); font-weight: 600; line-height: 1.27;
   letter-spacing: -0.025em;
@@ -1940,6 +1965,12 @@ tr.totals td { font-weight: 600; }
 /* Pivot roll-forward report: filter checklists, segmented controls and
  * the grouped Akun | Kategori | Nama | Amount table. */
 .pivot-checks { display: grid; gap: 2px; padding: 8px 16px 12px; }
+/* Long Akun/Kategori lists stay bounded instead of pushing the report
+ * screens down; the search boxes above filter them client-side only and
+ * never touch the URL, so shared links keep working. */
+.pivot-scroll { max-height: 240px; overflow-y: auto; overscroll-behavior: contain; }
+.pivot-search { padding: 8px 16px 0; }
+.pivot-search input { width: 100%; }
 .pivot-check {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 4px 10px; font-size: 13px; color: var(--text-secondary);
@@ -2012,7 +2043,24 @@ tr.totals td { font-weight: 600; }
 .pivot-wrap .pivot-table { border: 0; }
 .pivot-table { font-size: 12px; }
 .pivot-table td, .pivot-table th { padding: 2px 6px; border: 1px solid var(--border); white-space: nowrap; }
-.pivot-sub td { font-weight: 700; cursor: pointer; border: 1px solid var(--border); background: var(--bg-fill); }
+/* Pico paints any [role=button] with primary-button ink
+ * (white in light, green-900 in dark) — on these subtotal rows that
+ * yields ~1:1 contrast against the fill background. The rows are table
+ * content, not buttons: restore theme-aware table ink (≥4.5:1) and drop
+ * Pico's button box (padding, border, centering) from the row. */
+tr.pivot-sub[role="button"] {
+  background-color: transparent;
+  border: 0;
+  color: var(--text);
+  text-align: left;
+}
+.pivot-sub td {
+  font-weight: 700; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg-fill);
+  color: var(--text); text-align: left;
+}
+.pivot-sub td.num { text-align: right; }
+.pivot-sub td.pivot-akun-cell { color: var(--text-secondary); }
 .pivot-sub:hover td { background: color-mix(in oklab, var(--primary) 8%, transparent); }
 .pivot-sub:focus { outline: none; }
 .pivot-sub:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
@@ -2048,6 +2096,10 @@ body.signed-in > main { min-width: 0; overflow-x: clip; }
   .pill, .txn-preset, .pivot-seg button, #pivot-toggle,
   .page-head-actions .pill, .balance-hero-actions .pill { min-height: 44px; }
   .topbar-icon { min-width: 44px; min-height: 44px; }
+  /* Expandable pivot rows are ~24px tall at sheet density; on touch
+   * layouts give them a 44px hit area (12px type ≈ 17px + 2×13px).
+   * The .pivot-wrap scope outranks the later .section-card cell rule. */
+  .pivot-wrap tr.pivot-sub td { padding-top: 13px; padding-bottom: 13px; }
 }
 
 /* Mobile: horizontally scrollable tab strip — five+ items don't fit on
@@ -2435,9 +2487,13 @@ body.signed-in > main { min-width: 0; overflow-x: clip; }
 </head>
 <body{{if .SignedIn}} class="signed-in"{{end}}>
 {{if .SignedIn}}
-<input type="checkbox" id="sidebar-toggle" class="sidebar-toggle" aria-hidden="true">
+<!-- The checkbox is the CSS-only drawer state. It stays out of the tab
+  order (the hamburger label is the keyboard control) but must NOT carry
+  aria-hidden: clicking a label focuses its control, and an aria-hidden
+  focused control logs an accessibility warning. -->
+<input type="checkbox" id="sidebar-toggle" class="sidebar-toggle" tabindex="-1">
 <header class="topbar">
-<label for="sidebar-toggle" class="hamburger" role="button" tabindex="0" aria-label="Toggle navigation">` + iconMenu + `</label>
+<label for="sidebar-toggle" class="hamburger" role="button" tabindex="0" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">` + iconMenu + `</label>
 <a href="/" class="topbar-brand"><span class="logo">S</span><span>Shima</span></a>
 <form class="topbar-search" action="/search" method="get" role="search">
 <input id="topbar-q" name="q" type="search" placeholder="Search&hellip;" aria-label="Search" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
@@ -2447,8 +2503,8 @@ body.signed-in > main { min-width: 0; overflow-x: clip; }
 <a href="/notifications" class="topbar-icon" aria-label="{{.UnreadCount}} notifications">` + iconBell + `<span class="badge">{{if .UnreadCount}}{{.UnreadCount}}{{end}}</span></a>
 </div>
 </header>
-<label for="sidebar-toggle" class="sidebar-overlay" aria-hidden="true"></label>
-<aside class="sidebar" aria-label="Primary">
+<label for="sidebar-toggle" class="sidebar-overlay"></label>
+<aside class="sidebar" id="sidebar" aria-label="Primary">
 <p class="sidebar-brand">Shima</p>
 <nav class="nav-group">
 <p class="nav-group-label">Overview</p>
@@ -2498,6 +2554,53 @@ const layoutClose = `
     } else if (e.key === '/' && document.activeElement !== input) {
       var tag = (document.activeElement && document.activeElement.tagName) || '';
       if (!/^(INPUT|TEXTAREA|SELECT)$/.test(tag)) { e.preventDefault(); input.focus(); }
+    }
+  });
+})();
+/* Mobile drawer: keyboard access + focus management for the CSS-only
+ * checkbox toggle. Opening moves focus into the drawer and marks the
+ * page inert so focus (and taps) cannot enter the hidden page; Escape
+ * or the backdrop closes it and focus returns to the opener. Nothing
+ * here ever applies aria-hidden to a focused element or its ancestor. */
+(function(){
+  var toggle = document.getElementById('sidebar-toggle');
+  var label = document.querySelector('label.hamburger');
+  var sidebar = document.getElementById('sidebar');
+  if (!toggle || !sidebar || !label) return;
+  var main = document.querySelector('body.signed-in > main');
+  var mq = window.matchMedia('(max-width: 767px)');
+  var opener = null;
+  function firstControl(){
+    return sidebar.querySelector('a[href], button:not([disabled])');
+  }
+  toggle.addEventListener('change', function(){
+    label.setAttribute('aria-expanded', toggle.checked ? 'true' : 'false');
+    if (toggle.checked && mq.matches) {
+      opener = (document.activeElement && document.activeElement !== toggle)
+        ? document.activeElement : label;
+      if (main) main.inert = true;
+      var f = firstControl();
+      if (f) f.focus();
+    } else {
+      if (main) main.inert = false;
+      var back = (opener && opener.focus) ? opener : label;
+      if (sidebar.contains(document.activeElement) || document.activeElement === document.body) {
+        back.focus();
+      }
+      opener = null;
+    }
+  });
+  // A label is not keyboard-activatable on its own; mirror Enter/Space.
+  label.addEventListener('keydown', function(e){
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      toggle.click();
+    }
+  });
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape' && toggle.checked) {
+      toggle.checked = false;
+      toggle.dispatchEvent(new Event('change'));
     }
   });
 })();
@@ -2904,6 +3007,8 @@ const spendingBody = `<header class="page-head">
   <button type="submit" class="btn-ico">` + iconFilter + `Filter</button>
 </form>
 
+{{range .Errors}}<p class="alert" role="alert">{{.}}</p>{{end}}
+
 {{if .LoadError}}
 <p class="alert" role="alert">Couldn&rsquo;t load spending. Refresh in a moment.</p>
 {{else if not .Columns}}
@@ -2978,47 +3083,6 @@ const pivotBody = `<header class="page-head">
 <div id="pivot-filters" hidden>
 <section class="section-card">
   <div class="section-card-head">
-    <span class="section-card-title">Akun</span>
-    <span class="section-card-meta">
-      <button type="button" class="linkbtn btn-ico" data-akun-all>` + iconCheckSquare + `Select all</button>
-      &middot;
-      <button type="button" class="linkbtn btn-ico" data-akun-none>` + iconX + `Clear</button>
-    </span>
-  </div>
-  <div class="pivot-checks" id="pivot-akun">
-    {{range .Accounts}}<label class="pivot-check"><input type="checkbox" data-akun="{{.ID}}" checked> <span>{{.Name}}</span></label>{{else}}<p class="subtitle">No accounts.</p>{{end}}
-  </div>
-</section>
-
-<section class="section-card">
-  <div class="section-card-head">
-    <span class="section-card-title">Kategori</span>
-    <span class="section-card-meta">
-      <button type="button" class="linkbtn btn-ico" data-kat-all>` + iconCheckSquare + `Select all</button>
-      &middot;
-      <button type="button" class="linkbtn btn-ico" data-kat-none>` + iconX + `Clear</button>
-    </span>
-  </div>
-  {{range .Groups}}
-  <div class="pivot-group" data-group="{{.AccountID}}">
-    <div class="pivot-group-head">
-      <button type="button" class="linkbtn pivot-group-toggle" data-fgroup="{{.AccountID}}" aria-expanded="true"><span class="pivot-caret">&#9662;</span>{{.AccountName}}</button>
-      <span class="pivot-group-actions">
-        <button type="button" class="linkbtn btn-ico" data-group-all="{{.AccountID}}">` + iconCheckSquare + `Select all</button>
-        &middot;
-        <button type="button" class="linkbtn btn-ico" data-group-none="{{.AccountID}}">` + iconX + `Clear</button>
-      </span>
-    </div>
-    <div class="pivot-checks" data-fchecks="{{.AccountID}}">
-      {{range .Positions}}<label class="pivot-check" data-kat-label="{{.AccountID}}"><input type="checkbox" data-kat="{{.PosID}}" data-akun="{{.AccountID}}" checked> <span>{{.Name}} <span class="pivot-akun-tag">&middot; {{.AccountName}}</span></span></label>{{end}}
-    </div>
-  </div>
-  {{else}}<div class="pivot-checks"><p class="subtitle">No positions.</p></div>{{end}}
-  <div class="pivot-checks" id="pivot-nokat" hidden><p class="subtitle">Select an Akun above to see its Kategori.</p></div>
-</section>
-
-<section class="section-card">
-  <div class="section-card-head">
     <span class="section-card-title">Filters</span>
   </div>
   <div class="pivot-panel">
@@ -3058,6 +3122,49 @@ const pivotBody = `<header class="page-head">
       <button type="button" class="linkbtn btn-ico" id="pivot-collapse">` + iconChevUp + `Collapse all</button>
     </div>
   </div>
+</section>
+
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Akun</span>
+    <span class="section-card-meta">
+      <button type="button" class="linkbtn btn-ico" data-akun-all>` + iconCheckSquare + `Select all</button>
+      &middot;
+      <button type="button" class="linkbtn btn-ico" data-akun-none>` + iconX + `Clear</button>
+    </span>
+  </div>
+  <div class="pivot-search"><input type="search" id="pivot-akun-q" placeholder="Search Akun&hellip;" aria-label="Search Akun" autocomplete="off"></div>
+  <div class="pivot-checks pivot-scroll" id="pivot-akun">
+    {{range .Accounts}}<label class="pivot-check"><input type="checkbox" data-akun="{{.ID}}" checked> <span>{{.Name}}</span></label>{{else}}<p class="subtitle">No accounts.</p>{{end}}
+  </div>
+</section>
+
+<section class="section-card">
+  <div class="section-card-head">
+    <span class="section-card-title">Kategori</span>
+    <span class="section-card-meta">
+      <button type="button" class="linkbtn btn-ico" data-kat-all>` + iconCheckSquare + `Select all</button>
+      &middot;
+      <button type="button" class="linkbtn btn-ico" data-kat-none>` + iconX + `Clear</button>
+    </span>
+  </div>
+  <div class="pivot-search"><input type="search" id="pivot-kat-q" placeholder="Search Kategori&hellip;" aria-label="Search Kategori" autocomplete="off"></div>
+  {{range .Groups}}
+  <div class="pivot-group" data-group="{{.AccountID}}">
+    <div class="pivot-group-head">
+      <button type="button" class="linkbtn pivot-group-toggle" data-fgroup="{{.AccountID}}" aria-expanded="true"><span class="pivot-caret">&#9662;</span>{{.AccountName}}</button>
+      <span class="pivot-group-actions">
+        <button type="button" class="linkbtn btn-ico" data-group-all="{{.AccountID}}">` + iconCheckSquare + `Select all</button>
+        &middot;
+        <button type="button" class="linkbtn btn-ico" data-group-none="{{.AccountID}}">` + iconX + `Clear</button>
+      </span>
+    </div>
+    <div class="pivot-checks pivot-scroll" data-fchecks="{{.AccountID}}">
+      {{range .Positions}}<label class="pivot-check" data-kat-label="{{.AccountID}}"><input type="checkbox" data-kat="{{.PosID}}" data-akun="{{.AccountID}}" checked> <span>{{.Name}} <span class="pivot-akun-tag">&middot; {{.AccountName}}</span></span></label>{{end}}
+    </div>
+  </div>
+  {{else}}<div class="pivot-checks"><p class="subtitle">No positions.</p></div>{{end}}
+  <div class="pivot-checks" id="pivot-nokat" hidden><p class="subtitle" id="pivot-nokat-text">Select an Akun above to see its Kategori.</p></div>
 </section>
 </div>
 
@@ -3353,13 +3460,28 @@ const pivotBody = `<header class="page-head">
 
   function paintKatVisibility(){
     var anyVisible = false;
+    var katQEl = $('#pivot-kat-q');
+    var kq = katQEl ? katQEl.value.trim().toLowerCase() : '';
     $all('[data-group]').forEach(function(div){
       var visible = !!akun[div.getAttribute('data-group')];
-      div.hidden = !visible;
-      if (visible) anyVisible = true;
+      var anyMatch = false;
+      Array.prototype.forEach.call(div.querySelectorAll('.pivot-check'), function(lb){
+        var hit = !kq || lb.textContent.toLowerCase().indexOf(kq) >= 0;
+        lb.hidden = !hit;
+        if (hit) anyMatch = true;
+      });
+      div.hidden = !visible || !anyMatch;
+      if (visible && anyMatch) anyVisible = true;
     });
     var hint = $('#pivot-nokat');
     if (hint) hint.hidden = anyVisible || !data.accounts.length;
+    var ht = $('#pivot-nokat-text');
+    if (ht) {
+      var anyAkun = Object.keys(akun).some(function(id){ return akun[id]; });
+      ht.textContent = (kq && !anyVisible && anyAkun)
+        ? 'No Kategori matches this search.'
+        : 'Select an Akun above to see its Kategori.';
+    }
   }
 
   function render(){
@@ -3505,6 +3627,19 @@ const pivotBody = `<header class="page-head">
     state.q = e.target.value;
     render();
   });
+  // Checklist search boxes filter client-side only — they never enter
+  // the URL, so filter links keep their shape.
+  var akunQEl = $('#pivot-akun-q');
+  if (akunQEl) akunQEl.addEventListener('input', function(){
+    var q = akunQEl.value.trim().toLowerCase();
+    $all('#pivot-akun .pivot-check').forEach(function(lb){
+      lb.hidden = !!q && lb.textContent.toLowerCase().indexOf(q) < 0;
+    });
+  });
+  var katQEl = $('#pivot-kat-q');
+  if (katQEl) katQEl.addEventListener('input', function(){
+    paintKatVisibility();
+  });
   $('#pivot-empty').addEventListener('change', function(e){
     state.showEmpty = e.target.checked;
     render();
@@ -3539,6 +3674,13 @@ const pivotBody = `<header class="page-head">
     state = {preset: 'all', from: '', to: '', type: 'all', q: '',
       showEmpty: false, showAkunTotal: true, sort: 'date', collapsed: _collapsed, showFilters: false, fgroups: {}};
     $('#pivot-q').value = '';
+    var aq = $('#pivot-akun-q');
+    if (aq) {
+      aq.value = '';
+      $all('#pivot-akun .pivot-check').forEach(function(lb){ lb.hidden = false; });
+    }
+    var kq = $('#pivot-kat-q');
+    if (kq) kq.value = '';
     paintControls(); render();
   }
   $('#pivot-toggle').addEventListener('click', function(){
@@ -3931,6 +4073,8 @@ const transactionsBody = `<header class="page-head">
     <a class="txn-preset" href="/transactions">All</a>
   </span>
 </form>
+
+{{range .Errors}}<p class="alert" role="alert">{{.}}</p>{{end}}
 
 {{if .LoadError}}
 <p class="alert" role="alert">Couldn&rsquo;t load transactions. Refresh in a moment.</p>

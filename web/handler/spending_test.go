@@ -105,3 +105,24 @@ func TestSpendingGet_InvalidDate_FallsBackToDefault(t *testing.T) {
 		t.Error("body echoed invalid date verbatim; should have fallen back")
 	}
 }
+
+func TestSpendingGet_ReversedRange_ShowsInlineError(t *testing.T) {
+	t.Parallel()
+	signedIn := user.User{ID: "u-1", DisplayName: "Tester"}
+	e := spendingTestServer(t, signedIn, true)
+	req := httptest.NewRequest(http.MethodGet,
+		"/spending?from=2026-12-01&to=2026-11-30", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (reversed range re-renders, never 400)", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `value="2026-12-01"`) || !strings.Contains(body, `value="2026-11-30"`) {
+		t.Error("body did not preserve the reversed range for correction")
+	}
+	if !strings.Contains(body, `role="alert"`) ||
+		!strings.Contains(body, "From date must be on or before To date.") {
+		t.Error("body missing the reversed-range inline error")
+	}
+}

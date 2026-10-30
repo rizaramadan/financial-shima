@@ -90,3 +90,25 @@ func TestRecapGet_Authenticated_RendersPage(t *testing.T) {
 		t.Error("bad bucket does not re-render with an error")
 	}
 }
+
+func TestRecapGet_ReversedRange_ShowsInlineError(t *testing.T) {
+	t.Parallel()
+	e := recapTestServer(t, user.Seeded()[0], true)
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/recap?bucket=month&from=2026-12-01&to=2026-11-30", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (reversed range re-renders, never 400)", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `value="2026-12-01"`) || !strings.Contains(body, `value="2026-11-30"`) {
+		t.Error("body did not preserve the reversed range for correction")
+	}
+	if !strings.Contains(body, `role="alert"`) ||
+		!strings.Contains(body, "From date must be on or before To date.") {
+		t.Error("body missing the reversed-range inline error")
+	}
+}

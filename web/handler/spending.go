@@ -65,8 +65,16 @@ func (h *Handlers) SpendingGet(c echo.Context) error {
 		To:          to.Format(dateLayout),
 		TopN:        defaultTopN,
 	}
+	if msg := reversedRangeError(from, to); msg != "" {
+		data.Errors = []string{msg}
+	}
 
 	if h.DB == nil {
+		return c.Render(http.StatusOK, "spending", data)
+	}
+	if len(data.Errors) > 0 {
+		// Reversed range: keep the echoed input and explain inline
+		// instead of querying a backwards range.
 		return c.Render(http.StatusOK, "spending", data)
 	}
 
