@@ -27,9 +27,9 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan po.mvp.my.id >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan duit.mvp.my.id >> ~/.ssh/known_hosts 2>/dev/null
 
-          SERVER="rezan@po.mvp.my.id"
+          SERVER="rezan@duit.mvp.my.id"
 
           echo "Uploading binary..."
           scp server "${SERVER}:/tmp/duit-server"
