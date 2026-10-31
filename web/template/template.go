@@ -1715,13 +1715,20 @@ button.btn-danger-outline.btn-sm:active:not(:disabled) {
   box-shadow: var(--shadow-sm); cursor: pointer; text-decoration: none; white-space: nowrap;
   transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
-a.pill:hover, button.pill:hover:not(:disabled) {
+a.pill:hover {
   color: var(--primary); border-color: var(--primary);
+}
+button.pill:hover:not(:disabled) {
+  color: var(--primary); border-color: var(--primary); background: var(--bg-container);
+}
+button.pill:active:not(:disabled) {
+  color: var(--primary); border-color: var(--primary); background: var(--bg-fill);
 }
 .pill.primary {
   color: var(--primary-foreground); background: var(--primary); border-color: var(--primary);
 }
 .pill.primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); color: var(--primary-foreground); }
+button.pill.primary:hover:not(:disabled), button.pill.primary:active:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); color: var(--primary-foreground); }
 
 /* Content links use the primary green (never browser-default blue).
  * Badges keep their own tone. */
@@ -2010,10 +2017,13 @@ tr.totals td { font-weight: 600; }
   border: 1px solid var(--border-secondary); border-radius: 999px;
   box-shadow: none; cursor: pointer;
 }
-.pivot-seg button:hover { color: var(--primary); border-color: var(--primary); }
+.pivot-seg button:hover:not(:disabled) { color: var(--primary); border-color: var(--primary); background: var(--primary-bg); }
 .pivot-seg button[aria-pressed="true"] {
   color: var(--primary); border-color: var(--primary); background: var(--primary-bg);
 }
+.pivot-seg button[aria-pressed="true"]:hover:not(:disabled),
+.pivot-seg button[aria-pressed="true"]:active:not(:disabled) { color: var(--primary); border-color: var(--primary); background: var(--primary-bg); }
+.pivot-seg button:active:not(:disabled) { color: var(--primary); border-color: var(--primary); background: var(--primary-bg); }
 #pivot-q { flex: 1 1 160px; width: auto; max-width: 280px; }
 .section-card .pivot-table thead th {
   background: var(--bg-fill);
@@ -2031,7 +2041,8 @@ tr.totals td { font-weight: 600; }
   border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: var(--shadow-sm); cursor: pointer; text-decoration: none;
 }
-#pivot-toggle:hover { color: var(--primary); border-color: var(--primary); }
+#pivot-toggle:hover:not(:disabled) { color: var(--primary); border-color: var(--primary); background: var(--primary-bg); }
+#pivot-toggle:active:not(:disabled) { color: var(--primary); border-color: var(--primary); background: var(--primary-bg); }
 .pivot-table td.num, .pivot-table th.num { white-space: nowrap; }
 /* Sheet scroll region: horizontal on narrow screens, vertical past
  * max-height; thead pins to region top, grand total pins to bottom. */
@@ -2259,13 +2270,21 @@ body.signed-in > main { min-width: 0; overflow-x: clip; }
   transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
 .balance-hero-actions .pill:hover {
-  color: var(--primary); border-color: var(--primary);
+  color: var(--primary); border-color: var(--primary); background: var(--bg-container);
+}
+.balance-hero-actions button.pill:hover:not(:disabled),
+.balance-hero-actions button.pill:active:not(:disabled) {
+  color: var(--primary); border-color: var(--primary); background: var(--bg-container);
 }
 .balance-hero-actions .pill.primary {
   color: var(--primary-foreground); background: var(--primary); border-color: var(--primary);
 }
 .balance-hero-actions .pill.primary:hover {
-  background: var(--primary-hover); border-color: var(--primary-hover);
+  background: var(--primary-hover); border-color: var(--primary-hover); color: var(--primary-foreground);
+}
+.balance-hero-actions button.pill.primary:hover:not(:disabled),
+.balance-hero-actions button.pill.primary:active:not(:disabled) {
+  background: var(--primary-hover); border-color: var(--primary-hover); color: var(--primary-foreground);
 }
 .section-card {
   background: var(--bg-elevated);
@@ -2347,12 +2366,18 @@ body.signed-in > main { min-width: 0; overflow-x: clip; }
   text-decoration: none; white-space: nowrap;
   transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
-.page-head-actions .pill:hover { color: var(--primary); border-color: var(--primary); }
+.page-head-actions .pill:hover { color: var(--primary); border-color: var(--primary); background: var(--bg-container); }
+.page-head-actions button.pill:hover:not(:disabled),
+.page-head-actions button.pill:active:not(:disabled) { color: var(--primary); border-color: var(--primary); background: var(--bg-container); }
 .page-head-actions .pill.primary {
   color: var(--primary-foreground); background: var(--primary); border-color: var(--primary);
 }
 .page-head-actions .pill.primary:hover {
-  background: var(--primary-hover); border-color: var(--primary-hover);
+  background: var(--primary-hover); border-color: var(--primary-hover); color: var(--primary-foreground);
+}
+.page-head-actions button.pill.primary:hover:not(:disabled),
+.page-head-actions button.pill.primary:active:not(:disabled) {
+  background: var(--primary-hover); border-color: var(--primary-hover); color: var(--primary-foreground);
 }
 .stats-row {
   display: grid; gap: 10px;
